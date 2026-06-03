@@ -161,16 +161,22 @@
         .btn-continue:hover:not(:disabled) { background-color: var(--accent-color); }
 
         .result-box {
-            margin-top: 25px;
-            padding: 15px;
+            margin-top: 0;
+            max-height: 0;
+            padding: 0 15px;
             border-radius: 6px;
             background-color: var(--input-bg);
             text-align: center;
-            display: none;
-            border: 2px solid var(--primary-color);
+            border: 0 solid var(--primary-color);
+            overflow: hidden;
         }
 
-        .result-box.show { display: block; }
+        .result-box.show {
+            margin-top: 25px;
+            max-height: 220px;
+            padding: 15px;
+            border-width: 2px;
+        }
         .result-box.error-result {
             border-color: var(--error-color);
             background-color: #2a1416;
@@ -348,11 +354,324 @@
             color: var(--primary-color);
             margin-bottom: 20px;
         }
+
+        /* ============================================================
+           UI redesign — animations, progress, FAB, vignette, transitions
+           ============================================================ */
+        :root {
+            --t-fast:   180ms;
+            --t-med:    360ms;
+            --t-slow:   620ms;
+            --t-pulse:  1800ms;
+            --t-shimmer:2200ms;
+            --t-scan:   3200ms;
+            --ease:     cubic-bezier(.22, 1, .36, 1);
+            --mono-stack: 'Courier New', 'Consolas', 'JetBrains Mono', monospace;
+        }
+
+        /* Screen slide transitions */
+        .screen {
+            opacity: 0;
+            transform: translateX(0);
+            transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease);
+            pointer-events: none;
+        }
+        .screen.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .screen.slide-out-left  { opacity: 0; transform: translateX(-40px); }
+        .screen.slide-out-right { opacity: 0; transform: translateX( 40px); }
+        .screen.slide-in-from-right { animation: slideInRight var(--t-med) var(--ease); }
+        .screen.slide-in-from-left  { animation: slideInLeft  var(--t-med) var(--ease); }
+        @keyframes slideInRight { from { opacity: 0; transform: translateX( 40px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes slideInLeft  { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+
+        /* Progress indicator */
+        .step-progress {
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto 18px;
+            box-sizing: border-box;
+        }
+        .step-progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            color: #9a98a8;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+            font-family: var(--mono-stack);
+        }
+        .step-progress-track {
+            height: 4px;
+            background: var(--input-bg);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+        .step-progress-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, var(--accent-color), var(--primary-color));
+            box-shadow: 0 0 8px rgba(201, 168, 124, 0.6);
+            transition: width var(--t-med) var(--ease);
+        }
+
+        /* Animated input focus glow */
+        input[type="number"] {
+            font-family: var(--mono-stack);
+        }
+        input[type="number"]:focus {
+            border-color: var(--primary-color);
+            animation: inputPulse var(--t-pulse) ease-in-out infinite;
+        }
+        @keyframes inputPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(201, 168, 124, 0.35); }
+            50%      { box-shadow: 0 0 0 4px rgba(201, 168, 124, 0.12); }
+        }
+
+        /* Validity checkmark per input */
+        .form-group {
+            position: relative;
+        }
+        .form-group::after {
+            content: "✓";
+            position: absolute;
+            left: 12px;
+            top: 38px;
+            color: #4caf7a;
+            font-weight: 700;
+            font-size: 0.95rem;
+            opacity: 0;
+            transform: scale(0.6);
+            transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+            pointer-events: none;
+        }
+        .form-group.valid::after {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* Result box animation — collapses height + fades+scales in */
+        .result-box {
+            transform: scale(0.92);
+            opacity: 0;
+            transition: opacity var(--t-med) var(--ease),
+                        transform var(--t-med) var(--ease),
+                        max-height var(--t-med) var(--ease),
+                        margin-top var(--t-med) var(--ease),
+                        padding var(--t-med) var(--ease),
+                        border-width var(--t-med) var(--ease);
+        }
+        .result-box.show {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        /* Shimmer behind size result */
+        .size-display {
+            position: relative;
+            font-family: var(--mono-stack);
+            letter-spacing: 2px;
+            display: inline-block;
+            padding: 4px 14px;
+            overflow: hidden;
+        }
+        .size-display::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(110deg,
+                transparent 30%,
+                rgba(201, 168, 124, 0.18) 50%,
+                transparent 70%);
+            background-size: 220% 100%;
+            animation: shimmerSweep var(--t-shimmer) linear infinite;
+            pointer-events: none;
+        }
+        @keyframes shimmerSweep {
+            from { background-position:  120% 0; }
+            to   { background-position: -120% 0; }
+        }
+        .size-display.pop {
+            animation: sizePop var(--t-med) var(--ease);
+        }
+        @keyframes sizePop {
+            0%   { transform: scale(0.4); opacity: 0; filter: blur(4px); }
+            60%  { transform: scale(1.15); opacity: 1; filter: blur(0); }
+            100% { transform: scale(1); }
+        }
+
+        /* Continue button glow when enabled */
+        .btn-continue:not(:disabled) {
+            animation: btnGlow var(--t-pulse) ease-in-out infinite;
+        }
+        @keyframes btnGlow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(201, 168, 124, 0.5); }
+            50%      { box-shadow: 0 0 18px 2px rgba(201, 168, 124, 0.35); }
+        }
+
+        /* Catalog card hover shimmer + selected pulse */
+        .catalog-card {
+            position: relative;
+            overflow: hidden;
+        }
+        .catalog-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -75%;
+            width: 50%; height: 100%;
+            background: linear-gradient(120deg, transparent 0%,
+                rgba(201, 168, 124, 0.25) 50%, transparent 100%);
+            transform: skewX(-20deg);
+            transition: left var(--t-slow) var(--ease);
+            pointer-events: none;
+        }
+        .catalog-card:hover::before { left: 125%; }
+        .catalog-card.selected {
+            animation: cardPulse var(--t-pulse) ease-in-out infinite;
+        }
+        @keyframes cardPulse {
+            0%, 100% { box-shadow: 0 0 0 2px rgba(201, 168, 124, 0.45); }
+            50%      { box-shadow: 0 0 0 4px rgba(201, 168, 124, 0.20),
+                                   0 0 12px rgba(201, 168, 124, 0.35); }
+        }
+
+        /* Preview enhancements: vignette, scan line, fullscreen button */
+        .preview-section {
+            position: relative;
+        }
+        .preview-vignette {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center,
+                transparent 55%,
+                rgba(0, 0, 0, 0.55) 100%);
+            z-index: 2;
+            opacity: 0;
+            transition: opacity var(--t-med) var(--ease);
+        }
+        .preview-section.scanning .preview-vignette { opacity: 1; }
+        .preview-scan-line {
+            position: absolute;
+            left: 0; right: 0; top: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent,
+                var(--primary-color), transparent);
+            box-shadow: 0 0 12px rgba(201, 168, 124, 0.6);
+            opacity: 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .preview-section.scanning .preview-scan-line {
+            opacity: 1;
+            animation: scanSweep var(--t-scan) linear infinite;
+        }
+        @keyframes scanSweep {
+            from { top: 0%; }
+            to   { top: 100%; }
+        }
+
+        .fs-btn {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 4;
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            margin: 0;
+            border-radius: 8px;
+            background: rgba(10, 10, 15, 0.78);
+            color: var(--primary-color);
+            border: 1px solid rgba(201, 168, 124, 0.5);
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 36px;
+            transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast);
+        }
+        .fs-btn:hover {
+            background: var(--primary-color);
+            color: #0a0a0f;
+            transform: scale(1.05);
+        }
+
+        /* Skeleton loader */
+        .skeleton {
+            position: absolute;
+            inset: 12px;
+            border-radius: 8px;
+            background: linear-gradient(90deg,
+                rgba(255,255,255,0.04) 0%,
+                rgba(255,255,255,0.10) 50%,
+                rgba(255,255,255,0.04) 100%);
+            background-size: 200% 100%;
+            animation: skel var(--t-shimmer) linear infinite;
+            z-index: 3;
+            display: none;
+        }
+        .preview-section.loading .skeleton { display: block; }
+        @keyframes skel {
+            from { background-position:  100% 0; }
+            to   { background-position: -100% 0; }
+        }
+
+        /* Floating action button */
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            z-index: 50;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            padding: 0;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            color: #0a0a0f;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(201, 168, 124, 0.45),
+                        0 0 0 0 rgba(201, 168, 124, 0.45);
+            font-size: 26px;
+            line-height: 60px;
+            text-align: center;
+            display: none;
+            animation: fabPulse var(--t-pulse) ease-in-out infinite;
+            transition: transform var(--t-fast) var(--ease);
+        }
+        #screen-fitting.active ~ .fab { display: block; }
+        .fab:hover { transform: scale(1.08); }
+        .fab.hidden { display: none; }
+        @keyframes fabPulse {
+            0%, 100% { box-shadow: 0 6px 20px rgba(201, 168, 124, 0.45), 0 0 0  0 rgba(201, 168, 124, 0.45); }
+            50%      { box-shadow: 0 6px 20px rgba(201, 168, 124, 0.45), 0 0 0 12px rgba(201, 168, 124, 0.00); }
+        }
+
+        /* Monospace for numeric/size display elements */
+        .size-display,
+        #sizeResult,
+        #final-size-text,
+        .size-badge,
+        .step-progress-label,
+        input[type="number"] {
+            font-family: var(--mono-stack);
+        }
     </style>
 </head>
 <body>
 
 <div id="screen-calculator" class="screen active">
+    <div class="step-progress">
+        <div class="step-progress-label">
+            <span>שלב 1 מתוך 2</span>
+            <span id="progressPercent">0%</span>
+        </div>
+        <div class="step-progress-track">
+            <div class="step-progress-fill" id="progressFill"></div>
+        </div>
+    </div>
     <div class="container">
         <h2>התאמת מידה אישית</h2>
         <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
@@ -449,14 +768,20 @@
         <button id="start-camera" class="btn-continue">הפעל מצלמה למדידה</button>
         <button id="btn-back" style="background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 20px;">חזור למחשבון המידות</button>
 
-        <div class="preview-section">
+        <div class="preview-section" id="previewSection">
             <div class="size-badge" id="size-badge"></div>
+            <button class="fs-btn" id="fsBtn" title="מסך מלא">⛶</button>
+            <div class="skeleton" id="previewSkeleton"></div>
+            <div class="preview-vignette"></div>
+            <div class="preview-scan-line"></div>
             <p class="placeholder-text" id="placeholder">העלה בגדים ולחץ על כפתור המצלמה</p>
             <video id="webcam" playsinline></video>
             <canvas id="output_canvas" width="640" height="480"></canvas>
         </div>
     </div>
 </div>
+
+<button class="fab" id="fab" title="הפעל מצלמה">📷</button>
 
 <script>
     // משתנה גלובלי לשמירת המידה שהמשתמש קיבל
@@ -670,17 +995,80 @@
      * קטלוג בגדים (Task 3) — תמונות SVG מוטמעות (ללא API/CORS)
      * =======================================================
      */
+    // Color helpers — clamp to 239 so lightened pixels never trigger the >240 white-removal cutoff.
+    function _hexToRgb(h){const m=h.replace('#','');return[parseInt(m.slice(0,2),16),parseInt(m.slice(2,4),16),parseInt(m.slice(4,6),16)];}
+    function _toHex(r,g,b){const c=v=>Math.max(0,Math.min(239,Math.round(v))).toString(16).padStart(2,'0');return '#'+c(r)+c(g)+c(b);}
+    function _lighten(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r+(239-r)*p,g+(239-g)*p,b+(239-b)*p);}
+    function _darken(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r*(1-p),g*(1-p),b*(1-p));}
+
     function shirtSVG(color) {
+        const top    = _lighten(color, 0.15);
+        const bottom = _darken (color, 0.15);
+        const dark   = _darken (color, 0.25);
+        const edge   = _darken (color, 0.30);
+        const collar = _lighten(color, 0.10);
+        const seam   = _darken (color, 0.40);
+        const path   = 'M70 55 L95 42 Q120 62 145 42 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z';
+        // unique ids per call so multiple SVGs don't collide if ever rendered together
+        const id = 'g' + Math.random().toString(36).slice(2, 8);
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
-            + `<path d='M70 55 L95 42 Q120 62 145 42 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z' fill='${color}'/>`
+            + `<defs>`
+            +   `<linearGradient id='v${id}' x1='0' y1='0' x2='0' y2='1'>`
+            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            +   `</linearGradient>`
+            +   `<radialGradient id='r${id}' cx='0.5' cy='0.55' r='0.55'>`
+            +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
+            +   `</radialGradient>`
+            + `</defs>`
+            + `<path d='${path}' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#r${id})'/>`
+            // collar — lighter wedge under neck, with a darker neck-shadow arc
+            + `<path d='M95 42 Q120 62 145 42 L143 56 Q120 74 97 56 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
+            + `<path d='M98 56 Q120 70 142 56' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
+            // faint horizontal weave lines
+            + `<g opacity='0.06' stroke='#000' stroke-width='1'>`
+            +   `<line x1='50' y1='90'  x2='190' y2='90' />`
+            +   `<line x1='52' y1='115' x2='188' y2='115'/>`
+            +   `<line x1='54' y1='140' x2='186' y2='140'/>`
+            +   `<line x1='56' y1='165' x2='184' y2='165'/>`
+            +   `<line x1='58' y1='185' x2='182' y2='185'/>`
+            + `</g>`
             + `</svg>`;
     }
 
     function pantsSVG(color) {
+        const top    = _lighten(color, 0.15);
+        const bottom = _darken (color, 0.15);
+        const dark   = _darken (color, 0.25);
+        const edge   = _darken (color, 0.30);
+        const seam   = _darken (color, 0.45);
+        const pocket = _darken (color, 0.20);
+        const path   = 'M66 40 L174 40 L166 212 L128 212 L120 96 L112 212 L74 212 Z';
+        const id = 'g' + Math.random().toString(36).slice(2, 8);
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
-            + `<path d='M66 40 L174 40 L166 212 L128 212 L120 96 L112 212 L74 212 Z' fill='${color}'/>`
+            + `<defs>`
+            +   `<linearGradient id='v${id}' x1='0' y1='0' x2='0' y2='1'>`
+            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            +   `</linearGradient>`
+            +   `<radialGradient id='r${id}' cx='0.5' cy='0.5' r='0.55'>`
+            +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
+            +   `</radialGradient>`
+            + `</defs>`
+            + `<path d='${path}' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#r${id})'/>`
+            // waistband band
+            + `<rect x='66' y='40' width='108' height='10' fill='${pocket}' opacity='0.55'/>`
+            // center seam (waistband → crotch) and inner-leg seams
+            + `<line x1='120' y1='40' x2='120' y2='96' stroke='${seam}' stroke-width='1.2' opacity='0.75'/>`
+            + `<line x1='120' y1='96' x2='128' y2='212' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
+            + `<line x1='120' y1='96' x2='112' y2='212' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
+            // pockets near top
+            + `<rect x='74'  y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
+            + `<rect x='138' y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
             + `</svg>`;
     }
 
@@ -896,10 +1284,11 @@
             ];
 
             // Source control points on the flat-lay garment image (normalized fractions)
+            // Matched to shirt SVG path: shoulders @ y≈55 (0.23), armpits @ y≈112 (0.47), hem @ y=200 (0.83).
             const src = [
-                [0.20*imgW, 0.12*imgH], [0.50*imgW, 0.05*imgH], [0.80*imgW, 0.12*imgH],
-                [0.10*imgW, 0.45*imgH], [0.50*imgW, 0.40*imgH], [0.90*imgW, 0.45*imgH],
-                [0.15*imgW, 0.94*imgH], [0.50*imgW, 0.94*imgH], [0.85*imgW, 0.94*imgH],
+                [0.29*imgW, 0.23*imgH], [0.50*imgW, 0.17*imgH], [0.71*imgW, 0.23*imgH],
+                [0.28*imgW, 0.47*imgH], [0.50*imgW, 0.43*imgH], [0.72*imgW, 0.47*imgH],
+                [0.29*imgW, 0.83*imgH], [0.50*imgW, 0.83*imgH], [0.71*imgW, 0.83*imgH],
             ];
 
             drawArmpitShadow({ x: alx, y: aly }, { x: arx, y: ary }, shoulderWidth);
@@ -943,10 +1332,11 @@
                 [scaleX(cx, rBot.x,    pScale), rBot.y    ],
             ];
 
+            // Pants SVG path: waistband @ y=40 (0.17), crotch @ y≈96 (0.40), hem @ y=212 (0.88).
             const src = [
-                [0.15*imgW, 0.03*imgH], [0.50*imgW, 0.03*imgH], [0.85*imgW, 0.03*imgH],
-                [0.10*imgW, 0.50*imgH], [0.50*imgW, 0.52*imgH], [0.90*imgW, 0.50*imgH],
-                [0.08*imgW, 0.97*imgH], [0.50*imgW, 0.97*imgH], [0.92*imgW, 0.97*imgH],
+                [0.27*imgW, 0.17*imgH], [0.50*imgW, 0.17*imgH], [0.72*imgW, 0.17*imgH],
+                [0.30*imgW, 0.50*imgH], [0.50*imgW, 0.52*imgH], [0.70*imgW, 0.50*imgH],
+                [0.31*imgW, 0.88*imgH], [0.50*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
             ];
 
             drawMeshWarped(pantsOffscreen, src, dst);
@@ -968,10 +1358,14 @@
 
     pose.onResults(onResults);
 
-    startBtn.addEventListener('click', () => {
+    const previewSection = document.getElementById('previewSection');
+
+    function startCamera() {
+        if (startBtn.disabled && previewSection.classList.contains('loading')) return;
         placeholder.style.display = 'none';
         startBtn.innerText = "טוען מודל AI...";
         startBtn.disabled = true;
+        previewSection.classList.add('loading');
 
         const camera = new Camera(videoElement, {
             onFrame: async () => {
@@ -983,11 +1377,88 @@
 
         camera.start().then(() => {
             startBtn.innerText = "מערכת מדידה פעילה";
+            previewSection.classList.remove('loading');
+            previewSection.classList.add('scanning');
+            const fab = document.getElementById('fab');
+            if (fab) fab.classList.add('hidden');
         }).catch(err => {
             alert("שגיאה בגישה למצלמה: " + err);
             startBtn.innerText = "שגיאה בהפעלה";
             startBtn.disabled = false;
+            previewSection.classList.remove('loading');
         });
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    document.getElementById('fab').addEventListener('click', startCamera);
+
+    /**
+     * =======================================================
+     * UI redesign — progress, validity, screen slide, FAB, fullscreen
+     * =======================================================
+     */
+    function updateProgressAndValidity() {
+        const fields = ['age', 'height', 'weight', 'chest', 'waist', 'legs'];
+        let validMandatory = 0;
+        fields.forEach(id => {
+            const el = document.getElementById(id);
+            const group = el ? el.closest('.form-group') : null;
+            if (!el || !group) return;
+            const v = parseFloat(el.value);
+            const min = parseFloat(el.min), max = parseFloat(el.max);
+            const ok = !isNaN(v) && v >= min && v <= max;
+            group.classList.toggle('valid', ok);
+            if (ok && ['age', 'height', 'weight'].includes(id)) validMandatory++;
+        });
+        const pct = Math.round((validMandatory / 3) * 100);
+        const fill = document.getElementById('progressFill');
+        const lbl  = document.getElementById('progressPercent');
+        if (fill) fill.style.width = pct + '%';
+        if (lbl)  lbl.innerText = pct + '%';
+    }
+    document.querySelectorAll('#sizeForm input').forEach(input => {
+        input.addEventListener('input', updateProgressAndValidity);
+    });
+
+    // Pop animation on size result change
+    const _sizeResultEl = document.getElementById('sizeResult');
+    let _lastSize = _sizeResultEl.innerText;
+    new MutationObserver(() => {
+        const cur = _sizeResultEl.innerText;
+        if (cur && cur !== '-' && cur !== _lastSize) {
+            _sizeResultEl.classList.remove('pop');
+            void _sizeResultEl.offsetWidth; // restart animation
+            _sizeResultEl.classList.add('pop');
+            _lastSize = cur;
+        }
+    }).observe(_sizeResultEl, { childList: true, characterData: true, subtree: true });
+
+    // Screen slide direction — augment existing handlers
+    const _nextBtn = document.getElementById('btn-next-screen');
+    const _backBtn = document.getElementById('btn-back');
+    _nextBtn.addEventListener('click', () => {
+        screenFit.classList.remove('slide-in-from-left');
+        screenFit.classList.add('slide-in-from-right');
+    });
+    _backBtn.addEventListener('click', () => {
+        screenCalc.classList.remove('slide-in-from-right');
+        screenCalc.classList.add('slide-in-from-left');
+        // Reset camera-preview overlay state on return
+        previewSection.classList.remove('scanning', 'loading');
+    });
+
+    // Fullscreen toggle on the preview
+    document.getElementById('fsBtn').addEventListener('click', () => {
+        const target = previewSection;
+        if (!document.fullscreenElement) {
+            (target.requestFullscreen ||
+             target.webkitRequestFullscreen ||
+             target.msRequestFullscreen).call(target);
+        } else {
+            (document.exitFullscreen ||
+             document.webkitExitFullscreen ||
+             document.msExitFullscreen).call(document);
+        }
     });
 </script>
 
