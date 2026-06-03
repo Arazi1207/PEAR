@@ -695,6 +695,69 @@
         });
     }
 
+    // === Size multiplier: shirt width scales with calculated size ===
+    const SIZE_MULTIPLIERS = { 'S': 0.95, 'M': 1.00, 'L': 1.08, 'XL': 1.18, 'XXL': 1.28 };
+
+    // === Exponential smoothing — eliminates landmark jitter ===
+    const _sm = {};
+    function applySmooth(key, raw, alpha) {
+        if (!_sm[key]) { _sm[key] = { x: raw.x, y: raw.y }; return { x: raw.x, y: raw.y, v: raw.v }; }
+        _sm[key].x = alpha * raw.x + (1 - alpha) * _sm[key].x;
+        _sm[key].y = alpha * raw.y + (1 - alpha) * _sm[key].y;
+        return { x: _sm[key].x, y: _sm[key].y, v: raw.v };
+    }
+
+    // === Triangle affine warp (3×3 mesh → 8 triangles per garment) ===
+    function solveAffine(s, d) {
+        const det = s[0][0]*(s[1][1]-s[2][1]) + s[1][0]*(s[2][1]-s[0][1]) + s[2][0]*(s[0][1]-s[1][1]);
+        if (Math.abs(det) < 1e-8) return null;
+        const a0 = [s[1][1]-s[2][1], s[2][1]-s[0][1], s[0][1]-s[1][1]];
+        const a1 = [s[2][0]-s[1][0], s[0][0]-s[2][0], s[1][0]-s[0][0]];
+        const a2 = [s[1][0]*s[2][1]-s[2][0]*s[1][1], s[2][0]*s[0][1]-s[0][0]*s[2][1], s[0][0]*s[1][1]-s[1][0]*s[0][1]];
+        const dot = (row, v) => (row[0]*v[0] + row[1]*v[1] + row[2]*v[2]) / det;
+        const dx = [d[0][0],d[1][0],d[2][0]], dy = [d[0][1],d[1][1],d[2][1]];
+        return [dot(a0,dx), dot(a0,dy), dot(a1,dx), dot(a1,dy), dot(a2,dx), dot(a2,dy)];
+    }
+
+    function drawWarpedTri(img, src, dst) {
+        const m = solveAffine(src, dst);
+        if (!m) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(dst[0][0], dst[0][1]);
+        ctx.lineTo(dst[1][0], dst[1][1]);
+        ctx.lineTo(dst[2][0], dst[2][1]);
+        ctx.closePath();
+        ctx.clip();
+        ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+        ctx.drawImage(img, 0, 0);
+        ctx.restore();
+    }
+
+    function drawMeshWarped(img, srcPts, dstPts) {
+        for (let r = 0; r < 2; r++) {
+            for (let c = 0; c < 2; c++) {
+                const i00=r*3+c, i01=r*3+c+1, i10=(r+1)*3+c, i11=(r+1)*3+c+1;
+                drawWarpedTri(img, [srcPts[i00],srcPts[i01],srcPts[i10]], [dstPts[i00],dstPts[i01],dstPts[i10]]);
+                drawWarpedTri(img, [srcPts[i01],srcPts[i11],srcPts[i10]], [dstPts[i01],dstPts[i11],dstPts[i10]]);
+            }
+        }
+    }
+
+    // === Multiply-blend shadow under armpits for depth realism ===
+    function drawArmpitShadow(lApt, rApt, sw) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        [lApt, rApt].forEach(apt => {
+            ctx.beginPath();
+            ctx.ellipse(apt.x, apt.y, sw * 0.12, sw * 0.26, 0, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+    }
+
     function onResults(results) {
         ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -703,80 +766,147 @@
         ctx.drawImage(results.image, -canvasElement.width, 0, canvasElement.width, canvasElement.height);
         ctx.restore();
 
-        if (results.poseLandmarks) {
-            const lm = results.poseLandmarks;
+        if (!results.poseLandmarks) return;
 
-            const getPt = (index) => ({
-                x: (1 - lm[index].x) * canvasElement.width,
-                y: lm[index].y * canvasElement.height,
-                visibility: lm[index].visibility
-            });
+        const lm = results.poseLandmarks;
+        const W = canvasElement.width, H = canvasElement.height;
+        const raw = (i) => ({ x: (1 - lm[i].x) * W, y: lm[i].y * H, v: lm[i].visibility });
 
-            const lShoulder = getPt(11);
-            const rShoulder = getPt(12);
-            const lHip = getPt(23);
-            const rHip = getPt(24);
-            const lKnee = getPt(25);
-            const rKnee = getPt(26);
+        // Smooth all used landmarks (alpha: 0.35 for body, 0.50 for elbows = faster arm response)
+        const lShoulder = applySmooth('lS', raw(11), 0.35);
+        const rShoulder = applySmooth('rS', raw(12), 0.35);
+        const lElbow    = applySmooth('lE', raw(13), 0.50);
+        const rElbow    = applySmooth('rE', raw(14), 0.50);
+        const lHip      = applySmooth('lH', raw(23), 0.35);
+        const rHip      = applySmooth('rH', raw(24), 0.35);
+        const lKnee     = applySmooth('lK', raw(25), 0.35);
+        const rKnee     = applySmooth('rK', raw(26), 0.35);
+        const nose      = applySmooth('no', raw(0),  0.30);
+        const lAnkle    = applySmooth('lA', raw(27), 0.35);
+        const rAnkle    = applySmooth('rA', raw(28), 0.35);
 
-            const isTorsoVisible = lShoulder.visibility > 0.6 && rShoulder.visibility > 0.6 && lHip.visibility > 0.6 && rHip.visibility > 0.6;
-            const areLegsVisible = lHip.visibility > 0.6 && rHip.visibility > 0.6 && lKnee.visibility > 0.6 && rKnee.visibility > 0.6;
+        // Per-landmark visibility gates (stricter than group checks)
+        const rawLSv = raw(11).v, rawRSv = raw(12).v;
+        const rawLHv = raw(23).v, rawRHv = raw(24).v;
+        const torsoVis = rawLSv > 0.7 && rawRSv > 0.7 && rawLHv > 0.7 && rawRHv > 0.7;
+        const hipVis   = rawLHv > 0.7 && rawRHv > 0.7;
+        const elbowVis = raw(13).v > 0.65 && raw(14).v > 0.65;
+        const kneeVis  = raw(25).v > 0.65 && raw(26).v > 0.65;
 
-            const shoulderCenter = { x: (lShoulder.x + rShoulder.x) / 2, y: (lShoulder.y + rShoulder.y) / 2 };
-            const hipCenter = { x: (lHip.x + rHip.x) / 2, y: (lHip.y + rHip.y) / 2 };
-            const kneeCenter = { x: (lKnee.x + rKnee.x) / 2, y: (lKnee.y + rKnee.y) / 2 };
+        if (!shirtLoaded && !pantsLoaded) return;
 
-            // Fix 3 — נשמר כדי לחבר את תחתית החולצה לראש המכנסיים
-            let shirtBottomY = null;
+        // Torso geometry
+        const sCenter = { x: (lShoulder.x + rShoulder.x) / 2, y: (lShoulder.y + rShoulder.y) / 2 };
+        const hCenter = { x: (lHip.x + rHip.x) / 2,          y: (lHip.y + rHip.y) / 2          };
+        const tVx = hCenter.x - sCenter.x, tVy = hCenter.y - sCenter.y;
+        const torsoLen = Math.hypot(tVx, tVy) || 1;
+        const along = (pt, t) => ({ x: pt.x + tVx * t, y: pt.y + tVy * t });
 
-            if (shirtLoaded && isTorsoVisible) {
-                const shoulderWidth = Math.hypot(lShoulder.x - rShoulder.x, lShoulder.y - rShoulder.y);
-                const torsoHeight = Math.hypot(shoulderCenter.x - hipCenter.x, shoulderCenter.y - hipCenter.y);
+        // Distance-aware: user pixel height from nose to mid-ankle
+        const ankleVis = raw(27).v > 0.5 || raw(28).v > 0.5;
+        const midAnkle = ankleVis
+            ? { x: (lAnkle.x + rAnkle.x) / 2, y: (lAnkle.y + rAnkle.y) / 2 }
+            : { x: hCenter.x, y: hCenter.y + torsoLen * 1.8 };
+        const userPixH = Math.hypot(nose.x - midAnkle.x, nose.y - midAnkle.y) || H;
 
-                // Fix 2 — מכפיל רוחב אדפטיבי לפי מרחק מהמצלמה
-                const distanceFactor = shoulderWidth / canvasElement.width;
-                const shirtWidth = shoulderWidth * (1.8 + (1 - distanceFactor) * 0.8);
-                const shirtHeight = torsoHeight * 1.5;
+        // Orientation: sideways when shoulder span < 15% of pixel height
+        const shoulderWidth = Math.hypot(lShoulder.x - rShoulder.x, lShoulder.y - rShoulder.y);
+        const isSideways = (shoulderWidth / userPixH) < 0.15;
+        const sideScale  = isSideways ? 0.5 : 1.0;
 
-                // Fix 1 — היסט אנכי דינמי במקום הקבוע 0.15
-                const verticalOffset = shirtHeight * (0.1 + distanceFactor * 0.15);
+        const scaleX = (cx, px, s) => cx + (px - cx) * s;
 
-                // Fix 4 — זיהוי פנייה לצד וצמצום הרוחב בהתאם
-                const isTurnedSideways = shoulderWidth < canvasElement.width * 0.12;
-                const finalShirtWidth = isTurnedSideways ? shirtWidth * 0.6 : shirtWidth;
+        let shirtBottomY = hCenter.y;
 
-                // Fix 3 — חישוב הקצה התחתון של החולצה
-                shirtBottomY = shoulderCenter.y + shirtHeight * 0.85;
+        // ── SHIRT ────────────────────────────────────────────────────────────
+        if (shirtLoaded && torsoVis) {
+            const imgW = shirtImg.naturalWidth  || shirtImg.width  || 240;
+            const imgH = shirtImg.naturalHeight || shirtImg.height || 240;
 
-                const shirtAngle = Math.atan2(lShoulder.y - rShoulder.y, lShoulder.x - rShoulder.x);
+            const sizeScale = SIZE_MULTIPLIERS[currentUserSize] || 1.00;
+            const hScale    = sizeScale * sideScale;
 
-                ctx.save();
-                ctx.translate(shoulderCenter.x, shoulderCenter.y);
-                ctx.rotate(shirtAngle);
-                ctx.rotate(Math.PI);
-                ctx.drawImage(shirtImg, -finalShirtWidth / 2, -verticalOffset, finalShirtWidth, shirtHeight);
-                ctx.restore();
+            // 9 destination control points anchored to body landmarks
+            const neckPt = along(sCenter, -0.30);       // 30% torso above shoulders = neck
+            const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
+            const rApt   = along(rShoulder,  0.25);
+            const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
+
+            // Elbow influence: deform armpit toward arm direction when arms are visible
+            let alx = lApt.x, aly = lApt.y, arx = rApt.x, ary = rApt.y;
+            if (elbowVis && !isSideways) {
+                alx += (lElbow.x - lShoulder.x) * 0.28;
+                aly += (lElbow.y - lShoulder.y) * 0.14;
+                arx += (rElbow.x - rShoulder.x) * 0.28;
+                ary += (rElbow.y - rShoulder.y) * 0.14;
             }
 
-            if (pantsLoaded && areLegsVisible) {
-                const hipWidth = Math.hypot(lHip.x - rHip.x, lHip.y - rHip.y);
-                const thighLength = Math.hypot(hipCenter.x - kneeCenter.x, hipCenter.y - kneeCenter.y);
+            const cx = sCenter.x;
+            const dst = [
+                [scaleX(cx, lShoulder.x, hScale), lShoulder.y],
+                [neckPt.x,                          neckPt.y  ],
+                [scaleX(cx, rShoulder.x, hScale), rShoulder.y],
+                [scaleX(cx, alx,         hScale), aly         ],
+                [tCtr.x,                            tCtr.y    ],
+                [scaleX(cx, arx,         hScale), ary         ],
+                [scaleX(cx, lHip.x,      hScale), lHip.y      ],
+                [hCenter.x,                         hCenter.y  ],
+                [scaleX(cx, rHip.x,      hScale), rHip.y      ],
+            ];
 
-                const pantsWidth = hipWidth * 2.0;
-                const pantsHeight = thighLength * 2.2;
+            // Source control points on the flat-lay garment image (normalized fractions)
+            const src = [
+                [0.20*imgW, 0.12*imgH], [0.50*imgW, 0.05*imgH], [0.80*imgW, 0.12*imgH],
+                [0.10*imgW, 0.45*imgH], [0.50*imgW, 0.40*imgH], [0.90*imgW, 0.45*imgH],
+                [0.15*imgW, 0.94*imgH], [0.50*imgW, 0.94*imgH], [0.85*imgW, 0.94*imgH],
+            ];
 
-                const pantsAngle = Math.atan2(lHip.y - rHip.y, lHip.x - rHip.x);
+            drawArmpitShadow({ x: alx, y: aly }, { x: arx, y: ary }, shoulderWidth);
+            drawMeshWarped(shirtImg, src, dst);
 
-                // Fix 3 — עיגון ראש המכנסיים לתחתית החולצה (כשהיא קיימת)
-                const pantsTopY = (shirtBottomY !== null) ? shirtBottomY : hipCenter.y;
+            shirtBottomY = (dst[6][1] + dst[7][1] + dst[8][1]) / 3;
+        }
 
-                ctx.save();
-                ctx.translate(hipCenter.x, pantsTopY);
-                ctx.rotate(pantsAngle);
-                ctx.rotate(Math.PI);
-                ctx.drawImage(pantsImg, -pantsWidth / 2, -pantsHeight * 0.05, pantsWidth, pantsHeight);
-                ctx.restore();
-            }
+        // ── PANTS ────────────────────────────────────────────────────────────
+        if (pantsLoaded && hipVis) {
+            const imgW = pantsImg.naturalWidth  || pantsImg.width  || 240;
+            const imgH = pantsImg.naturalHeight || pantsImg.height || 240;
+
+            // Knee anchor — extrapolate if not visible
+            const lKneePt = kneeVis ? lKnee : along(lHip, 1.2);
+            const rKneePt = kneeVis ? rKnee : along(rHip, 1.2);
+            const kCtr    = { x: (lKneePt.x + rKneePt.x) / 2, y: (lKneePt.y + rKneePt.y) / 2 };
+
+            // Ankle anchor — extrapolate below knee if not visible
+            const lBot = raw(27).v > 0.5 ? lAnkle
+                : { x: lKneePt.x + (lKneePt.x - lHip.x) * 0.7, y: lKneePt.y + (lKneePt.y - lHip.y) * 0.7 };
+            const rBot = raw(28).v > 0.5 ? rAnkle
+                : { x: rKneePt.x + (rKneePt.x - rHip.x) * 0.7, y: rKneePt.y + (rKneePt.y - rHip.y) * 0.7 };
+            const bCtr = { x: (lBot.x + rBot.x) / 2, y: (lBot.y + rBot.y) / 2 };
+
+            // Stitch pants top to shirt bottom edge (small overlap = tucked-in look)
+            const pantsTopY = shirtLoaded ? Math.min(shirtBottomY + 4, hCenter.y + 10) : hCenter.y;
+
+            const cx = hCenter.x;
+            const dst = [
+                [scaleX(cx, lHip.x,    sideScale), pantsTopY ],
+                [cx,                                pantsTopY ],
+                [scaleX(cx, rHip.x,    sideScale), pantsTopY ],
+                [scaleX(cx, lKneePt.x, sideScale), lKneePt.y ],
+                [kCtr.x,                            kCtr.y    ],
+                [scaleX(cx, rKneePt.x, sideScale), rKneePt.y ],
+                [scaleX(cx, lBot.x,    sideScale), lBot.y    ],
+                [bCtr.x,                            bCtr.y    ],
+                [scaleX(cx, rBot.x,    sideScale), rBot.y    ],
+            ];
+
+            const src = [
+                [0.15*imgW, 0.03*imgH], [0.50*imgW, 0.03*imgH], [0.85*imgW, 0.03*imgH],
+                [0.10*imgW, 0.50*imgH], [0.50*imgW, 0.52*imgH], [0.90*imgW, 0.50*imgH],
+                [0.08*imgW, 0.97*imgH], [0.50*imgW, 0.97*imgH], [0.92*imgW, 0.97*imgH],
+            ];
+
+            drawMeshWarped(pantsImg, src, dst);
         }
     }
 
@@ -785,10 +915,12 @@
     });
 
     pose.setOptions({
-        modelComplexity: 1,
+        modelComplexity: 2,
         smoothLandmarks: true,
-        minDetectionConfidence: 0.72, // Fix 5 — הועלה מ-0.6 ליציבות בתאורה נמוכה
-        minTrackingConfidence: 0.72   // Fix 5 — הועלה מ-0.6 ליציבות בתאורה נמוכה
+        enableSegmentation: true,
+        smoothSegmentation: true,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
     });
 
     pose.onResults(onResults);
