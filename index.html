@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PEAR — חדר הלבשה וירטואלי</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --primary-color: #c8a96e;   /* gold accent */
+            --bg-color: #0a0a0f;        /* dark background */
+            --card-bg: #12121a;         /* dark card */
+            --input-bg: #1a1a24;
+            --border-color: #2a2a35;
+            --text-color: #e8e6f0;
+            --accent-color: #b89a5f;    /* darker gold (hover) */
+            --error-color: #e0556b;
+            --success-color: #c8a96e;   /* gold (continue button) */
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            direction: rtl;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .screen {
+            display: none;
+            width: 100%;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        .app-header {
+            width: 100%;
+            max-width: 700px;
+            text-align: center;
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: var(--primary-color);
+            padding: 14px 0;
+            margin-bottom: 18px;
+            border-bottom: 1px solid rgba(201, 168, 124, 0.3);
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 500px;
+            box-sizing: border-box;
+            margin-bottom: 30px;
+        }
+
+        .fitting-container {
+            max-width: 700px;
+            text-align: center;
+        }
+
+        h1, h2, h3 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 5px;
+            color: var(--primary-color);
+            font-weight: 700;
+        }
+
+        p.subtitle {
+            text-align: center;
+            color: #9a98a8;
+            font-size: 0.9rem;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-color);
+        }
+
+        label .required { color: var(--error-color); margin-right: 3px; }
+        label .optional { color: #888; font-size: 0.8rem; font-weight: normal; margin-right: 5px; }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .section-divider {
+            border-top: 1px dashed var(--border-color);
+            margin: 25px 0 20px 0;
+            position: relative;
+        }
+
+        .section-divider span {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--card-bg);
+            padding: 0 10px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background-color: var(--primary-color);
+            color: #0a0a0f;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: 10px;
+        }
+
+        button:hover:not(:disabled) { background-color: var(--accent-color); }
+        button:disabled { background-color: #3a3a45; color: #7a7886; cursor: not-allowed; }
+
+        .btn-continue { background-color: var(--success-color); color: #0a0a0f; margin-top: 20px; }
+        .btn-continue:hover:not(:disabled) { background-color: var(--accent-color); }
+
+        .result-box {
+            margin-top: 25px;
+            padding: 15px;
+            border-radius: 6px;
+            background-color: var(--input-bg);
+            text-align: center;
+            display: none;
+            border: 2px solid var(--primary-color);
+        }
+
+        .result-box.show { display: block; }
+        .result-box.error-result {
+            border-color: var(--error-color);
+            background-color: #2a1416;
+        }
+
+        .size-display {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            margin-top: 5px;
+        }
+
+        .result-box.error-result .size-display {
+            color: var(--error-color);
+            font-size: 1.6rem;
+        }
+
+        /* --- Catalog (Task 3) --- */
+        .catalog-title {
+            margin-bottom: 12px;
+            font-size: 1rem;
+        }
+
+        .catalog-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 5px;
+        }
+
+        .catalog-card {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s, transform 0.1s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .catalog-card:hover { border-color: var(--primary-color); transform: translateY(-2px); }
+        .catalog-card.selected {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(201, 168, 124, 0.4);
+        }
+        .catalog-card img {
+            width: 100%;
+            height: auto;
+            border-radius: 6px;
+            background: #fff;
+        }
+        .catalog-card span {
+            margin-top: 6px;
+            font-size: 0.8rem;
+            color: var(--text-color);
+        }
+
+        /* --- Upload (Task 4 dark cards) --- */
+        .upload-section {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .upload-box {
+            flex: 1;
+            border: 2px dashed rgba(201, 168, 124, 0.4);
+            padding: 15px;
+            border-radius: 8px;
+            background-color: var(--input-bg);
+        }
+
+        input[type="file"] { width: 100%; font-size: 13px; color: var(--text-color); }
+
+        .preview-section {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            background-color: #000;
+            border: 1px solid rgba(201, 168, 124, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #output_canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #webcam { display: none; }
+        .placeholder-text { position: absolute; color: #94a3b8; z-index: 1; }
+
+        .size-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 3;
+            background: rgba(10, 10, 15, 0.78);
+            color: var(--primary-color);
+            border: 1px solid rgba(201, 168, 124, 0.5);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            display: none;
+        }
+        .size-badge.show { display: block; }
+
+        /* --- Table --- */
+        .table-container {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 800px;
+            box-sizing: border-box;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        th, td { padding: 10px 12px; border: 1px solid var(--border-color); }
+        th { background-color: var(--input-bg); font-weight: 600; color: var(--text-color); }
+        tr:nth-child(even) { background-color: #15151d; }
+        .highlight-header { background-color: #20202b; }
+
+        .personal-title {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="screen-calculator" class="screen active">
+    <div class="container">
+        <h2>התאמת מידה אישית</h2>
+        <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
+
+        <form id="sizeForm">
+            <div class="form-group">
+                <label for="age"><span class="required">*</span>גיל:</label>
+                <input type="number" id="age" min="1" max="120" placeholder="לדוגמה: 15">
+            </div>
+            <div class="form-group">
+                <label for="height"><span class="required">*</span>גובה (בס"מ):</label>
+                <input type="number" id="height" min="100" max="300" placeholder="לדוגמה: 175">
+            </div>
+            <div class="form-group">
+                <label for="weight"><span class="required">*</span>משקל (בק"ג):</label>
+                <input type="number" id="weight" min="30" max="250" placeholder="לדוגמה: 68">
+            </div>
+
+            <div class="section-divider"><span>נתונים אופציונליים</span></div>
+
+            <div class="form-group">
+                <label for="chest">היקף חזה (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                <input type="number" id="chest" min="50" max="150" placeholder="לדוגמה: 94">
+            </div>
+            <div class="form-group">
+                <label for="waist">היקף מותניים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                <input type="number" id="waist" min="40" max="150" placeholder="לדוגמה: 80">
+            </div>
+            <div class="form-group">
+                <label for="legs">אורך רגליים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
+            </div>
+        </form>
+
+        <div class="result-box" id="resultBox">
+            <div id="resultLabel">המידה המומלצת עבורך:</div>
+            <div class="size-display" id="sizeResult">-</div>
+        </div>
+
+        <button id="btn-next-screen" class="btn-continue" disabled>המשך לחדר המדידה הוירטואלי</button>
+    </div>
+
+    <div class="table-container">
+        <h3>טבלת המידות של המערכת (זארה)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th rowspan="2">מידה</th>
+                    <th colspan="2">גובה (ס"מ)</th>
+                    <th colspan="2">משקל (ק"ג)</th>
+                    <th colspan="2" class="highlight-header">חזה (ס"מ)</th>
+                    <th colspan="2" class="highlight-header">מותניים (ס"מ)</th>
+                    <th colspan="2" class="highlight-header">רגליים (ס"מ)</th>
+                </tr>
+                <tr>
+                    <th>מינימום</th><th>מקסימום</th>
+                    <th>מינימום</th><th>מקסימום</th>
+                    <th class="highlight-header">מינימום</th><th class="highlight-header">מקסימום</th>
+                    <th class="highlight-header">מינימום</th><th class="highlight-header">מקסימום</th>
+                    <th class="highlight-header">מינימום</th><th class="highlight-header">מקסימום</th>
+                </tr>
+            </thead>
+            <tbody id="sizeTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="screen-fitting" class="screen">
+    <div class="app-header">PEAR — חדר הלבשה וירטואלי</div>
+    <div class="container fitting-container">
+        <h1>חדר הלבשה וירטואלי חכם</h1>
+        <h2 class="personal-title">ככה המידה <span id="final-size-text"></span> נראית עליך:</h2>
+
+        <h3 class="catalog-title">בחר בגד מהקטלוג</h3>
+        <div id="catalog" class="catalog-grid"></div>
+
+        <div class="section-divider"><span>או העלה בגד משלך</span></div>
+
+        <div class="upload-section">
+            <div class="upload-box">
+                <label for="shirt-input">👕 חולצה (רקע לבן)</label>
+                <input type="file" id="shirt-input" accept="image/*">
+            </div>
+            <div class="upload-box">
+                <label for="pants-input">👖 מכנסיים (רקע לבן)</label>
+                <input type="file" id="pants-input" accept="image/*">
+            </div>
+        </div>
+
+        <button id="start-camera" class="btn-continue">הפעל מצלמה למדידה</button>
+        <button id="btn-back" style="background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 20px;">חזור למחשבון המידות</button>
+
+        <div class="preview-section">
+            <div class="size-badge" id="size-badge"></div>
+            <p class="placeholder-text" id="placeholder">העלה בגדים ולחץ על כפתור המצלמה</p>
+            <video id="webcam" playsinline></video>
+            <canvas id="output_canvas" width="640" height="480"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // משתנה גלובלי לשמירת המידה שהמשתמש קיבל
+    let currentUserSize = null;
+
+    /**
+     * =======================================================
+     * לוגיקת מחשבון המידות (מסך 1)
+     * =======================================================
+     */
+    const ZARA_SIZE_CHART = [
+        { size: 'S', minHeight: 160, maxHeight: 172, minWeight: 55, maxWeight: 65, minChest: 88, maxChest: 94, minWaist: 74, maxWaist: 80, minLegs: 94, maxLegs: 98 },
+        { size: 'M', minHeight: 170, maxHeight: 180, minWeight: 65, maxWeight: 76, minChest: 94, maxChest: 102, minWaist: 80, maxWaist: 88, minLegs: 98, maxLegs: 102 },
+        { size: 'L', minHeight: 178, maxHeight: 186, minWeight: 75, maxWeight: 87, minChest: 102, maxChest: 110, minWaist: 88, maxWaist: 96, minLegs: 102, maxLegs: 106 },
+        { size: 'XL', minHeight: 184, maxHeight: 195, minWeight: 85, maxWeight: 100, minChest: 110, maxChest: 118, minWaist: 96, maxWaist: 106, minLegs: 106, maxLegs: 112 }
+    ];
+
+    function renderSizeTable() {
+        const tbody = document.getElementById('sizeTableBody');
+        tbody.innerHTML = '';
+        ZARA_SIZE_CHART.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${row.size}</strong></td>
+                <td>${row.minHeight}</td><td>${row.maxHeight}</td>
+                <td>${row.minWeight}</td><td>${row.maxWeight}</td>
+                <td>${row.minChest}</td><td>${row.maxChest}</td>
+                <td>${row.minWaist}</td><td>${row.maxWaist}</td>
+                <td>${row.minLegs}</td><td>${row.maxLegs}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function calculateSize() {
+        const age = document.getElementById('age').value ? parseFloat(document.getElementById('age').value) : null;
+        const height = document.getElementById('height').value ? parseFloat(document.getElementById('height').value) : null;
+        const weight = document.getElementById('weight').value ? parseFloat(document.getElementById('weight').value) : null;
+        const chest = document.getElementById('chest').value ? parseFloat(document.getElementById('chest').value) : null;
+        const waist = document.getElementById('waist').value ? parseFloat(document.getElementById('waist').value) : null;
+        const legs = document.getElementById('legs').value ? parseFloat(document.getElementById('legs').value) : null;
+
+        const resultBox = document.getElementById('resultBox');
+        const sizeResult = document.getElementById('sizeResult');
+        const resultLabel = document.getElementById('resultLabel');
+        const nextBtn = document.getElementById('btn-next-screen');
+
+        resultBox.classList.remove('show', 'error-result');
+        resultLabel.innerText = "המידה המומלצת עבורך:";
+        nextBtn.disabled = true;
+        currentUserSize = null;
+
+        if (!age || !height || !weight) return;
+
+        if (height > 240 || height < 130 || weight > 220 || weight < 35 || age > 110 || age < 5) {
+            resultLabel.innerText = "שגיאה בנתונים:";
+            sizeResult.innerText = "נתונים לא הגיוניים";
+            resultBox.classList.add('show', 'error-result');
+            return;
+        }
+
+        let bestSize = "מידה מחוץ לטווח";
+        let minPenalty = Infinity;
+        const MAX_ALLOWED_PENALTY = 35;
+
+        ZARA_SIZE_CHART.forEach(chartRow => {
+            let currentPenalty = 0;
+            if (height < chartRow.minHeight) currentPenalty += (chartRow.minHeight - height) * 2;
+            if (height > chartRow.maxHeight) currentPenalty += (height - chartRow.maxHeight) * 2;
+            if (weight < chartRow.minWeight) currentPenalty += (chartRow.minWeight - weight) * 2;
+            if (weight > chartRow.maxWeight) currentPenalty += (weight - chartRow.maxWeight) * 2;
+
+            if (chest) {
+                if (chest < chartRow.minChest) currentPenalty += (chartRow.minChest - chest) * 0.5;
+                if (chest > chartRow.maxChest) currentPenalty += (chest - chartRow.maxChest) * 0.5;
+            }
+            if (waist) {
+                if (waist < chartRow.minWaist) currentPenalty += (chartRow.minWaist - waist) * 0.5;
+                if (waist > chartRow.maxWaist) currentPenalty += (waist - chartRow.maxWaist) * 0.5;
+            }
+            if (legs) {
+                if (legs < chartRow.minLegs) currentPenalty += (chartRow.minLegs - legs) * 0.5;
+                if (legs > chartRow.maxLegs) currentPenalty += (legs - chartRow.maxLegs) * 0.5;
+            }
+
+            if (currentPenalty < minPenalty) {
+                minPenalty = currentPenalty;
+                bestSize = chartRow.size;
+            }
+        });
+
+        if (minPenalty > MAX_ALLOWED_PENALTY) {
+            resultLabel.innerText = "תוצאה:";
+            sizeResult.innerText = "מידה מחוץ לטווח";
+            resultBox.classList.add('show');
+        } else {
+            sizeResult.innerText = bestSize;
+            resultBox.classList.add('show');
+            currentUserSize = bestSize;
+            nextBtn.disabled = false; // פתיחת הכפתור למעבר למסך הבא
+        }
+    }
+
+    document.querySelectorAll('#sizeForm input').forEach(input => {
+        input.addEventListener('input', calculateSize);
+    });
+
+    window.onload = () => {
+        renderSizeTable();
+        renderCatalog();
+    };
+
+    /**
+     * =======================================================
+     * מעבר בין מסכים
+     * =======================================================
+     */
+    const screenCalc = document.getElementById('screen-calculator');
+    const screenFit = document.getElementById('screen-fitting');
+
+    document.getElementById('btn-next-screen').addEventListener('click', () => {
+        // עדכון הטקסט של המידה במסך השני
+        document.getElementById('final-size-text').innerText = currentUserSize;
+
+        // תג מידה קבוע מעל המצלמה
+        const badge = document.getElementById('size-badge');
+        badge.innerText = 'המידה שלך: ' + currentUserSize;
+        badge.classList.add('show');
+
+        // החלפת מסכים
+        screenCalc.classList.remove('active');
+        screenFit.classList.add('active');
+    });
+
+    document.getElementById('btn-back').addEventListener('click', () => {
+        screenFit.classList.remove('active');
+        screenCalc.classList.add('active');
+    });
+
+    /**
+     * =======================================================
+     * לוגיקת חדר ההלבשה הוירטואלי (מסך 2)
+     * =======================================================
+     */
+    const WHITE_THRESHOLD = 240;
+
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output_canvas');
+    const ctx = canvasElement.getContext('2d');
+    const startBtn = document.getElementById('start-camera');
+    const placeholder = document.getElementById('placeholder');
+
+    let shirtImg = new Image();
+    let pantsImg = new Image();
+    let shirtLoaded = false;
+    let pantsLoaded = false;
+
+    // הסרת רקע לבן פיקסל-אחר-פיקסל (לוגיקה זהה למקור) — משותף להעלאה ולקטלוג
+    function applyWhiteRemoval(sourceImg, type) {
+        const canvas = document.createElement('canvas');
+        const tempCtx = canvas.getContext('2d');
+        canvas.width = sourceImg.naturalWidth || sourceImg.width;
+        canvas.height = sourceImg.naturalHeight || sourceImg.height;
+        tempCtx.drawImage(sourceImg, 0, 0, canvas.width, canvas.height);
+
+        const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > WHITE_THRESHOLD && data[i + 1] > WHITE_THRESHOLD && data[i + 2] > WHITE_THRESHOLD) {
+                data[i + 3] = 0;
+            }
+        }
+        tempCtx.putImageData(imageData, 0, 0);
+
+        if (type === 'shirt') {
+            shirtImg.src = canvas.toDataURL('image/png');
+            shirtImg.onload = () => { shirtLoaded = true; };
+        } else {
+            pantsImg.src = canvas.toDataURL('image/png');
+            pantsImg.onload = () => { pantsLoaded = true; };
+        }
+    }
+
+    // טעינת בגד מתוך מקור תמונה (קטלוג) והפעלת אותה לוגיקת הסרת רקע
+    function loadGarmentFromSrc(src, type) {
+        const tempImg = new Image();
+        tempImg.crossOrigin = 'anonymous';
+        tempImg.onload = () => applyWhiteRemoval(tempImg, type);
+        tempImg.src = src;
+    }
+
+    function setupImageProcessor(inputId, type) {
+        document.getElementById(inputId).addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const tempImg = new Image();
+                    tempImg.src = e.target.result;
+                    tempImg.onload = function() {
+                        applyWhiteRemoval(tempImg, type);
+                    };
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    setupImageProcessor('shirt-input', 'shirt');
+    setupImageProcessor('pants-input', 'pants');
+
+    /**
+     * =======================================================
+     * קטלוג בגדים (Task 3) — תמונות SVG מוטמעות (ללא API/CORS)
+     * =======================================================
+     */
+    function shirtSVG(color) {
+        return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
+            + `<rect width='240' height='240' fill='#ffffff'/>`
+            + `<path d='M70 55 L95 42 Q120 62 145 42 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z' fill='${color}'/>`
+            + `</svg>`;
+    }
+
+    function pantsSVG(color) {
+        return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
+            + `<rect width='240' height='240' fill='#ffffff'/>`
+            + `<path d='M66 40 L174 40 L166 212 L128 212 L120 96 L112 212 L74 212 Z' fill='${color}'/>`
+            + `</svg>`;
+    }
+
+    function svgToDataUri(svg) {
+        return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+    }
+
+    const GARMENT_CATALOG = [
+        { name: 'חולצה כחולה', type: 'shirt', color: '#27496d' },
+        { name: 'חולצה בורדו', type: 'shirt', color: '#7a2d3b' },
+        { name: 'חולצה ירוקה', type: 'shirt', color: '#2f5233' },
+        { name: 'ג׳ינס כחול', type: 'pants', color: '#34495e' },
+        { name: 'מכנסיים שחורים', type: 'pants', color: '#222a33' },
+        { name: 'מכנסי חאקי', type: 'pants', color: '#8b7355' }
+    ];
+
+    function renderCatalog() {
+        const grid = document.getElementById('catalog');
+        grid.innerHTML = '';
+        GARMENT_CATALOG.forEach(item => {
+            const svg = item.type === 'shirt' ? shirtSVG(item.color) : pantsSVG(item.color);
+            const uri = svgToDataUri(svg);
+
+            const card = document.createElement('div');
+            card.className = 'catalog-card';
+            const img = document.createElement('img');
+            img.src = uri;
+            img.alt = item.name;
+            const span = document.createElement('span');
+            span.innerText = item.name;
+            card.appendChild(img);
+            card.appendChild(span);
+
+            card.addEventListener('click', () => {
+                loadGarmentFromSrc(uri, item.type);
+                document.querySelectorAll('.catalog-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                placeholder.innerText = 'בגד נבחר — לחץ על כפתור המצלמה';
+            });
+
+            grid.appendChild(card);
+        });
+    }
+
+    function onResults(results) {
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.drawImage(results.image, -canvasElement.width, 0, canvasElement.width, canvasElement.height);
+        ctx.restore();
+
+        if (results.poseLandmarks) {
+            const lm = results.poseLandmarks;
+
+            const getPt = (index) => ({
+                x: (1 - lm[index].x) * canvasElement.width,
+                y: lm[index].y * canvasElement.height,
+                visibility: lm[index].visibility
+            });
+
+            const lShoulder = getPt(11);
+            const rShoulder = getPt(12);
+            const lHip = getPt(23);
+            const rHip = getPt(24);
+            const lKnee = getPt(25);
+            const rKnee = getPt(26);
+
+            const isTorsoVisible = lShoulder.visibility > 0.6 && rShoulder.visibility > 0.6 && lHip.visibility > 0.6 && rHip.visibility > 0.6;
+            const areLegsVisible = lHip.visibility > 0.6 && rHip.visibility > 0.6 && lKnee.visibility > 0.6 && rKnee.visibility > 0.6;
+
+            const shoulderCenter = { x: (lShoulder.x + rShoulder.x) / 2, y: (lShoulder.y + rShoulder.y) / 2 };
+            const hipCenter = { x: (lHip.x + rHip.x) / 2, y: (lHip.y + rHip.y) / 2 };
+            const kneeCenter = { x: (lKnee.x + rKnee.x) / 2, y: (lKnee.y + rKnee.y) / 2 };
+
+            // Fix 3 — נשמר כדי לחבר את תחתית החולצה לראש המכנסיים
+            let shirtBottomY = null;
+
+            if (shirtLoaded && isTorsoVisible) {
+                const shoulderWidth = Math.hypot(lShoulder.x - rShoulder.x, lShoulder.y - rShoulder.y);
+                const torsoHeight = Math.hypot(shoulderCenter.x - hipCenter.x, shoulderCenter.y - hipCenter.y);
+
+                // Fix 2 — מכפיל רוחב אדפטיבי לפי מרחק מהמצלמה
+                const distanceFactor = shoulderWidth / canvasElement.width;
+                const shirtWidth = shoulderWidth * (1.8 + (1 - distanceFactor) * 0.8);
+                const shirtHeight = torsoHeight * 1.5;
+
+                // Fix 1 — היסט אנכי דינמי במקום הקבוע 0.15
+                const verticalOffset = shirtHeight * (0.1 + distanceFactor * 0.15);
+
+                // Fix 4 — זיהוי פנייה לצד וצמצום הרוחב בהתאם
+                const isTurnedSideways = shoulderWidth < canvasElement.width * 0.12;
+                const finalShirtWidth = isTurnedSideways ? shirtWidth * 0.6 : shirtWidth;
+
+                // Fix 3 — חישוב הקצה התחתון של החולצה
+                shirtBottomY = shoulderCenter.y + shirtHeight * 0.85;
+
+                const shirtAngle = Math.atan2(lShoulder.y - rShoulder.y, lShoulder.x - rShoulder.x);
+
+                ctx.save();
+                ctx.translate(shoulderCenter.x, shoulderCenter.y);
+                ctx.rotate(shirtAngle);
+                ctx.rotate(Math.PI);
+                ctx.drawImage(shirtImg, -finalShirtWidth / 2, -verticalOffset, finalShirtWidth, shirtHeight);
+                ctx.restore();
+            }
+
+            if (pantsLoaded && areLegsVisible) {
+                const hipWidth = Math.hypot(lHip.x - rHip.x, lHip.y - rHip.y);
+                const thighLength = Math.hypot(hipCenter.x - kneeCenter.x, hipCenter.y - kneeCenter.y);
+
+                const pantsWidth = hipWidth * 2.0;
+                const pantsHeight = thighLength * 2.2;
+
+                const pantsAngle = Math.atan2(lHip.y - rHip.y, lHip.x - rHip.x);
+
+                // Fix 3 — עיגון ראש המכנסיים לתחתית החולצה (כשהיא קיימת)
+                const pantsTopY = (shirtBottomY !== null) ? shirtBottomY : hipCenter.y;
+
+                ctx.save();
+                ctx.translate(hipCenter.x, pantsTopY);
+                ctx.rotate(pantsAngle);
+                ctx.rotate(Math.PI);
+                ctx.drawImage(pantsImg, -pantsWidth / 2, -pantsHeight * 0.05, pantsWidth, pantsHeight);
+                ctx.restore();
+            }
+        }
+    }
+
+    const pose = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.72, // Fix 5 — הועלה מ-0.6 ליציבות בתאורה נמוכה
+        minTrackingConfidence: 0.72   // Fix 5 — הועלה מ-0.6 ליציבות בתאורה נמוכה
+    });
+
+    pose.onResults(onResults);
+
+    startBtn.addEventListener('click', () => {
+        placeholder.style.display = 'none';
+        startBtn.innerText = "טוען מודל AI...";
+        startBtn.disabled = true;
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await pose.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
+        camera.start().then(() => {
+            startBtn.innerText = "מערכת מדידה פעילה";
+        }).catch(err => {
+            alert("שגיאה בגישה למצלמה: " + err);
+            startBtn.innerText = "שגיאה בהפעלה";
+            startBtn.disabled = false;
+        });
+    });
+</script>
+
+</body>
+</html>
