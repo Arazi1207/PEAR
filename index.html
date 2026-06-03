@@ -1001,16 +1001,28 @@
     function _lighten(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r+(239-r)*p,g+(239-g)*p,b+(239-b)*p);}
     function _darken(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r*(1-p),g*(1-p),b*(1-p));}
 
-    function shirtSVG(color) {
+    function shirtSVG(color, sleeveType) {
+        sleeveType = sleeveType || 'short';
         const top    = _lighten(color, 0.15);
         const bottom = _darken (color, 0.15);
         const dark   = _darken (color, 0.25);
         const edge   = _darken (color, 0.30);
         const collar = _lighten(color, 0.10);
         const seam   = _darken (color, 0.40);
-        const path   = 'M70 55 L95 42 Q120 62 145 42 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z';
-        // unique ids per call so multiple SVGs don't collide if ever rendered together
+        // Body path now uses the rounded crew-neck notch (no spike).
+        const path   = 'M70 55 L90 50 Q120 68 150 50 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z';
         const id = 'g' + Math.random().toString(36).slice(2, 8);
+
+        // Sleeves drawn BEFORE the body so the body covers the shoulder seam.
+        let sleeves = '';
+        if (sleeveType === 'short') {
+            sleeves += `<path d='M70 55 L40 90 L28 75 L55 42 Z'        fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M170 55 L200 90 L212 75 L185 42 Z'    fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`;
+        } else if (sleeveType === 'long') {
+            sleeves += `<path d='M70 55 L40 90 L14 180 L30 185 L55 42 Z'    fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M170 55 L200 90 L226 180 L210 185 L185 42 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`;
+        }
+
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
             + `<defs>`
@@ -1022,12 +1034,12 @@
             +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
             +   `</radialGradient>`
             + `</defs>`
+            + sleeves
             + `<path d='${path}' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
-            // collar — lighter wedge under neck, with a darker neck-shadow arc
-            + `<path d='M95 42 Q120 62 145 42 L143 56 Q120 74 97 56 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
-            + `<path d='M98 56 Q120 70 142 56' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
-            // faint horizontal weave lines
+            // crew-neck collar — flat rounded neckline (no spike)
+            + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
+            + `<path d='M93 60 Q120 72 147 60' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
             + `<g opacity='0.06' stroke='#000' stroke-width='1'>`
             +   `<line x1='50' y1='90'  x2='190' y2='90' />`
             +   `<line x1='52' y1='115' x2='188' y2='115'/>`
@@ -1045,7 +1057,8 @@
         const edge   = _darken (color, 0.30);
         const seam   = _darken (color, 0.45);
         const pocket = _darken (color, 0.20);
-        const path   = 'M66 40 L174 40 L166 212 L128 212 L120 96 L112 212 L74 212 Z';
+        // Two-leg path: waistband (66-174 @ y=40-55) + two tapered legs joined at crotch (120,100).
+        const path   = 'M66 40 L174 40 L174 55 L135 55 L166 212 L128 212 L120 100 L112 212 L74 212 L106 55 L66 55 Z';
         const id = 'g' + Math.random().toString(36).slice(2, 8);
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
@@ -1077,13 +1090,30 @@
     }
 
     const GARMENT_CATALOG = [
-        { name: 'חולצה כחולה', type: 'shirt', color: '#27496d' },
-        { name: 'חולצה בורדו', type: 'shirt', color: '#7a2d3b' },
-        { name: 'חולצה ירוקה', type: 'shirt', color: '#2f5233' },
-        { name: 'ג׳ינס כחול', type: 'pants', color: '#34495e' },
-        { name: 'מכנסיים שחורים', type: 'pants', color: '#222a33' },
-        { name: 'מכנסי חאקי', type: 'pants', color: '#8b7355' }
+        // Shirts with sleeve variants
+        { name: 'חולצת פולו כחולה',  type: 'shirt', color: '#27496d', sleeve: 'short' },
+        { name: 'חולצה ארוכה בורדו', type: 'shirt', color: '#7a2d3b', sleeve: 'long'  },
+        { name: 'חולצה ירוקה קצרה',  type: 'shirt', color: '#2f5233', sleeve: 'short' },
+        { name: 'גופייה אפורה',       type: 'shirt', color: '#4a4a5a', sleeve: 'sleeveless' },
+        { name: 'חולצה לבנה ארוכה',   type: 'shirt', color: '#c8c8c8', sleeve: 'long'  },
+        { name: 'חולצת פסים',         type: 'shirt', color: '#1a3a5c', sleeve: 'short' },
+        // Pants
+        { name: 'ג׳ינס כחול',          type: 'pants', color: '#34495e' },
+        { name: 'מכנסיים שחורים',     type: 'pants', color: '#222a33' },
+        { name: 'מכנסי חאקי',          type: 'pants', color: '#8b7355' },
+        // Real-photo items (Unsplash CDN; CORS-friendly)
+        { name: 'חולצת לבן אלגנטית', type: 'shirt', color: '#e8e0d0', sleeve: 'long',
+          src: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&fit=crop' },
+        { name: 'חולצה שחורה בייסיק', type: 'shirt', color: '#1a1a1a', sleeve: 'short',
+          src: 'https://images.unsplash.com/photo-1562157873-818bc0726f68?w=400&fit=crop' },
+        { name: 'ג׳ינס כהה',           type: 'pants', color: '#1a2a3a',
+          src: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&fit=crop' },
+        { name: 'מכנסי ספורט',         type: 'pants', color: '#2d2d3d',
+          src: 'https://images.unsplash.com/photo-1609873814058-a8928924184a?w=400&fit=crop' },
     ];
+
+    // Active shirt's sleeve type — drives sleeve mesh quads in onResults().
+    let currentShirtSleeve = 'short';
 
     function renderCatalog() {
         const shirtGrid = document.getElementById('catalog-shirts');
@@ -1092,14 +1122,19 @@
         pantsGrid.innerHTML = '';
 
         GARMENT_CATALOG.forEach(item => {
-            const svg = item.type === 'shirt' ? shirtSVG(item.color) : pantsSVG(item.color);
-            const uri = svgToDataUri(svg);
-
             const card = document.createElement('div');
             card.className = 'catalog-card';
             card.dataset.type = item.type;
             const img = document.createElement('img');
-            img.src = uri;
+            if (item.src) {
+                img.src = item.src;
+                img.crossOrigin = 'anonymous';
+            } else {
+                const svg = item.type === 'shirt'
+                    ? shirtSVG(item.color, item.sleeve)
+                    : pantsSVG(item.color);
+                img.src = svgToDataUri(svg);
+            }
             img.alt = item.name;
             const span = document.createElement('span');
             span.innerText = item.name;
@@ -1107,8 +1142,15 @@
             card.appendChild(span);
 
             card.addEventListener('click', () => {
-                loadGarmentFromSrc(uri, item.type);
-                // Only deselect cards of the same type (independent shirt/pants selection)
+                if (item.src) {
+                    loadGarmentFromSrc(item.src, item.type);
+                } else {
+                    const svg = item.type === 'shirt'
+                        ? shirtSVG(item.color, item.sleeve)
+                        : pantsSVG(item.color);
+                    loadGarmentFromSrc(svgToDataUri(svg), item.type);
+                }
+                if (item.type === 'shirt') currentShirtSleeve = item.sleeve || 'short';
                 document.querySelectorAll(`.catalog-card[data-type="${item.type}"]`).forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 placeholder.innerText = 'בגד נבחר — לחץ על כפתור המצלמה';
@@ -1167,6 +1209,68 @@
                 drawWarpedTri(img, [srcPts[i01],srcPts[i11],srcPts[i10]], [dstPts[i01],dstPts[i11],dstPts[i10]]);
             }
         }
+    }
+
+    // 2-col × 3-row grid (6 pts → 4 triangles). Used for per-leg pants warp.
+    function drawMeshWarped6(img, srcPts, dstPts) {
+        for (let r = 0; r < 2; r++) {
+            const i00 = r*2, i01 = r*2 + 1, i10 = (r+1)*2, i11 = (r+1)*2 + 1;
+            drawWarpedTri(img, [srcPts[i00], srcPts[i01], srcPts[i10]],
+                                [dstPts[i00], dstPts[i01], dstPts[i10]]);
+            drawWarpedTri(img, [srcPts[i01], srcPts[i11], srcPts[i10]],
+                                [dstPts[i01], dstPts[i11], dstPts[i10]]);
+        }
+    }
+
+    // Sleeve quad warp — draws one sleeve as 2 triangles from shoulder → elbow.
+    // side: 'L' or 'R' (body side, post-mirror landmarks);
+    // type: 'short' | 'long' | 'sleeveless' (sleeveless skips entirely).
+    function drawSleeveQuad(side, type, imgW, imgH, shoulder, elbow, shoulderWidth) {
+        if (type === 'sleeveless') return;
+        // Sleeve "end" along the shoulder→elbow line: full elbow for long, mid-bicep for short.
+        const t = (type === 'long') ? 1.0 : 0.55;
+        const endX = shoulder.x + (elbow.x - shoulder.x) * t;
+        const endY = shoulder.y + (elbow.y - shoulder.y) * t;
+        // Outward perpendicular to shoulder→elbow. Sign chosen so the cap pushes AWAY from torso center.
+        const dx = elbow.x - shoulder.x, dy = elbow.y - shoulder.y;
+        const dlen = Math.hypot(dx, dy) || 1;
+        const sign = (side === 'L') ? 1 : -1;
+        const px =  dy / dlen * sign;
+        const py = -dx / dlen * sign;
+        const capW = shoulderWidth * 0.20;
+        const endW = shoulderWidth * 0.18;
+
+        const innerTopD = [shoulder.x,            shoulder.y           ];
+        const outerTopD = [shoulder.x + px*capW,  shoulder.y + py*capW ];
+        const outerEndD = [endX       + px*endW,  endY       + py*endW ];
+        const innerEndD = [endX,                  endY                  ];
+
+        // Source corners — sample the sleeve quadrilateral inside the SVG canvas.
+        let sIT, sOT, sOE, sIE;
+        if (side === 'L') {
+            sIT = [0.292*imgW, 0.229*imgH];
+            sOT = [0.229*imgW, 0.175*imgH];
+            if (type === 'long') {
+                sOE = [0.058*imgW, 0.750*imgH];
+                sIE = [0.125*imgW, 0.771*imgH];
+            } else {
+                sOE = [0.117*imgW, 0.313*imgH];
+                sIE = [0.167*imgW, 0.375*imgH];
+            }
+        } else {
+            sIT = [0.708*imgW, 0.229*imgH];
+            sOT = [0.771*imgW, 0.175*imgH];
+            if (type === 'long') {
+                sOE = [0.942*imgW, 0.750*imgH];
+                sIE = [0.875*imgW, 0.771*imgH];
+            } else {
+                sOE = [0.883*imgW, 0.313*imgH];
+                sIE = [0.833*imgW, 0.375*imgH];
+            }
+        }
+
+        drawWarpedTri(shirtOffscreen, [sIT, sOT, sOE], [innerTopD, outerTopD, outerEndD]);
+        drawWarpedTri(shirtOffscreen, [sIT, sOE, sIE], [innerTopD, outerEndD, innerEndD]);
     }
 
     // === Multiply-blend shadow under armpits for depth realism ===
@@ -1294,6 +1398,12 @@
             drawArmpitShadow({ x: alx, y: aly }, { x: arx, y: ary }, shoulderWidth);
             drawMeshWarped(shirtOffscreen, src, dst);
 
+            // Sleeves — drawn AFTER torso mesh so cuffs render on top, using elbow landmarks.
+            if (elbowVis && !isSideways && currentShirtSleeve !== 'sleeveless') {
+                drawSleeveQuad('L', currentShirtSleeve, imgW, imgH, lShoulder, lElbow, shoulderWidth);
+                drawSleeveQuad('R', currentShirtSleeve, imgW, imgH, rShoulder, rElbow, shoulderWidth);
+            }
+
             shirtBottomY = (dst[6][1] + dst[7][1] + dst[8][1]) / 3;
         }
 
@@ -1318,28 +1428,40 @@
             const pantsTopY = shirtLoaded ? Math.min(shirtBottomY + 4, hCenter.y + 10) : hCenter.y;
 
             const pScale = sideScale * (SIZE_MULTIPLIERS[currentUserSize] || 1.00) * distanceFactor;
-
             const cx = hCenter.x;
-            const dst = [
-                [scaleX(cx, lHip.x,    pScale), pantsTopY ],
-                [cx,                            pantsTopY ],
-                [scaleX(cx, rHip.x,    pScale), pantsTopY ],
-                [scaleX(cx, lKneePt.x, pScale), lKneePt.y ],
-                [kCtr.x,                        kCtr.y    ],
-                [scaleX(cx, rKneePt.x, pScale), rKneePt.y ],
-                [scaleX(cx, lBot.x,    pScale), lBot.y    ],
-                [bCtr.x,                        bCtr.y    ],
-                [scaleX(cx, rBot.x,    pScale), rBot.y    ],
+
+            // Two-leg system: each leg warps independently so it follows its own knee + ankle.
+            // Column order per leg: row entry 0 = outer edge, entry 1 = inner edge (near body center).
+            const leftLegSrc = [
+                [0.10*imgW, 0.03*imgH], [0.45*imgW, 0.03*imgH],
+                [0.08*imgW, 0.50*imgH], [0.43*imgW, 0.52*imgH],
+                [0.06*imgW, 0.97*imgH], [0.42*imgW, 0.97*imgH],
+            ];
+            const leftLegDst = [
+                [scaleX(cx, lHip.x,    pScale), pantsTopY],
+                [cx - 4,                         pantsTopY],
+                [scaleX(cx, lKneePt.x, pScale), lKneePt.y],
+                [cx - 6,                         kCtr.y   ],
+                [scaleX(cx, lBot.x,    pScale), lBot.y   ],
+                [cx - 8,                         bCtr.y   ],
             ];
 
-            // Pants SVG path: waistband @ y=40 (0.17), crotch @ y≈96 (0.40), hem @ y=212 (0.88).
-            const src = [
-                [0.27*imgW, 0.17*imgH], [0.50*imgW, 0.17*imgH], [0.72*imgW, 0.17*imgH],
-                [0.30*imgW, 0.50*imgH], [0.50*imgW, 0.52*imgH], [0.70*imgW, 0.50*imgH],
-                [0.31*imgW, 0.88*imgH], [0.50*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
+            const rightLegSrc = [
+                [0.55*imgW, 0.03*imgH], [0.90*imgW, 0.03*imgH],
+                [0.57*imgW, 0.52*imgH], [0.92*imgW, 0.50*imgH],
+                [0.58*imgW, 0.97*imgH], [0.94*imgW, 0.97*imgH],
+            ];
+            const rightLegDst = [
+                [cx + 4,                          pantsTopY],
+                [scaleX(cx, rHip.x,    pScale),  pantsTopY],
+                [cx + 6,                          kCtr.y   ],
+                [scaleX(cx, rKneePt.x, pScale),  rKneePt.y],
+                [cx + 8,                          bCtr.y   ],
+                [scaleX(cx, rBot.x,    pScale),  rBot.y   ],
             ];
 
-            drawMeshWarped(pantsOffscreen, src, dst);
+            drawMeshWarped6(pantsOffscreen, leftLegSrc,  leftLegDst);
+            drawMeshWarped6(pantsOffscreen, rightLegSrc, rightLegDst);
         }
     }
 
