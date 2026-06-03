@@ -194,6 +194,36 @@
             font-size: 1rem;
         }
 
+        .selector-row {
+            margin-bottom: 18px;
+        }
+
+        .selector-row-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .selector-label {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+
+        .upload-label {
+            font-size: 0.82rem;
+            padding: 6px 12px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            border: 1px dashed rgba(201, 168, 124, 0.5);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .upload-label:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
         .catalog-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -397,19 +427,23 @@
         <h2 class="personal-title">ככה המידה <span id="final-size-text"></span> נראית עליך:</h2>
 
         <h3 class="catalog-title">בחר בגד מהקטלוג</h3>
-        <div id="catalog" class="catalog-grid"></div>
 
-        <div class="section-divider"><span>או העלה בגד משלך</span></div>
+        <div class="selector-row">
+            <div class="selector-row-header">
+                <span class="selector-label">👕 חולצות</span>
+                <label class="upload-label" for="shirt-input">+ העלה שלך</label>
+                <input type="file" id="shirt-input" accept="image/*" hidden>
+            </div>
+            <div id="catalog-shirts" class="catalog-grid"></div>
+        </div>
 
-        <div class="upload-section">
-            <div class="upload-box">
-                <label for="shirt-input">👕 חולצה (רקע לבן)</label>
-                <input type="file" id="shirt-input" accept="image/*">
+        <div class="selector-row">
+            <div class="selector-row-header">
+                <span class="selector-label">👖 מכנסיים</span>
+                <label class="upload-label" for="pants-input">+ העלה שלך</label>
+                <input type="file" id="pants-input" accept="image/*" hidden>
             </div>
-            <div class="upload-box">
-                <label for="pants-input">👖 מכנסיים (רקע לבן)</label>
-                <input type="file" id="pants-input" accept="image/*">
-            </div>
+            <div id="catalog-pants" class="catalog-grid"></div>
         </div>
 
         <button id="start-camera" class="btn-continue">הפעל מצלמה למדידה</button>
@@ -668,14 +702,18 @@
     ];
 
     function renderCatalog() {
-        const grid = document.getElementById('catalog');
-        grid.innerHTML = '';
+        const shirtGrid = document.getElementById('catalog-shirts');
+        const pantsGrid = document.getElementById('catalog-pants');
+        shirtGrid.innerHTML = '';
+        pantsGrid.innerHTML = '';
+
         GARMENT_CATALOG.forEach(item => {
             const svg = item.type === 'shirt' ? shirtSVG(item.color) : pantsSVG(item.color);
             const uri = svgToDataUri(svg);
 
             const card = document.createElement('div');
             card.className = 'catalog-card';
+            card.dataset.type = item.type;
             const img = document.createElement('img');
             img.src = uri;
             img.alt = item.name;
@@ -686,17 +724,18 @@
 
             card.addEventListener('click', () => {
                 loadGarmentFromSrc(uri, item.type);
-                document.querySelectorAll('.catalog-card').forEach(c => c.classList.remove('selected'));
+                // Only deselect cards of the same type (independent shirt/pants selection)
+                document.querySelectorAll(`.catalog-card[data-type="${item.type}"]`).forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 placeholder.innerText = 'בגד נבחר — לחץ על כפתור המצלמה';
             });
 
-            grid.appendChild(card);
+            (item.type === 'shirt' ? shirtGrid : pantsGrid).appendChild(card);
         });
     }
 
-    // === Size multiplier: shirt width scales with calculated size ===
-    const SIZE_MULTIPLIERS = { 'S': 0.95, 'M': 1.00, 'L': 1.08, 'XL': 1.18, 'XXL': 1.28 };
+    // === Size multiplier: garment width scales with calculated size ===
+    const SIZE_MULTIPLIERS = { 'XS': 0.90, 'S': 0.96, 'M': 1.00, 'L': 1.07, 'XL': 1.15, 'XXL': 1.24 };
 
     // === Exponential smoothing — eliminates landmark jitter ===
     const _sm = {};
@@ -809,6 +848,10 @@
             : { x: hCenter.x, y: hCenter.y + torsoLen * 1.8 };
         const userPixH = Math.hypot(nose.x - midAnkle.x, nose.y - midAnkle.y) || H;
 
+        // Distance factor — keeps fit consistent whether user is close or far from camera.
+        // Reference: body fills ~75% of canvas height. Clamp to avoid extreme deformation.
+        const distanceFactor = Math.min(1.15, Math.max(0.88, userPixH / (H * 0.75)));
+
         // Orientation: sideways when shoulder span < 15% of pixel height
         const shoulderWidth = Math.hypot(lShoulder.x - rShoulder.x, lShoulder.y - rShoulder.y);
         const isSideways = (shoulderWidth / userPixH) < 0.15;
@@ -824,7 +867,7 @@
             const imgH = shirtImg.naturalHeight || shirtImg.height || 240;
 
             const sizeScale = SIZE_MULTIPLIERS[currentUserSize] || 1.00;
-            const hScale    = sizeScale * sideScale;
+            const hScale    = sizeScale * sideScale * distanceFactor;
 
             // 9 destination control points anchored to body landmarks
             const neckPt = along(sCenter, -0.30);       // 30% torso above shoulders = neck
@@ -887,17 +930,19 @@
             // Stitch pants top to shirt bottom edge (small overlap = tucked-in look)
             const pantsTopY = shirtLoaded ? Math.min(shirtBottomY + 4, hCenter.y + 10) : hCenter.y;
 
+            const pScale = sideScale * (SIZE_MULTIPLIERS[currentUserSize] || 1.00) * distanceFactor;
+
             const cx = hCenter.x;
             const dst = [
-                [scaleX(cx, lHip.x,    sideScale), pantsTopY ],
-                [cx,                                pantsTopY ],
-                [scaleX(cx, rHip.x,    sideScale), pantsTopY ],
-                [scaleX(cx, lKneePt.x, sideScale), lKneePt.y ],
-                [kCtr.x,                            kCtr.y    ],
-                [scaleX(cx, rKneePt.x, sideScale), rKneePt.y ],
-                [scaleX(cx, lBot.x,    sideScale), lBot.y    ],
-                [bCtr.x,                            bCtr.y    ],
-                [scaleX(cx, rBot.x,    sideScale), rBot.y    ],
+                [scaleX(cx, lHip.x,    pScale), pantsTopY ],
+                [cx,                            pantsTopY ],
+                [scaleX(cx, rHip.x,    pScale), pantsTopY ],
+                [scaleX(cx, lKneePt.x, pScale), lKneePt.y ],
+                [kCtr.x,                        kCtr.y    ],
+                [scaleX(cx, rKneePt.x, pScale), rKneePt.y ],
+                [scaleX(cx, lBot.x,    pScale), lBot.y    ],
+                [bCtr.x,                        bCtr.y    ],
+                [scaleX(cx, rBot.x,    pScale), rBot.y    ],
             ];
 
             const src = [
