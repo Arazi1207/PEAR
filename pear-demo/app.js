@@ -881,7 +881,7 @@
             const bCtr = { x: (lBot.x + rBot.x) / 2, y: (lBot.y + rBot.y) / 2 };
 
             // Stitch pants top to shirt bottom edge (small overlap = tucked-in look)
-            const pantsTopY = shirtLoaded ? Math.min(shirtBottomY + 4, hCenter.y + 10) : hCenter.y;
+            const pantsTopY = shirtLoaded ? Math.min(shirtBottomY + 2, hCenter.y + 4) : hCenter.y;
 
             const fitScale = PANTS_FIT_SCALE[currentPantsFit] || 1.00;
             const pScale = sideScale * (SIZE_MULTIPLIERS[currentUserSize] || 1.00) * distanceFactor * fitScale;
@@ -892,7 +892,7 @@
             // crotch coverage. Knee/ankle gaps stay close to the hip gap (no aggressive
             // taper) so the leg doesn't pinch into a cone toward the floor.
             const hipSpan = Math.abs(lHip.x - rHip.x) || 1;
-            const baseGap = Math.max(14, hipSpan * 0.12);
+            const baseGap = Math.max(8, hipSpan * 0.08);
             const fitBias = (currentPantsFit === 'slim' ? 0.85
                           : currentPantsFit === 'wide' ? 1.35 : 1.00);
             const gapHip  = baseGap * fitBias;
@@ -910,9 +910,9 @@
                 [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
                 [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
             ];
-            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 0.85;
-            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 0.80;
-            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.75;
+            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.20;
+            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
+            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.90;
             const leftLegDst = [
                 [cx - hipSpanFull,    pantsTopY],
                 [cx - gapHip,         pantsTopY],
@@ -936,6 +936,12 @@
                 [cx + gapAnk,         bCtr.y   ],
                 [cx + ankleSpanFull,  rBot.y   ],
             ];
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            const waistW = hipSpanFull * 2 + gapHip * 2;
+            ctx.fillRect(cx - waistW/2, pantsTopY - 8, waistW, 12);
+            ctx.restore();
 
             drawMeshWarped6(pantsOffscreen, leftLegSrc,  leftLegDst);
             drawMeshWarped6(pantsOffscreen, rightLegSrc, rightLegDst);
