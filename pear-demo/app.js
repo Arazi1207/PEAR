@@ -458,7 +458,7 @@
     // the pants look like leggings on a normal frame. The new values give pants
     // the visible coverage of real garments (regular ≈ +25% beyond the hip line).
     let currentPantsFit = 'regular';
-    const PANTS_FIT_SCALE = { slim: 1.10, regular: 1.25, wide: 1.45 };
+    const PANTS_FIT_SCALE = { slim: 1.25, regular: 1.45, wide: 1.70 };
     // Cache last stable knee positions so a brief landmark loss doesn't collapse legs.
     const _pantsCache = { lKnee: null, rKnee: null };
 
@@ -794,9 +794,7 @@
             // shoulders") and the geometric base-of-neck (0.08 torso below). The
             // 50/50 blend keeps the collar opening pinned to the clavicle line
             // regardless of how the shoulder line tilts when the user turns.
-            const neckBase = along(sCenter, -0.12);
-            const neckPt   = { x: (sCenter.x + neckBase.x) / 2,
-                               y: (sCenter.y + neckBase.y) / 2 };
+            const neckPt = along(sCenter, -0.12);
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
