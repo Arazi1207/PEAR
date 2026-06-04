@@ -344,9 +344,22 @@
             +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
             +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
             +   `</radialGradient>`
+            +   `<filter id='f${id}' x='-5%' y='-5%' width='110%' height='110%'>`
+            +     `<feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch' result='noise'/>`
+            +     `<feColorMatrix type='saturate' values='0' in='noise' result='gray'/>`
+            +     `<feBlend in='SourceGraphic' in2='gray' mode='multiply' result='blend'/>`
+            +     `<feComponentTransfer in='blend'>`
+            +       `<feFuncA type='linear' slope='1'/>`
+            +     `</feComponentTransfer>`
+            +   `</filter>`
+            +   `<pattern id='weave${id}' x='0' y='0' width='4' height='4' patternUnits='userSpaceOnUse'>`
+            +     `<rect width='4' height='4' fill='${color}'/>`
+            +     `<line x1='0' y1='0' x2='4' y2='4' stroke='${_darken(color,0.08)}' stroke-width='0.5' opacity='0.6'/>`
+            +     `<line x1='4' y1='0' x2='0' y2='4' stroke='${_lighten(color,0.06)}' stroke-width='0.5' opacity='0.4'/>`
+            +   `</pattern>`
             + `</defs>`
             + sleeves
-            + `<path d='${path}' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#weave${id})' filter='url(#f${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
             // crew-neck collar — flat rounded neckline (no spike)
             + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
@@ -397,8 +410,13 @@
             +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
             +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
             +   `</radialGradient>`
+            +   `<pattern id='denim${id}' x='0' y='0' width='3' height='6' patternUnits='userSpaceOnUse'>`
+            +     `<rect width='3' height='6' fill='${color}'/>`
+            +     `<line x1='0' y1='0' x2='0' y2='6' stroke='${_lighten(color,0.10)}' stroke-width='0.8' opacity='0.5'/>`
+            +     `<line x1='1.5' y1='0' x2='1.5' y2='6' stroke='${_darken(color,0.08)}' stroke-width='0.5' opacity='0.4'/>`
+            +   `</pattern>`
             + `</defs>`
-            + `<path d='${path}' fill='url(#v${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#denim${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
             // waistband band
             + `<rect x='66' y='40' width='108' height='10' fill='${pocket}' opacity='0.55'/>`
@@ -900,13 +918,16 @@
                 [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
                 [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
             ];
+            const hipSpanFull   = Math.abs(lHip.x    - rHip.x   ) * pScale * 1.8;
+            const kneeSpanFull  = Math.abs(lKneePt.x - rKneePt.x) * pScale * 1.6;
+            const ankleSpanFull = Math.abs(lBot.x    - rBot.x   ) * pScale * 1.4;
             const leftLegDst = [
-                [scaleX(cx, lHip.x,    pScale * 1.3), pantsTopY],
-                [cx - gapHip  - shoulderWidth * 0.18,  pantsTopY],
-                [scaleX(cx, lKneePt.x, pScale * 1.3), lKneePt.y],
-                [cx - gapKnee - shoulderWidth * 0.18,  kCtr.y   ],
-                [scaleX(cx, lBot.x,    pScale * 1.3), lBot.y   ],
-                [cx - gapAnk  - shoulderWidth * 0.18,  bCtr.y   ],
+                [cx - hipSpanFull,    pantsTopY],
+                [cx - gapHip,         pantsTopY],
+                [cx - kneeSpanFull,   lKneePt.y],
+                [cx - gapKnee,        kCtr.y   ],
+                [cx - ankleSpanFull,  lBot.y   ],
+                [cx - gapAnk,         bCtr.y   ],
             ];
 
             // FIX 1 — mirror of leftLegSrc, inside the right leg shape.
@@ -916,12 +937,12 @@
                 [0.54*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
             ];
             const rightLegDst = [
-                [cx + gapHip  + shoulderWidth * 0.18,  pantsTopY],
-                [scaleX(cx, rHip.x,    pScale * 1.3), pantsTopY],
-                [cx + gapKnee + shoulderWidth * 0.18,  kCtr.y   ],
-                [scaleX(cx, rKneePt.x, pScale * 1.3), rKneePt.y],
-                [cx + gapAnk  + shoulderWidth * 0.18,  bCtr.y   ],
-                [scaleX(cx, rBot.x,    pScale * 1.3), rBot.y   ],
+                [cx + gapHip,         pantsTopY],
+                [cx + hipSpanFull,    pantsTopY],
+                [cx + gapKnee,        kCtr.y   ],
+                [cx + kneeSpanFull,   rKneePt.y],
+                [cx + gapAnk,         bCtr.y   ],
+                [cx + ankleSpanFull,  rBot.y   ],
             ];
 
             drawMeshWarped6(pantsOffscreen, leftLegSrc,  leftLegDst);
