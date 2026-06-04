@@ -794,7 +794,7 @@
             // shoulders") and the geometric base-of-neck (0.08 torso below). The
             // 50/50 blend keeps the collar opening pinned to the clavicle line
             // regardless of how the shoulder line tilts when the user turns.
-            const neckBase = along(sCenter, 0.08);
+            const neckBase = along(sCenter, -0.12);
             const neckPt   = { x: (sCenter.x + neckBase.x) / 2,
                                y: (sCenter.y + neckBase.y) / 2 };
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
