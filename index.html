@@ -1108,29 +1108,88 @@
         tempImg.src = src;
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // TASK 1 — 3 fixed shirt archetypes (TANK_TOP, SHORT_SLEEVE, LONG_SLEEVE)
+    // Each is a Path2D silhouette in 240x240 SVG coordinates. An uploaded image
+    // becomes a fabric TEXTURE filling the archetype's silhouette — the geometry
+    // is fixed, only the surface color/texture is user-controlled.
+    // ────────────────────────────────────────────────────────────────────────
+    const _SHIRT_BODY_FULL = 'M70 55 L90 50 Q120 68 150 50 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z';
+    const _SHIRT_BODY_TANK = 'M70 55 L90 50 Q120 68 150 50 L170 55 L172 112 L172 200 L68 200 L68 112 Z';
+    const _SLEEVE_SHORT_L  = 'M70 55 L40 90 L28 75 L55 42 Z';
+    const _SLEEVE_SHORT_R  = 'M170 55 L200 90 L212 75 L185 42 Z';
+    const _SLEEVE_LONG_L   = 'M70 55 L40 90 L14 180 L30 185 L55 42 Z';
+    const _SLEEVE_LONG_R   = 'M170 55 L200 90 L226 180 L210 185 L185 42 Z';
+    function buildShirtSilhouette(archetype) {
+        if (archetype === 'sleeveless') return new Path2D(_SHIRT_BODY_TANK);
+        if (archetype === 'long')
+            return new Path2D(_SLEEVE_LONG_L + ' ' + _SLEEVE_LONG_R + ' ' + _SHIRT_BODY_FULL);
+        return new Path2D(_SLEEVE_SHORT_L + ' ' + _SLEEVE_SHORT_R + ' ' + _SHIRT_BODY_FULL);
+    }
+    // Pants — single silhouette (waistband + two legs joined at crotch)
+    const _PANTS_BODY = 'M66 40 L174 40 L174 55 L135 55 L166 212 L128 212 L120 100 L112 212 L74 212 L106 55 L66 55 Z';
+    function buildPantsSilhouette() { return new Path2D(_PANTS_BODY); }
+
+    // Composite an uploaded image as a TEXTURE inside the active archetype silhouette.
+    // The offscreen canvas dimensions stay at 240x240 so the existing mesh src
+    // points (which use 240-space normalized fractions) sample the right regions.
+    function applyArchetypeTexture(srcImg, type) {
+        const off = (type === 'shirt') ? shirtOffscreen : pantsOffscreen;
+        off.width = off.height = 240;
+        const c = off.getContext('2d');
+        c.clearRect(0, 0, 240, 240);
+
+        const silhouette = (type === 'shirt')
+            ? buildShirtSilhouette(currentShirtSleeve || 'short')
+            : buildPantsSilhouette();
+
+        // 1) Clip to silhouette, then draw the texture image filling 240x240 with
+        //    "cover" semantics so the entire silhouette is covered with pattern.
+        c.save();
+        c.clip(silhouette);
+        const iw = srcImg.naturalWidth  || srcImg.width  || 1;
+        const ih = srcImg.naturalHeight || srcImg.height || 1;
+        const scale = Math.max(240 / iw, 240 / ih);
+        const sw = iw * scale, sh = ih * scale;
+        c.drawImage(srcImg, (240 - sw) / 2, (240 - sh) / 2, sw, sh);
+        c.restore();
+
+        // 2) Edge stroke — gives the textured fabric a clean defined boundary.
+        c.save();
+        c.lineWidth = 1.5;
+        c.strokeStyle = 'rgba(0, 0, 0, 0.42)';
+        c.lineJoin = 'round';
+        c.stroke(silhouette);
+        c.restore();
+
+        if (type === 'shirt') shirtLoaded = true;
+        else                  pantsLoaded = true;
+    }
+
     function setupImageProcessor(inputId, type) {
         document.getElementById(inputId).addEventListener('change', function(event) {
             const file = event.target.files[0];
-            if (file) {
-                // Template-pipeline step 1: the user-chosen type drives sleeve/fit mode
-                // BEFORE the image is normalized into the offscreen template canvas.
-                if (type === 'shirt') {
-                    const sel = document.getElementById('shirt-upload-type');
-                    currentShirtSleeve = sel ? sel.value : 'short';
-                } else if (type === 'pants') {
-                    const sel = document.getElementById('pants-upload-type');
-                    currentPantsFit = sel ? sel.value : 'regular';
-                }
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const tempImg = new Image();
-                    tempImg.src = e.target.result;
-                    tempImg.onload = function() {
-                        applyWhiteRemoval(tempImg, type);
-                    };
-                };
-                reader.readAsDataURL(file);
+            if (!file) return;
+            // Read the archetype/fit selector BEFORE the texture composite runs.
+            if (type === 'shirt') {
+                const sel = document.getElementById('shirt-upload-type');
+                currentShirtSleeve = sel ? sel.value : 'short';
+            } else if (type === 'pants') {
+                const sel = document.getElementById('pants-upload-type');
+                currentPantsFit = sel ? sel.value : 'regular';
             }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    // TASK 1 — uploads now overlay as TEXTURE on the active archetype.
+                    // No flat-lay assumption; the silhouette is fixed and the user
+                    // image fills it.
+                    applyArchetypeTexture(img, type);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         });
     }
 
@@ -1257,29 +1316,27 @@
         return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
     }
 
+    // TASK 2 — Unified catalog. Every shirt entry uses ONE of the 3 archetypes
+    // (sleeveless / short / long); colors vary, silhouettes match the archetype.
+    // No mismatched styles (polo, stripes, photo-uploads) — uniform e-commerce feel.
     const GARMENT_CATALOG = [
-        // Shirts with sleeve variants + pattern that matches the displayed name
-        // FIX 4 — added 'pattern' so polo really looks like a polo (placket + buttons)
-        // and striped really has stripes. Plain items are unchanged.
-        { name: 'חולצת פולו כחולה',  type: 'shirt', color: '#27496d', sleeve: 'short', pattern: 'polo'    },
-        { name: 'חולצה ארוכה בורדו', type: 'shirt', color: '#7a2d3b', sleeve: 'long',  pattern: 'plain'   },
-        { name: 'חולצה ירוקה קצרה',  type: 'shirt', color: '#2f5233', sleeve: 'short', pattern: 'plain'   },
-        { name: 'גופייה אפורה',       type: 'shirt', color: '#4a4a5a', sleeve: 'sleeveless'                  },
-        { name: 'חולצה לבנה ארוכה',   type: 'shirt', color: '#c8c8c8', sleeve: 'long',  pattern: 'plain'   },
-        { name: 'חולצת פסים',         type: 'shirt', color: '#1a3a5c', sleeve: 'short', pattern: 'stripes' },
-        // Pants
+        // Tank tops (sleeveless archetype)
+        { name: 'גופייה שחורה',       type: 'shirt', color: '#1a1a22', sleeve: 'sleeveless' },
+        { name: 'גופייה לבנה',         type: 'shirt', color: '#dad4c4', sleeve: 'sleeveless' },
+        { name: 'גופייה נייבי',        type: 'shirt', color: '#27496d', sleeve: 'sleeveless' },
+        // Short sleeve
+        { name: 'חולצה קצרה נייבי',   type: 'shirt', color: '#27496d', sleeve: 'short' },
+        { name: 'חולצה קצרה ירוקה',   type: 'shirt', color: '#2f5233', sleeve: 'short' },
+        { name: 'חולצה קצרה שחורה',   type: 'shirt', color: '#1a1a22', sleeve: 'short' },
+        // Long sleeve
+        { name: 'חולצה ארוכה בורדו',  type: 'shirt', color: '#7a2d3b', sleeve: 'long' },
+        { name: 'חולצה ארוכה אפורה',  type: 'shirt', color: '#3a3a4a', sleeve: 'long' },
+        { name: 'חולצה ארוכה לבנה',   type: 'shirt', color: '#dad4c4', sleeve: 'long' },
+        // Pants (single archetype; fit modes are width-only)
         { name: 'ג׳ינס כחול',          type: 'pants', color: '#34495e' },
         { name: 'מכנסיים שחורים',     type: 'pants', color: '#222a33' },
         { name: 'מכנסי חאקי',          type: 'pants', color: '#8b7355' },
-        // Real-photo items (Unsplash CDN; CORS-friendly)
-        { name: 'חולצת לבן אלגנטית', type: 'shirt', color: '#e8e0d0', sleeve: 'long',
-          src: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&fit=crop' },
-        { name: 'חולצה שחורה בייסיק', type: 'shirt', color: '#1a1a1a', sleeve: 'short',
-          src: 'https://images.unsplash.com/photo-1562157873-818bc0726f68?w=400&fit=crop' },
-        { name: 'ג׳ינס כהה',           type: 'pants', color: '#1a2a3a',
-          src: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&fit=crop' },
-        { name: 'מכנסי ספורט',         type: 'pants', color: '#2d2d3d',
-          src: 'https://images.unsplash.com/photo-1609873814058-a8928924184a?w=400&fit=crop' },
+        { name: 'מכנסי אפור',          type: 'pants', color: '#4a4a55' },
     ];
 
     // Active shirt's sleeve type — drives sleeve mesh quads in onResults().
@@ -1310,7 +1367,7 @@
                 img.crossOrigin = 'anonymous';
             } else {
                 const svg = item.type === 'shirt'
-                    ? shirtSVG(item.color, item.sleeve, item.pattern)
+                    ? shirtSVG(item.color, item.sleeve)   // uniform 'plain' style across catalog
                     : pantsSVG(item.color);
                 img.src = svgToDataUri(svg);
             }
@@ -1590,49 +1647,65 @@
 
             const sizeScale = SIZE_MULTIPLIERS[currentUserSize] || 1.00;
             const hScale    = sizeScale * sideScale * distanceFactor;
-            // TASK 1 — Top row of the mesh uses a tighter scale than the torso so
-            // the collar never spreads past the actual shoulder landmarks during a
-            // head turn (which is when the previous top edge looked like it grew
-            // past the user's face). Hard-clamped to 1.02 — any extra width must
-            // come from the middle/bottom rows where it doesn't visually invade the
-            // neck/face region.
+            // Top-row scale cap so the collar never overflows the face/neck region.
             const topHScale = Math.min(hScale, 1.02);
 
-            // 9 destination control points anchored to body landmarks
-            // TASK 1 — collar position: blend between sCenter (purely "between
-            // shoulders") and the geometric base-of-neck (0.08 torso below). The
-            // 50/50 blend keeps the collar opening pinned to the clavicle line
-            // regardless of how the shoulder line tilts when the user turns.
-            const neckBase = along(sCenter, 0.08);
-            const neckPt   = { x: (sCenter.x + neckBase.x) / 2,
-                               y: (sCenter.y + neckBase.y) / 2 };
+            // TASK 4 — Arm/torso proximity check (per side).
+            // When an elbow sits close to its shoulder/hip column (arm flush
+            // against the body), shrink the torso column scale on THAT side so
+            // the body mesh doesn't bleed onto the arm. lProx/rProx ∈ [0.78, 1.0]:
+            //   1.00 = arm far from body (normal width)
+            //   0.78 = arm pressed against body (column pulled inward by 22%)
+            const armDistL  = Math.hypot(lElbow.x - lShoulder.x, lElbow.y - lShoulder.y);
+            const armDistR  = Math.hypot(rElbow.x - rShoulder.x, rElbow.y - rShoulder.y);
+            const proxThr   = shoulderWidth * 0.65;
+            const lProx     = elbowVis ? Math.max(0.78, Math.min(1.0, armDistL / proxThr)) : 1.0;
+            const rProx     = elbowVis ? Math.max(0.78, Math.min(1.0, armDistR / proxThr)) : 1.0;
+            const lTorso    = hScale     * lProx;
+            const rTorso    = hScale     * rProx;
+            const lTorsoTop = topHScale  * lProx;
+            const rTorsoTop = topHScale  * rProx;
+
+            // TASK 3 — Shoulder lift & deep collar.
+            // shoulderLift: outer top corners moved UP by 4% torso so the fabric
+            //   reaches over the apex of the shoulder joint (not just the front
+            //   landmark — real fabric drapes over the rounded top of the deltoid).
+            // collarDip:   neck point dipped 0.14 torso BELOW the shoulder line so
+            //   the neckline forms a deep U-curve and the user's neck stays clear.
+            const shoulderLiftY = tVy * -0.04;
+            const lShTopY       = lShoulder.y + shoulderLiftY;
+            const rShTopY       = rShoulder.y + shoulderLiftY;
+            const neckPt        = along(sCenter, 0.14);
+
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
 
-            // Elbow influence: deform armpit toward arm direction when arms are visible
+            // Elbow influence on armpit position. Clamped by proximity so an
+            // elbow tucked against the body can't pull the armpit deep into the
+            // arm region.
             let alx = lApt.x, aly = lApt.y, arx = rApt.x, ary = rApt.y;
             if (elbowVis && !isSideways) {
-                alx += (lElbow.x - lShoulder.x) * 0.28;
-                aly += (lElbow.y - lShoulder.y) * 0.14;
-                arx += (rElbow.x - rShoulder.x) * 0.28;
-                ary += (rElbow.y - rShoulder.y) * 0.14;
+                alx += (lElbow.x - lShoulder.x) * 0.28 * lProx;
+                aly += (lElbow.y - lShoulder.y) * 0.14 * lProx;
+                arx += (rElbow.x - rShoulder.x) * 0.28 * rProx;
+                ary += (rElbow.y - rShoulder.y) * 0.14 * rProx;
             }
 
             const cx = sCenter.x;
             const dst = [
-                // TASK 1 — top row uses topHScale (≤1.02) so shoulder corners stay
-                // anchored to the actual shoulder line; no horizontal overflow into
-                // the face region during turns.
-                [scaleX(cx, lShoulder.x, topHScale), lShoulder.y],
-                [neckPt.x,                            neckPt.y  ],
-                [scaleX(cx, rShoulder.x, topHScale), rShoulder.y],
-                [scaleX(cx, alx,         hScale),    aly         ],
-                [tCtr.x,                              tCtr.y    ],
-                [scaleX(cx, arx,         hScale),    ary         ],
-                [scaleX(cx, lHip.x,      hScale),    lHip.y      ],
-                [hCenter.x,                           hCenter.y  ],
-                [scaleX(cx, rHip.x,      hScale),    rHip.y      ],
+                // Top row: lifted shoulders + deep collar dip.
+                [scaleX(cx, lShoulder.x, lTorsoTop), lShTopY      ],
+                [neckPt.x,                            neckPt.y    ],
+                [scaleX(cx, rShoulder.x, rTorsoTop), rShTopY      ],
+                // Middle row uses per-side torso scale → arms close to body
+                // pull the side column inward instead of bleeding outward.
+                [scaleX(cx, alx,         lTorso),    aly          ],
+                [tCtr.x,                              tCtr.y      ],
+                [scaleX(cx, arx,         rTorso),    ary          ],
+                [scaleX(cx, lHip.x,      lTorso),    lHip.y       ],
+                [hCenter.x,                           hCenter.y   ],
+                [scaleX(cx, rHip.x,      rTorso),    rHip.y       ],
             ];
 
             // Source control points on the flat-lay garment image (normalized fractions)
