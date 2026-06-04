@@ -9,21 +9,39 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 
     <style>
+        /* ============================================================
+           TASK 2 — Premium UI theme
+           Refined dark palette + subtle gold accents + glassmorphism
+           ============================================================ */
         :root {
-            --primary-color: #c8a96e;   /* gold accent */
-            --bg-color: #0a0a0f;        /* dark background */
-            --card-bg: #12121a;         /* dark card */
-            --input-bg: #1a1a24;
-            --border-color: #2a2a35;
-            --text-color: #e8e6f0;
-            --accent-color: #b89a5f;    /* darker gold (hover) */
-            --error-color: #e0556b;
-            --success-color: #c8a96e;   /* gold (continue button) */
+            --primary-color: #d4b079;       /* refined gold accent */
+            --primary-soft:  rgba(212, 176, 121, 0.45);
+            --bg-color:      #0b0b14;       /* deep blue-black canvas */
+            --bg-rich:       #0e0e1a;       /* slight elevation */
+            --card-bg:       rgba(22, 22, 34, 0.78);   /* glass card */
+            --card-solid:    #14141f;
+            --input-bg:      rgba(28, 28, 42, 0.85);
+            --border-color:  rgba(82, 78, 96, 0.35);
+            --border-glow:   rgba(212, 176, 121, 0.45);
+            --text-color:    #ece9f4;
+            --text-muted:    #9994aa;
+            --accent-color:  #c39a5f;       /* darker gold (hover/pressed) */
+            --error-color:   #e0556b;
+            --success-color: #d4b079;
+            --shadow-deep:   0 18px 48px -16px rgba(0, 0, 0, 0.7);
+            --shadow-soft:   0 4px 18px rgba(0, 0, 0, 0.35);
+            --glow-gold:     0 0 16px rgba(212, 176, 121, 0.35);
+            --ease-premium:  cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
+            /* Layered radial accents + base color — adds depth without overpowering */
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 0%,  rgba(56, 42, 12, 0.28), transparent 60%),
+                radial-gradient(ellipse 60% 50% at 100% 100%, rgba(18, 18, 40, 0.55), transparent 70%),
+                var(--bg-color);
+            background-attachment: fixed;
             color: var(--text-color);
             direction: rtl;
             margin: 0;
@@ -60,15 +78,22 @@
         }
 
         .container {
-            background-color: var(--card-bg);
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            /* TASK 2 — glassmorphism: translucent card + backdrop blur */
+            background: var(--card-bg);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-deep);
             border: 1px solid var(--border-color);
             width: 100%;
             max-width: 500px;
             box-sizing: border-box;
             margin-bottom: 30px;
+            transition: transform 0.6s var(--ease-premium), box-shadow 0.6s var(--ease-premium);
+        }
+        .container:hover {
+            box-shadow: var(--shadow-deep), 0 0 0 1px rgba(212, 176, 121, 0.12);
         }
 
         .fitting-container {
@@ -140,22 +165,33 @@
             color: #888;
         }
 
+        /* TASK 2 — premium button: gold gradient, soft shadow, lift-on-hover */
         button {
             width: 100%;
             padding: 14px;
-            background-color: var(--primary-color);
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
             color: #0a0a0f;
             border: none;
-            border-radius: 6px;
+            border-radius: 10px;
             font-size: 1rem;
-            font-weight: bold;
+            font-weight: 700;
+            letter-spacing: 0.3px;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: all 0.3s var(--ease-premium);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
             margin-top: 10px;
         }
-
-        button:hover:not(:disabled) { background-color: var(--accent-color); }
-        button:disabled { background-color: #3a3a45; color: #7a7886; cursor: not-allowed; }
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 22px rgba(212, 176, 121, 0.32);
+        }
+        button:active:not(:disabled) { transform: translateY(0); }
+        button:disabled {
+            background: linear-gradient(135deg, #2c2c36, #1f1f29);
+            color: #7a7886;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
 
         .btn-continue { background-color: var(--success-color); color: #0a0a0f; margin-top: 20px; }
         .btn-continue:hover:not(:disabled) { background-color: var(--accent-color); }
@@ -200,21 +236,37 @@
             font-size: 1rem;
         }
 
+        /* TASK 3 — selector row: clearer section grouping with a gold underline */
         .selector-row {
-            margin-bottom: 18px;
+            margin-bottom: 24px;
         }
 
         .selector-row-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+        }
+        .selector-row-header::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: -1px;
+            height: 1px;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                var(--primary-color) 50%,
+                transparent 100%);
+            opacity: 0.5;
         }
 
         .selector-label {
-            font-size: 0.95rem;
+            font-size: 1rem;
             font-weight: 700;
             color: var(--primary-color);
+            letter-spacing: 0.4px;
         }
 
         .upload-label {
@@ -247,40 +299,78 @@
             outline: none;
         }
 
+        /* TASK 3 — responsive grid: 3 cols on wide screens, 2 on narrow */
         .catalog-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin-bottom: 5px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 6px;
+        }
+        @media (max-width: 520px) {
+            .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
+        /* TASK 3 — Premium product card
+           Glass surface, lifted shadow, scale-on-hover, soft gold halo when selected. */
         .catalog-card {
-            background: var(--input-bg);
+            position: relative;
+            background: linear-gradient(155deg,
+                rgba(36, 34, 48, 0.92) 0%,
+                rgba(20, 20, 32, 0.88) 100%);
+            backdrop-filter: blur(12px) saturate(130%);
+            -webkit-backdrop-filter: blur(12px) saturate(130%);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 8px;
+            border-radius: 14px;
+            padding: 10px 10px 12px;
             cursor: pointer;
-            transition: border-color 0.2s, transform 0.1s, box-shadow 0.2s;
             display: flex;
             flex-direction: column;
             align-items: center;
+            box-shadow: var(--shadow-soft);
+            transition: all 0.3s var(--ease-premium);
         }
-
-        .catalog-card:hover { border-color: var(--primary-color); transform: translateY(-2px); }
+        .catalog-card:hover {
+            border-color: var(--primary-soft);
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: var(--shadow-deep), 0 0 0 1px rgba(212, 176, 121, 0.18);
+        }
         .catalog-card.selected {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px rgba(201, 168, 124, 0.4);
+            background: linear-gradient(155deg,
+                rgba(56, 44, 24, 0.85) 0%,
+                rgba(24, 22, 32, 0.92) 100%);
+            box-shadow:
+                var(--shadow-deep),
+                inset 0 0 0 1px rgba(212, 176, 121, 0.55),
+                0 0 22px rgba(212, 176, 121, 0.35);
+            transform: translateY(-1px);
+        }
+        /* Subtle inset highlight at top of selected card */
+        .catalog-card.selected::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 14px;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 0%,
+                rgba(212, 176, 121, 0.20),
+                transparent 60%);
         }
         .catalog-card img {
             width: 100%;
             height: auto;
-            border-radius: 6px;
+            border-radius: 10px;
             background: #fff;
+            transition: transform 0.4s var(--ease-premium);
         }
+        .catalog-card:hover img { transform: scale(1.04); }
         .catalog-card span {
-            margin-top: 6px;
-            font-size: 0.8rem;
+            margin-top: 8px;
+            font-size: 0.82rem;
+            font-weight: 600;
             color: var(--text-color);
+            letter-spacing: 0.2px;
+            text-align: center;
         }
 
         /* --- Upload (Task 4 dark cards) --- */
@@ -301,19 +391,30 @@
 
         input[type="file"] { width: 100%; font-size: 13px; color: var(--text-color); }
 
+        /* TASK 2 — preview frame: rich border + glow on the outer edge */
         .preview-section {
             position: relative;
             width: 100%;
             max-width: 640px;
             margin: 0 auto;
             background-color: #000;
-            border: 1px solid rgba(201, 168, 124, 0.3);
-            border-radius: 8px;
+            border: 1px solid var(--border-glow);
+            border-radius: 14px;
             overflow: hidden;
             aspect-ratio: 4/3;
             display: flex;
             justify-content: center;
             align-items: center;
+            box-shadow:
+                var(--shadow-deep),
+                inset 0 0 0 1px rgba(212, 176, 121, 0.08);
+            transition: box-shadow 0.4s var(--ease-premium);
+        }
+        .preview-section.scanning {
+            box-shadow:
+                var(--shadow-deep),
+                inset 0 0 0 1px rgba(212, 176, 121, 0.22),
+                0 0 32px rgba(212, 176, 121, 0.18);
         }
 
         #output_canvas {
@@ -325,18 +426,23 @@
         #webcam { display: none; }
         .placeholder-text { position: absolute; color: #94a3b8; z-index: 1; }
 
+        /* TASK 2 — size badge: glass pill */
         .size-badge {
             position: absolute;
-            top: 12px;
-            right: 12px;
+            top: 14px;
+            right: 14px;
             z-index: 3;
-            background: rgba(10, 10, 15, 0.78);
+            background: rgba(11, 11, 20, 0.55);
+            backdrop-filter: blur(12px) saturate(140%);
+            -webkit-backdrop-filter: blur(12px) saturate(140%);
             color: var(--primary-color);
-            border: 1px solid rgba(201, 168, 124, 0.5);
-            padding: 6px 14px;
-            border-radius: 20px;
+            border: 1px solid var(--border-glow);
+            padding: 7px 16px;
+            border-radius: 999px;
             font-weight: 700;
             font-size: 0.9rem;
+            letter-spacing: 0.4px;
+            box-shadow: var(--shadow-soft);
             display: none;
         }
         .size-badge.show { display: block; }
@@ -382,27 +488,37 @@
             --t-pulse:  1800ms;
             --t-shimmer:2200ms;
             --t-scan:   3200ms;
-            --ease:     cubic-bezier(.22, 1, .36, 1);
+            --ease:     cubic-bezier(0.4, 0, 0.2, 1);   /* TASK 2 — premium material ease */
             --mono-stack: 'Courier New', 'Consolas', 'JetBrains Mono', monospace;
         }
 
-        /* Screen slide transitions */
+        /* TASK 2 — premium screen transition: longer duration, refined ease,
+           subtle blur during transit */
         .screen {
             opacity: 0;
-            transform: translateX(0);
-            transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease);
+            transform: translateY(8px);
+            filter: blur(2px);
+            transition: opacity 0.45s var(--ease-premium),
+                        transform 0.45s var(--ease-premium),
+                        filter   0.35s var(--ease-premium);
             pointer-events: none;
         }
         .screen.active {
             opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
             pointer-events: auto;
         }
-        .screen.slide-out-left  { opacity: 0; transform: translateX(-40px); }
-        .screen.slide-out-right { opacity: 0; transform: translateX( 40px); }
-        .screen.slide-in-from-right { animation: slideInRight var(--t-med) var(--ease); }
-        .screen.slide-in-from-left  { animation: slideInLeft  var(--t-med) var(--ease); }
-        @keyframes slideInRight { from { opacity: 0; transform: translateX( 40px); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes slideInLeft  { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+        .screen.slide-in-from-right { animation: slideInRight 0.50s var(--ease-premium); }
+        .screen.slide-in-from-left  { animation: slideInLeft  0.50s var(--ease-premium); }
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX( 48px) translateY(8px); filter: blur(3px); }
+            to   { opacity: 1; transform: translateX(0)     translateY(0);    filter: blur(0); }
+        }
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-48px) translateY(8px); filter: blur(3px); }
+            to   { opacity: 1; transform: translateX(0)     translateY(0);    filter: blur(0); }
+        }
 
         /* Progress indicator */
         .step-progress {
@@ -1474,13 +1590,22 @@
 
             const sizeScale = SIZE_MULTIPLIERS[currentUserSize] || 1.00;
             const hScale    = sizeScale * sideScale * distanceFactor;
+            // TASK 1 — Top row of the mesh uses a tighter scale than the torso so
+            // the collar never spreads past the actual shoulder landmarks during a
+            // head turn (which is when the previous top edge looked like it grew
+            // past the user's face). Hard-clamped to 1.02 — any extra width must
+            // come from the middle/bottom rows where it doesn't visually invade the
+            // neck/face region.
+            const topHScale = Math.min(hScale, 1.02);
 
             // 9 destination control points anchored to body landmarks
-            // FIX 3 — neckPt now sits at the BASE of the neck (slightly INTO the chest),
-            // not 30% above the shoulders. The old -0.30 stretched the shirt's top edge
-            // up to chin level and hid the user's neck. +0.06 places the collar opening
-            // at shoulder/clavicle level so the actual neck stays visible.
-            const neckPt = along(sCenter, 0.06);
+            // TASK 1 — collar position: blend between sCenter (purely "between
+            // shoulders") and the geometric base-of-neck (0.08 torso below). The
+            // 50/50 blend keeps the collar opening pinned to the clavicle line
+            // regardless of how the shoulder line tilts when the user turns.
+            const neckBase = along(sCenter, 0.08);
+            const neckPt   = { x: (sCenter.x + neckBase.x) / 2,
+                               y: (sCenter.y + neckBase.y) / 2 };
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
@@ -1496,15 +1621,18 @@
 
             const cx = sCenter.x;
             const dst = [
-                [scaleX(cx, lShoulder.x, hScale), lShoulder.y],
-                [neckPt.x,                          neckPt.y  ],
-                [scaleX(cx, rShoulder.x, hScale), rShoulder.y],
-                [scaleX(cx, alx,         hScale), aly         ],
-                [tCtr.x,                            tCtr.y    ],
-                [scaleX(cx, arx,         hScale), ary         ],
-                [scaleX(cx, lHip.x,      hScale), lHip.y      ],
-                [hCenter.x,                         hCenter.y  ],
-                [scaleX(cx, rHip.x,      hScale), rHip.y      ],
+                // TASK 1 — top row uses topHScale (≤1.02) so shoulder corners stay
+                // anchored to the actual shoulder line; no horizontal overflow into
+                // the face region during turns.
+                [scaleX(cx, lShoulder.x, topHScale), lShoulder.y],
+                [neckPt.x,                            neckPt.y  ],
+                [scaleX(cx, rShoulder.x, topHScale), rShoulder.y],
+                [scaleX(cx, alx,         hScale),    aly         ],
+                [tCtr.x,                              tCtr.y    ],
+                [scaleX(cx, arx,         hScale),    ary         ],
+                [scaleX(cx, lHip.x,      hScale),    lHip.y      ],
+                [hCenter.x,                           hCenter.y  ],
+                [scaleX(cx, rHip.x,      hScale),    rHip.y      ],
             ];
 
             // Source control points on the flat-lay garment image (normalized fractions)
