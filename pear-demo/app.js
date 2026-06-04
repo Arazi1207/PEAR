@@ -621,7 +621,7 @@
     //
     // type: 'short' | 'long' | 'sleeveless' (sleeveless skips entirely)
     // elbowVis: raw visibility 0..1 — drives the cached-direction fallback.
-    function drawSleeveQuad(side, type, imgW, imgH, shoulder, elbow, shoulderWidth, elbowVis) {
+    function drawSleeveQuad(side, type, imgW, imgH, shoulder, elbow, shoulderWidth, elbowVis, wrist) {
         if (type === 'sleeveless') return;
 
         // Direction shoulder→elbow with clamping + EMA smoothing + low-vis fallback.
@@ -635,15 +635,13 @@
             const rawDx = elbow.x - shoulder.x;
             const rawDy = elbow.y - shoulder.y;
             const rawLen = Math.hypot(rawDx, rawDy) || 1;
-            // Clamp arm length to a sane band relative to the torso so a noisy elbow
-            // cannot stretch the sleeve into a thin ribbon.
             const minLen = shoulderWidth * 0.55;
             const maxLen = shoulderWidth * 1.80;
             const clampedLen = Math.max(minLen, Math.min(maxLen, rawLen));
             let cdx = rawDx / rawLen * clampedLen;
             let cdy = rawDy / rawLen * clampedLen;
             if (cached) {
-                const a = 0.40; // EMA: 40% new + 60% old
+                const a = 0.40;
                 cdx = a * cdx + (1 - a) * cached.dx;
                 cdy = a * cdy + (1 - a) * cached.dy;
             }
@@ -652,47 +650,57 @@
         }
 
         const dlen = Math.hypot(dx, dy) || 1;
-        // Outward perpendicular (push AWAY from torso). Sign flips per body side.
         const sign = (side === 'L') ? 1 : -1;
         const px =  dy / dlen * sign;
         const py = -dx / dlen * sign;
 
-        // Sleeve end parameter along shoulder→elbow: short stops at upper bicep,
-        // long extends past the wrist for visible cuff coverage.
-        const tEnd = (type === 'long') ? 1.15 : 0.62;
-        // Arm thickness estimate from shoulder→elbow distance, clamped to
-        // [0.7, 1.2]. Sleeve fabric width scales with the arm so thicker arms
-        // get more cap/cuff width.
+        // Sleeve end parameter along shoulder→elbow.
+        const tEnd = (type === 'long') ? 1.30 : 0.62;
+        // Arm thickness estimate from shoulder→elbow distance, clamped to [0.7, 1.2].
         const armLen = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y);
         const armScale = Math.min(1.2, Math.max(0.7, armLen / (shoulderWidth * 1.2)));
-        const wCap  = shoulderWidth * 0.52 * armScale;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.30 : 0.42) * armScale;
+        const wCap  = shoulderWidth * (type === 'long' ? 0.50 : 0.52) * armScale;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.26 : 0.42) * armScale;
 
-        // 6 rings (5 quads) at t = 0, 1/5, 2/5, 3/5, 4/5, 1 — denser sampling
-        // eliminates the visible gap between adjacent rings on long sleeves.
+        // Ring layout:
+        //   short: 8 rings (i=0..7), 7 quads — denser bend tracking
+        //   long : 10 rings (i=0..7 main bicep mesh, i=8..9 forearm extension)
+        const ringCount = (type === 'long') ? 10 : 8;
+        const mainRingCount = 8;
+
         const rings = [];
-        for (let i = 0; i < 6; i++) {
-            const f = i / 5;
-            const t = tEnd * f;
-            const w = wCap + (wCuff - wCap) * f;
-            const cxR = shoulder.x + dx * t;
-            const cyR = shoulder.y + dy * t;
-            // Sleeve straddles the arm centerline: inner shifted body-side by 0.55w,
-            // outer shifted away-side by 0.45w. Total width 1.0w, but the pivot now
-            // sits OVER the arm so the underside is covered (no exposed skin).
+        for (let i = 0; i < ringCount; i++) {
+            let cxR, cyR, w;
+            if (type === 'long' && i >= mainRingCount) {
+                // Forearm rings: ring 8 at wrist landmark (or extrapolation),
+                // ring 9 at wrist + (dx,dy) * 0.15 (halfway between wrist and wrist+dir*0.3).
+                const wristVisible = wrist && wrist.v > 0.5;
+                const wristPos = wristVisible
+                    ? { x: wrist.x, y: wrist.y }
+                    : { x: shoulder.x + dx * tEnd, y: shoulder.y + dy * tEnd };
+                const forearmF = i - mainRingCount;   // 0 for ring 8, 1 for ring 9
+                cxR = wristPos.x + dx * 0.15 * forearmF;
+                cyR = wristPos.y + dy * 0.15 * forearmF;
+                w = wCuff;
+            } else {
+                // Main rings 0..7 along shoulder→elbow direction.
+                const f = i / (mainRingCount - 1);
+                const t = tEnd * f;
+                cxR = shoulder.x + dx * t;
+                cyR = shoulder.y + dy * t;
+                w = wCap + (wCuff - wCap) * f;
+            }
             const inner = [cxR - px * w * 0.55, cyR - py * w * 0.55];
             const outer = [cxR + px * w * 0.45, cyR + py * w * 0.45];
             rings.push({ inner, outer });
         }
 
-        // Close the seam between short-sleeve cap and shirt body: pin the first
-        // ring's inner point exactly on the shoulder landmark so there's no gap.
+        // Pin short-sleeve cap inner to shoulder so no gap at the body seam.
         if (type === 'short') {
             rings[0].inner = [shoulder.x, shoulder.y];
         }
 
         // Source rings — sample the sleeve quadrilateral in the flat-lay SVG.
-        // Long sleeves use the elongated quad (down to y≈0.77); short stops near y≈0.38.
         const longSleeve = (type === 'long');
         let sIT, sOT, sIE, sOE;
         if (side === 'L') {
@@ -704,16 +712,19 @@
             sIE = longSleeve ? [0.875*imgW, 0.771*imgH] : [0.833*imgW, 0.375*imgH];
             sOE = longSleeve ? [0.942*imgW, 0.750*imgH] : [0.883*imgW, 0.313*imgH];
         }
+        // Source linearly sampled across all rings — cuff source naturally lands
+        // on rings 8-9 for long sleeve so the forearm continues the texture.
         const srcRings = [];
-        for (let i = 0; i < 6; i++) {
-            const f = i / 5;
+        const srcDenom = ringCount - 1;
+        for (let i = 0; i < ringCount; i++) {
+            const f = i / srcDenom;
             const inner = [sIT[0] + (sIE[0] - sIT[0]) * f, sIT[1] + (sIE[1] - sIT[1]) * f];
             const outer = [sOT[0] + (sOE[0] - sOT[0]) * f, sOT[1] + (sOE[1] - sOT[1]) * f];
             srcRings.push({ inner, outer });
         }
 
-        // 5 quads → 10 triangles. Triangle order matches drawMeshWarped's diagonal.
-        for (let i = 0; i < 5; i++) {
+        const quadCount = ringCount - 1;
+        for (let i = 0; i < quadCount; i++) {
             const a = srcRings[i],   b = srcRings[i + 1];
             const A = rings[i],      B = rings[i + 1];
             drawWarpedTri(shirtOffscreen,
@@ -823,7 +834,7 @@
             // shoulders") and the geometric base-of-neck (0.08 torso below). The
             // 50/50 blend keeps the collar opening pinned to the clavicle line
             // regardless of how the shoulder line tilts when the user turns.
-            const neckPt = along(sCenter, -0.22);
+            const neckPt = along(sCenter, -0.28);
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
@@ -867,8 +878,8 @@
             // sleeves when arms are down (otherwise sleeves would hide the shirt body).
             if (!isSideways && currentShirtSleeve !== 'sleeveless') {
                 const lEv = raw(13).v, rEv = raw(14).v;
-                drawSleeveQuad('L', currentShirtSleeve, imgW, imgH, lShoulder, lElbow, shoulderWidth, lEv);
-                drawSleeveQuad('R', currentShirtSleeve, imgW, imgH, rShoulder, rElbow, shoulderWidth, rEv);
+                drawSleeveQuad('L', currentShirtSleeve, imgW, imgH, lShoulder, lElbow, shoulderWidth, lEv, raw(15));
+                drawSleeveQuad('R', currentShirtSleeve, imgW, imgH, rShoulder, rElbow, shoulderWidth, rEv, raw(16));
             }
 
             drawMeshWarped(shirtOffscreen, src, dst);
@@ -914,12 +925,19 @@
             const gapKnee = gapHip  * 1.00;
             const gapAnk  = gapHip  * 0.95;
 
-            // Per-leg, per-segment warp. Each leg is split into an upper quad
-            // (hip → knee, quadriceps) and a lower quad (knee → ankle, calf).
-            // Both quads share the knee row so the seam is continuous.
-            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.15;
-            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
-            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.95;
+            // Per-leg, per-segment warp. Each leg is split into THREE quads:
+            //   upper-upper: hip      → mid-thigh
+            //   upper-lower: mid-thigh → knee
+            //   lower:       knee     → ankle
+            // The denser thigh mesh tracks the leg shape more accurately.
+            const hipSpanFull       = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.40;
+            const kneeSpanFull      = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
+            const ankleSpanFull     = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.95;
+            // Mid-thigh outer width: lerp at t=0.5 between hipSpanFull and kneeSpanFull.
+            const midThighSpanFull  = (hipSpanFull + kneeSpanFull) / 2;
+            // Mid-thigh anchors — midpoint between hip and knee per leg.
+            const lMidThigh = { x: (lHip.x + lKneePt.x) / 2, y: (lHip.y + lKneePt.y) / 2 };
+            const rMidThigh = { x: (rHip.x + rKneePt.x) / 2, y: (rHip.y + rKneePt.y) / 2 };
 
             // Waistband strip — anchors the top of the pants before leg quads draw.
             ctx.save();
@@ -934,28 +952,42 @@
             const midBotY = 0.55 * imgH;   // knee row
             const botY    = 0.90 * imgH;   // ankle row
 
-            // LEFT LEG — upper segment (hip → knee)
+            // LEFT LEG — upper-upper (hip → mid-thigh)
             drawQuad(pantsOffscreen,
                 [0.28*imgW, topY],    [0.46*imgW, topY],
-                [0.28*imgW, midBotY], [0.46*imgW, midBotY],
-                [cx - hipSpanFull,  pantsTopY], [cx - gapHip,  pantsTopY],
-                [cx - kneeSpanFull, lKneePt.y], [cx - gapKnee, lKneePt.y]);
+                [0.28*imgW, midTopY], [0.46*imgW, midTopY],
+                [cx - hipSpanFull,      pantsTopY],   [cx - gapHip, pantsTopY],
+                [cx - midThighSpanFull, lMidThigh.y], [cx - gapHip, lMidThigh.y]);
 
-            // LEFT LEG — lower segment (knee → ankle)
+            // LEFT LEG — upper-lower (mid-thigh → knee)
+            drawQuad(pantsOffscreen,
+                [0.28*imgW, midTopY], [0.46*imgW, midTopY],
+                [0.28*imgW, midBotY], [0.46*imgW, midBotY],
+                [cx - midThighSpanFull, lMidThigh.y], [cx - gapHip,  lMidThigh.y],
+                [cx - kneeSpanFull,     lKneePt.y],   [cx - gapKnee, lKneePt.y]);
+
+            // LEFT LEG — lower (knee → ankle)
             drawQuad(pantsOffscreen,
                 [0.28*imgW, midBotY], [0.46*imgW, midBotY],
                 [0.28*imgW, botY],    [0.46*imgW, botY],
                 [cx - kneeSpanFull,  lKneePt.y], [cx - gapKnee, lKneePt.y],
                 [cx - ankleSpanFull, lBot.y],    [cx - gapAnk,  lBot.y]);
 
-            // RIGHT LEG — upper segment (hip → knee)
+            // RIGHT LEG — upper-upper (hip → mid-thigh)
             drawQuad(pantsOffscreen,
                 [0.54*imgW, topY],    [0.72*imgW, topY],
-                [0.54*imgW, midBotY], [0.72*imgW, midBotY],
-                [cx + gapHip,  pantsTopY], [cx + hipSpanFull,  pantsTopY],
-                [cx + gapKnee, rKneePt.y], [cx + kneeSpanFull, rKneePt.y]);
+                [0.54*imgW, midTopY], [0.72*imgW, midTopY],
+                [cx + gapHip, pantsTopY],   [cx + hipSpanFull,      pantsTopY],
+                [cx + gapHip, rMidThigh.y], [cx + midThighSpanFull, rMidThigh.y]);
 
-            // RIGHT LEG — lower segment (knee → ankle)
+            // RIGHT LEG — upper-lower (mid-thigh → knee)
+            drawQuad(pantsOffscreen,
+                [0.54*imgW, midTopY], [0.72*imgW, midTopY],
+                [0.54*imgW, midBotY], [0.72*imgW, midBotY],
+                [cx + gapHip,  rMidThigh.y], [cx + midThighSpanFull, rMidThigh.y],
+                [cx + gapKnee, rKneePt.y],   [cx + kneeSpanFull,     rKneePt.y]);
+
+            // RIGHT LEG — lower (knee → ankle)
             // NOTE: inner-bottom uses lBot.y per literal spec (likely typo for rBot.y).
             drawQuad(pantsOffscreen,
                 [0.54*imgW, midBotY], [0.72*imgW, midBotY],
