@@ -344,22 +344,14 @@
             +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
             +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
             +   `</radialGradient>`
-            +   `<filter id='f${id}' x='-5%' y='-5%' width='110%' height='110%'>`
-            +     `<feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch' result='noise'/>`
-            +     `<feColorMatrix type='saturate' values='0' in='noise' result='gray'/>`
-            +     `<feBlend in='SourceGraphic' in2='gray' mode='multiply' result='blend'/>`
-            +     `<feComponentTransfer in='blend'>`
-            +       `<feFuncA type='linear' slope='1'/>`
-            +     `</feComponentTransfer>`
-            +   `</filter>`
-            +   `<pattern id='weave${id}' x='0' y='0' width='4' height='4' patternUnits='userSpaceOnUse'>`
-            +     `<rect width='4' height='4' fill='${color}'/>`
-            +     `<line x1='0' y1='0' x2='4' y2='4' stroke='${_darken(color,0.08)}' stroke-width='0.5' opacity='0.6'/>`
-            +     `<line x1='4' y1='0' x2='0' y2='4' stroke='${_lighten(color,0.06)}' stroke-width='0.5' opacity='0.4'/>`
+            +   `<pattern id='weave${id}' x='0' y='0' width='6' height='6' patternUnits='userSpaceOnUse'>`
+            +     `<rect width='6' height='6' fill='${color}'/>`
+            +     `<line x1='0' y1='0' x2='6' y2='6' stroke='${_darken(color,0.08)}' stroke-width='0.3' opacity='0.25'/>`
+            +     `<line x1='6' y1='0' x2='0' y2='6' stroke='${_lighten(color,0.06)}' stroke-width='0.3' opacity='0.15'/>`
             +   `</pattern>`
             + `</defs>`
             + sleeves
-            + `<path d='${path}' fill='url(#weave${id})' filter='url(#f${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#weave${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
             // crew-neck collar — flat rounded neckline (no spike)
             + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
@@ -918,9 +910,9 @@
                 [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
                 [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
             ];
-            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.8;
-            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.6;
-            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 1.4;
+            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 0.85;
+            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 0.80;
+            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.75;
             const leftLegDst = [
                 [cx - hipSpanFull,    pantsTopY],
                 [cx - gapHip,         pantsTopY],
