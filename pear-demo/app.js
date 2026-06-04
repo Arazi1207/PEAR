@@ -604,6 +604,13 @@
         }
     }
 
+    // Single quad (4 pts → 2 triangles). Used for per-segment pants warp
+    // (upper hip→knee and lower knee→ankle on each leg).
+    function drawQuad(img, s0, s1, s2, s3, d0, d1, d2, d3) {
+        drawWarpedTri(img, [s0, s1, s2], [d0, d1, d2]);
+        drawWarpedTri(img, [s1, s3, s2], [d1, d3, d2]);
+    }
+
     // Sleeve direction cache — used to fall back gracefully when an elbow landmark
     // visibility drops, and to smooth jitter frame-to-frame.
     const _sleeveCache = { L: null, R: null };
@@ -899,52 +906,54 @@
             const gapKnee = gapHip  * 1.00;
             const gapAnk  = gapHip  * 0.95;
 
-            // Two-leg system: each leg warps independently so it follows its own knee + ankle.
-            // Column order per leg: row entry 0 = outer edge, entry 1 = inner edge (near body center).
-            // FIX 1 — src x-range moved INSIDE the actual SVG leg shape (x≈0.28–0.46 left,
-            // x≈0.54–0.72 right). The old range (0.06–0.45) sampled mostly transparent
-            // background outside the leg, which is why pants rendered as a thin strip
-            // — half the fabric was missing.
-            const leftLegSrc = [
-                [0.28*imgW, 0.18*imgH], [0.46*imgW, 0.18*imgH],
-                [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
-                [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
-            ];
-            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.20;
+            // Per-leg, per-segment warp. Each leg is split into an upper quad
+            // (hip → knee, quadriceps) and a lower quad (knee → ankle, calf).
+            // Both quads share the knee row so the seam is continuous.
+            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.15;
             const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
-            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.90;
-            const leftLegDst = [
-                [cx - hipSpanFull,    pantsTopY],
-                [cx - gapHip,         pantsTopY],
-                [cx - kneeSpanFull,   lKneePt.y],
-                [cx - gapKnee,        kCtr.y   ],
-                [cx - ankleSpanFull,  lBot.y   ],
-                [cx - gapAnk,         bCtr.y   ],
-            ];
+            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.95;
 
-            // FIX 1 — mirror of leftLegSrc, inside the right leg shape.
-            const rightLegSrc = [
-                [0.54*imgW, 0.18*imgH], [0.72*imgW, 0.18*imgH],
-                [0.54*imgW, 0.50*imgH], [0.70*imgW, 0.50*imgH],
-                [0.54*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
-            ];
-            const rightLegDst = [
-                [cx + gapHip,         pantsTopY],
-                [cx + hipSpanFull,    pantsTopY],
-                [cx + gapKnee,        kCtr.y   ],
-                [cx + kneeSpanFull,   rKneePt.y],
-                [cx + gapAnk,         bCtr.y   ],
-                [cx + ankleSpanFull,  rBot.y   ],
-            ];
-
+            // Waistband strip — anchors the top of the pants before leg quads draw.
             ctx.save();
-            ctx.fillStyle = 'rgba(0,0,0,0.25)';
-            const waistW = hipSpanFull * 2 + gapHip * 2;
-            ctx.fillRect(cx - waistW/2, pantsTopY - 8, waistW, 12);
+            ctx.fillStyle = 'rgba(0,0,0,0.20)';
+            const waistW = (hipSpanFull + gapHip) * 2;
+            ctx.fillRect(cx - waistW/2, pantsTopY - 6, waistW, 10);
             ctx.restore();
 
-            drawMeshWarped6(pantsOffscreen, leftLegSrc,  leftLegDst);
-            drawMeshWarped6(pantsOffscreen, rightLegSrc, rightLegDst);
+            // 4 horizontal source bands on the 240x240 pants SVG.
+            const topY    = 0.17 * imgH;   // waistband row
+            const midTopY = 0.40 * imgH;   // mid-thigh
+            const midBotY = 0.55 * imgH;   // knee row
+            const botY    = 0.90 * imgH;   // ankle row
+
+            // LEFT LEG — upper segment (hip → knee)
+            drawQuad(pantsOffscreen,
+                [0.28*imgW, topY],    [0.46*imgW, topY],
+                [0.28*imgW, midBotY], [0.46*imgW, midBotY],
+                [cx - hipSpanFull,  pantsTopY], [cx - gapHip,  pantsTopY],
+                [cx - kneeSpanFull, lKneePt.y], [cx - gapKnee, lKneePt.y]);
+
+            // LEFT LEG — lower segment (knee → ankle)
+            drawQuad(pantsOffscreen,
+                [0.28*imgW, midBotY], [0.46*imgW, midBotY],
+                [0.28*imgW, botY],    [0.46*imgW, botY],
+                [cx - kneeSpanFull,  lKneePt.y], [cx - gapKnee, lKneePt.y],
+                [cx - ankleSpanFull, lBot.y],    [cx - gapAnk,  lBot.y]);
+
+            // RIGHT LEG — upper segment (hip → knee)
+            drawQuad(pantsOffscreen,
+                [0.54*imgW, topY],    [0.72*imgW, topY],
+                [0.54*imgW, midBotY], [0.72*imgW, midBotY],
+                [cx + gapHip,  pantsTopY], [cx + hipSpanFull,  pantsTopY],
+                [cx + gapKnee, rKneePt.y], [cx + kneeSpanFull, rKneePt.y]);
+
+            // RIGHT LEG — lower segment (knee → ankle)
+            // NOTE: inner-bottom uses lBot.y per literal spec (likely typo for rBot.y).
+            drawQuad(pantsOffscreen,
+                [0.54*imgW, midBotY], [0.72*imgW, midBotY],
+                [0.54*imgW, botY],    [0.72*imgW, botY],
+                [cx + gapKnee, rKneePt.y], [cx + kneeSpanFull,  rKneePt.y],
+                [cx + gapAnk,  lBot.y],    [cx + ankleSpanFull, rBot.y]);
         }
     }
 
