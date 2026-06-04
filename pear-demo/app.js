@@ -297,7 +297,7 @@
         const seam   = _darken (color, 0.40);
         const fold   = _darken (color, 0.35);   // fold-line color (subtle, opacity 0.08)
         // Body path now uses the rounded crew-neck notch (no spike).
-        const path   = 'M70 55 L90 50 Q120 68 150 50 L170 55 L200 90 L172 112 L172 200 L68 200 L68 112 L40 90 Z';
+        const path   = 'M58 55 L90 50 Q120 68 150 50 L182 55 L200 90 L182 112 L182 200 L58 200 L58 112 L40 90 Z';
         const id = 'g' + Math.random().toString(36).slice(2, 8);
 
         // Sleeves: curved edges + natural taper, anchored to the SAME shoulder
@@ -385,7 +385,7 @@
         const pocket = _darken (color, 0.20);
         const knee   = _darken (color, 0.10);   // 10% darker for knee-bend shading
         // Two-leg path: waistband (66-174 @ y=40-55) + two tapered legs joined at crotch (120,100).
-        const path   = 'M66 40 L174 40 L174 55 L135 55 L166 212 L128 212 L120 100 L112 212 L74 212 L106 55 L66 55 Z';
+        const path   = 'M58 40 L182 40 L182 55 L145 55 L176 212 L138 212 L120 100 L102 212 L64 212 L96 55 L58 55 Z';
         const id = 'g' + Math.random().toString(36).slice(2, 8);
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
@@ -798,7 +798,7 @@
             // shoulders") and the geometric base-of-neck (0.08 torso below). The
             // 50/50 blend keeps the collar opening pinned to the clavicle line
             // regardless of how the shoulder line tilts when the user turns.
-            const neckPt = along(sCenter, -0.12);
+            const neckPt = along(sCenter, -0.22);
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
@@ -902,11 +902,11 @@
             ];
             const leftLegDst = [
                 [scaleX(cx, lHip.x,    pScale * 1.3), pantsTopY],
-                [cx - gapHip,                          pantsTopY],
+                [cx - gapHip  - shoulderWidth * 0.18,  pantsTopY],
                 [scaleX(cx, lKneePt.x, pScale * 1.3), lKneePt.y],
-                [cx - gapKnee,                         kCtr.y   ],
+                [cx - gapKnee - shoulderWidth * 0.18,  kCtr.y   ],
                 [scaleX(cx, lBot.x,    pScale * 1.3), lBot.y   ],
-                [cx - gapAnk,                          bCtr.y   ],
+                [cx - gapAnk  - shoulderWidth * 0.18,  bCtr.y   ],
             ];
 
             // FIX 1 — mirror of leftLegSrc, inside the right leg shape.
@@ -916,11 +916,11 @@
                 [0.54*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
             ];
             const rightLegDst = [
-                [cx + gapHip,                          pantsTopY],
+                [cx + gapHip  + shoulderWidth * 0.18,  pantsTopY],
                 [scaleX(cx, rHip.x,    pScale * 1.3), pantsTopY],
-                [cx + gapKnee,                         kCtr.y   ],
+                [cx + gapKnee + shoulderWidth * 0.18,  kCtr.y   ],
                 [scaleX(cx, rKneePt.x, pScale * 1.3), rKneePt.y],
-                [cx + gapAnk,                          bCtr.y   ],
+                [cx + gapAnk  + shoulderWidth * 0.18,  bCtr.y   ],
                 [scaleX(cx, rBot.x,    pScale * 1.3), rBot.y   ],
             ];
 
