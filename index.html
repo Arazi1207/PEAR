@@ -1032,8 +1032,13 @@
     function _lighten(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r+(239-r)*p,g+(239-g)*p,b+(239-b)*p);}
     function _darken(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r*(1-p),g*(1-p),b*(1-p));}
 
-    function shirtSVG(color, sleeveType) {
+    // FIX 4 — shirtSVG now accepts a pattern param so visuals match catalog names:
+    //   'plain'   → solid colored shirt
+    //   'polo'    → vertical placket + 2 small buttons at the collar
+    //   'stripes' → 5 horizontal contrasting bands across the torso
+    function shirtSVG(color, sleeveType, pattern) {
         sleeveType = sleeveType || 'short';
+        pattern = pattern || 'plain';
         const top    = _lighten(color, 0.15);
         const bottom = _darken (color, 0.15);
         const dark   = _darken (color, 0.25);
@@ -1071,6 +1076,22 @@
             // crew-neck collar — flat rounded neckline (no spike)
             + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
             + `<path d='M93 60 Q120 72 147 60' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
+            // FIX 4 — pattern overlays so visuals match catalog names
+            + (pattern === 'polo'
+                // Vertical placket from collar dip to mid-chest + 2 buttons
+                ? `<line x1='120' y1='72' x2='120' y2='115' stroke='${seam}' stroke-width='1.6' opacity='0.85'/>`
+                  + `<circle cx='120' cy='86'  r='2.2' fill='${_lighten(color, 0.25)}' stroke='${edge}' stroke-width='0.8'/>`
+                  + `<circle cx='120' cy='102' r='2.2' fill='${_lighten(color, 0.25)}' stroke='${edge}' stroke-width='0.8'/>`
+                : '')
+            + (pattern === 'stripes'
+                // 4 horizontal contrasting bands across the torso
+                ? `<g opacity='0.85'>`
+                  + `<rect x='42'  y='95'  width='156' height='8' fill='${_lighten(color, 0.55)}'/>`
+                  + `<rect x='44'  y='125' width='152' height='8' fill='${_lighten(color, 0.55)}'/>`
+                  + `<rect x='46'  y='155' width='148' height='8' fill='${_lighten(color, 0.55)}'/>`
+                  + `<rect x='48'  y='185' width='144' height='8' fill='${_lighten(color, 0.55)}'/>`
+                  + `</g>`
+                : '')
             + `<g opacity='0.06' stroke='#000' stroke-width='1'>`
             +   `<line x1='50' y1='90'  x2='190' y2='90' />`
             +   `<line x1='52' y1='115' x2='188' y2='115'/>`
@@ -1121,13 +1142,15 @@
     }
 
     const GARMENT_CATALOG = [
-        // Shirts with sleeve variants
-        { name: 'חולצת פולו כחולה',  type: 'shirt', color: '#27496d', sleeve: 'short' },
-        { name: 'חולצה ארוכה בורדו', type: 'shirt', color: '#7a2d3b', sleeve: 'long'  },
-        { name: 'חולצה ירוקה קצרה',  type: 'shirt', color: '#2f5233', sleeve: 'short' },
-        { name: 'גופייה אפורה',       type: 'shirt', color: '#4a4a5a', sleeve: 'sleeveless' },
-        { name: 'חולצה לבנה ארוכה',   type: 'shirt', color: '#c8c8c8', sleeve: 'long'  },
-        { name: 'חולצת פסים',         type: 'shirt', color: '#1a3a5c', sleeve: 'short' },
+        // Shirts with sleeve variants + pattern that matches the displayed name
+        // FIX 4 — added 'pattern' so polo really looks like a polo (placket + buttons)
+        // and striped really has stripes. Plain items are unchanged.
+        { name: 'חולצת פולו כחולה',  type: 'shirt', color: '#27496d', sleeve: 'short', pattern: 'polo'    },
+        { name: 'חולצה ארוכה בורדו', type: 'shirt', color: '#7a2d3b', sleeve: 'long',  pattern: 'plain'   },
+        { name: 'חולצה ירוקה קצרה',  type: 'shirt', color: '#2f5233', sleeve: 'short', pattern: 'plain'   },
+        { name: 'גופייה אפורה',       type: 'shirt', color: '#4a4a5a', sleeve: 'sleeveless'                  },
+        { name: 'חולצה לבנה ארוכה',   type: 'shirt', color: '#c8c8c8', sleeve: 'long',  pattern: 'plain'   },
+        { name: 'חולצת פסים',         type: 'shirt', color: '#1a3a5c', sleeve: 'short', pattern: 'stripes' },
         // Pants
         { name: 'ג׳ינס כחול',          type: 'pants', color: '#34495e' },
         { name: 'מכנסיים שחורים',     type: 'pants', color: '#222a33' },
@@ -1146,8 +1169,12 @@
     // Active shirt's sleeve type — drives sleeve mesh quads in onResults().
     let currentShirtSleeve = 'short';
     // Active pants fit — drives leg-width scaling and inner-gap clamp.
+    // FIX 1 — All three values lifted substantially. The old 0.92/1.00/1.14 band
+    // pushed the outer leg edge no further out than the hip landmark, which made
+    // the pants look like leggings on a normal frame. The new values give pants
+    // the visible coverage of real garments (regular ≈ +25% beyond the hip line).
     let currentPantsFit = 'regular';
-    const PANTS_FIT_SCALE = { slim: 0.92, regular: 1.00, wide: 1.14 };
+    const PANTS_FIT_SCALE = { slim: 1.10, regular: 1.25, wide: 1.45 };
     // Cache last stable knee positions so a brief landmark loss doesn't collapse legs.
     const _pantsCache = { lKnee: null, rKnee: null };
 
@@ -1167,7 +1194,7 @@
                 img.crossOrigin = 'anonymous';
             } else {
                 const svg = item.type === 'shirt'
-                    ? shirtSVG(item.color, item.sleeve)
+                    ? shirtSVG(item.color, item.sleeve, item.pattern)
                     : pantsSVG(item.color);
                 img.src = svgToDataUri(svg);
             }
@@ -1307,9 +1334,12 @@
 
         // Sleeve end parameter along shoulder→elbow: short stops at mid-bicep.
         const tEnd = (type === 'long') ? 1.00 : 0.55;
-        // Width taper (shoulder cap → cuff). Long sleeves taper more (forearm narrows).
-        const wCap  = shoulderWidth * 0.26;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.12 : 0.18);
+        // FIX 2 — Width raised significantly. Real upper-arm circumference is
+        // ~35-45% of shoulder width, so the cap needs that much fabric to wrap
+        // around the arm instead of sitting on it like a ribbon. Forearm/cuff
+        // is narrower than bicep, but still substantial.
+        const wCap  = shoulderWidth * 0.42;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.22 : 0.32);
 
         // 4 rings at t = 0, 1/3, 2/3, 1 of the sleeve length.
         const rings = [];
@@ -1446,7 +1476,11 @@
             const hScale    = sizeScale * sideScale * distanceFactor;
 
             // 9 destination control points anchored to body landmarks
-            const neckPt = along(sCenter, -0.30);       // 30% torso above shoulders = neck
+            // FIX 3 — neckPt now sits at the BASE of the neck (slightly INTO the chest),
+            // not 30% above the shoulders. The old -0.30 stretched the shirt's top edge
+            // up to chin level and hid the user's neck. +0.06 places the collar opening
+            // at shoulder/clavicle level so the actual neck stays visible.
+            const neckPt = along(sCenter, 0.06);
             const lApt   = along(lShoulder,  0.25);     // 25% torso below lShoulder = left armpit
             const rApt   = along(rShoulder,  0.25);
             const tCtr   = { x: (sCenter.x + hCenter.x) / 2, y: (sCenter.y + hCenter.y) / 2 };
@@ -1522,20 +1556,28 @@
             const pScale = sideScale * (SIZE_MULTIPLIERS[currentUserSize] || 1.00) * distanceFactor * fitScale;
             const cx = hCenter.x;
 
-            // Minimum inner-gap (px) between the two legs — prevents collapse on side view
-            // or when landmarks are noisy. Wide fit pushes the inner edge farther from center.
+            // FIX 1 — Inner-edge gap raised from ~4% to ~12% of hip span. The inner
+            // column now sits well across the body center so each leg has visible
+            // crotch coverage. Knee/ankle gaps stay close to the hip gap (no aggressive
+            // taper) so the leg doesn't pinch into a cone toward the floor.
             const hipSpan = Math.abs(lHip.x - rHip.x) || 1;
-            const baseGap = Math.max(4, hipSpan * 0.04);
-            const gapHip  = baseGap * (currentPantsFit === 'slim' ? 0.85 : (currentPantsFit === 'wide' ? 1.35 : 1.00));
-            const gapKnee = gapHip * 1.15;
-            const gapAnk  = gapHip * 1.30;
+            const baseGap = Math.max(14, hipSpan * 0.12);
+            const fitBias = (currentPantsFit === 'slim' ? 0.85
+                          : currentPantsFit === 'wide' ? 1.35 : 1.00);
+            const gapHip  = baseGap * fitBias;
+            const gapKnee = gapHip  * 1.00;
+            const gapAnk  = gapHip  * 0.95;
 
             // Two-leg system: each leg warps independently so it follows its own knee + ankle.
             // Column order per leg: row entry 0 = outer edge, entry 1 = inner edge (near body center).
+            // FIX 1 — src x-range moved INSIDE the actual SVG leg shape (x≈0.28–0.46 left,
+            // x≈0.54–0.72 right). The old range (0.06–0.45) sampled mostly transparent
+            // background outside the leg, which is why pants rendered as a thin strip
+            // — half the fabric was missing.
             const leftLegSrc = [
-                [0.10*imgW, 0.03*imgH], [0.45*imgW, 0.03*imgH],
-                [0.08*imgW, 0.50*imgH], [0.43*imgW, 0.52*imgH],
-                [0.06*imgW, 0.97*imgH], [0.42*imgW, 0.97*imgH],
+                [0.28*imgW, 0.18*imgH], [0.46*imgW, 0.18*imgH],
+                [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
+                [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
             ];
             const leftLegDst = [
                 [scaleX(cx, lHip.x,    pScale), pantsTopY],
@@ -1546,10 +1588,11 @@
                 [cx - gapAnk,                    bCtr.y   ],
             ];
 
+            // FIX 1 — mirror of leftLegSrc, inside the right leg shape.
             const rightLegSrc = [
-                [0.55*imgW, 0.03*imgH], [0.90*imgW, 0.03*imgH],
-                [0.57*imgW, 0.52*imgH], [0.92*imgW, 0.50*imgH],
-                [0.58*imgW, 0.97*imgH], [0.94*imgW, 0.97*imgH],
+                [0.54*imgW, 0.18*imgH], [0.72*imgW, 0.18*imgH],
+                [0.54*imgW, 0.50*imgH], [0.70*imgW, 0.50*imgH],
+                [0.54*imgW, 0.88*imgH], [0.69*imgW, 0.88*imgH],
             ];
             const rightLegDst = [
                 [cx + gapHip,                     pantsTopY],
