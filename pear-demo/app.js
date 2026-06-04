@@ -315,9 +315,11 @@
                 +   `<path d='M182 46 Q192 64 202 80'/>`
                 + `</g>`;
         } else if (sleeveType === 'long') {
-            // Long sleeve with a slight inward curve at the wrist (natural taper).
-            sleeves += `<path d='M70 55 Q48 100 14 180 Q22 184 30 185 Q44 130 55 42 Q62 48 70 55 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M170 55 Q192 100 226 180 Q218 184 210 185 Q196 130 185 42 Q178 48 170 55 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            // Long sleeve — thicker bicep, gentle taper to wrist. Joins flush at
+            // (68,58) / (172,58) which sit inside the body silhouette, so the body
+            // path (drawn after) covers the attachment seam cleanly.
+            sleeves += `<path d='M68 58 L55 42 L22 175 L42 188 L58 115 L68 90 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M172 58 L185 42 L218 175 L198 188 L182 115 L172 90 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M60 55 Q40 120 22 178'/>`
                 +   `<path d='M55 50 Q35 115 18 175'/>`
@@ -639,13 +641,13 @@
         const py = -dx / dlen * sign;
 
         // Sleeve end parameter along shoulder→elbow: short stops at mid-bicep.
-        const tEnd = (type === 'long') ? 1.00 : 0.55;
+        const tEnd = (type === 'long') ? 1.00 : 0.92;
         // FIX 2 — Width raised significantly. Real upper-arm circumference is
         // ~35-45% of shoulder width, so the cap needs that much fabric to wrap
         // around the arm instead of sitting on it like a ribbon. Forearm/cuff
         // is narrower than bicep, but still substantial.
-        const wCap  = shoulderWidth * 0.42;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.22 : 0.32);
+        const wCap  = shoulderWidth * 0.75;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.48 : 0.58);
 
         // 6 rings (5 quads) at t = 0, 1/5, 2/5, 3/5, 4/5, 1 — denser sampling
         // eliminates the visible gap between adjacent rings on long sleeves.
@@ -656,9 +658,11 @@
             const w = wCap + (wCuff - wCap) * f;
             const cxR = shoulder.x + dx * t;
             const cyR = shoulder.y + dy * t;
-            // Inner edge sits ON the shoulder→elbow line (touches the torso); outer is +perpendicular.
-            const inner = [cxR,            cyR           ];
-            const outer = [cxR + px * w,   cyR + py * w  ];
+            // Sleeve straddles the arm centerline: inner shifted body-side by 0.55w,
+            // outer shifted away-side by 0.45w. Total width 1.0w, but the pivot now
+            // sits OVER the arm so the underside is covered (no exposed skin).
+            const inner = [cxR - px * w * 0.55, cyR - py * w * 0.55];
+            const outer = [cxR + px * w * 0.45, cyR + py * w * 0.45];
             rings.push({ inner, outer });
         }
 
