@@ -657,14 +657,16 @@
         const px =  dy / dlen * sign;
         const py = -dx / dlen * sign;
 
-        // Sleeve end parameter along shoulder→elbow: short stops at mid-bicep.
-        const tEnd = (type === 'long') ? 1.00 : 0.92;
-        // FIX 2 — Width raised significantly. Real upper-arm circumference is
-        // ~35-45% of shoulder width, so the cap needs that much fabric to wrap
-        // around the arm instead of sitting on it like a ribbon. Forearm/cuff
-        // is narrower than bicep, but still substantial.
-        const wCap  = shoulderWidth * 0.75;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.48 : 0.58);
+        // Sleeve end parameter along shoulder→elbow: short stops at upper bicep,
+        // long extends past the wrist for visible cuff coverage.
+        const tEnd = (type === 'long') ? 1.15 : 0.62;
+        // Arm thickness estimate from shoulder→elbow distance, clamped to
+        // [0.7, 1.2]. Sleeve fabric width scales with the arm so thicker arms
+        // get more cap/cuff width.
+        const armLen = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y);
+        const armScale = Math.min(1.2, Math.max(0.7, armLen / (shoulderWidth * 1.2)));
+        const wCap  = shoulderWidth * 0.52 * armScale;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.30 : 0.42) * armScale;
 
         // 6 rings (5 quads) at t = 0, 1/5, 2/5, 3/5, 4/5, 1 — denser sampling
         // eliminates the visible gap between adjacent rings on long sleeves.
@@ -681,6 +683,12 @@
             const inner = [cxR - px * w * 0.55, cyR - py * w * 0.55];
             const outer = [cxR + px * w * 0.45, cyR + py * w * 0.45];
             rings.push({ inner, outer });
+        }
+
+        // Close the seam between short-sleeve cap and shirt body: pin the first
+        // ring's inner point exactly on the shoulder landmark so there's no gap.
+        if (type === 'short') {
+            rings[0].inner = [shoulder.x, shoulder.y];
         }
 
         // Source rings — sample the sleeve quadrilateral in the flat-lay SVG.
