@@ -918,9 +918,9 @@
                 [0.30*imgW, 0.50*imgH], [0.46*imgW, 0.50*imgH],
                 [0.31*imgW, 0.88*imgH], [0.46*imgW, 0.88*imgH],
             ];
-            const hipSpanFull   = Math.abs(lHip.x    - rHip.x   ) * pScale * 1.8;
-            const kneeSpanFull  = Math.abs(lKneePt.x - rKneePt.x) * pScale * 1.6;
-            const ankleSpanFull = Math.abs(lBot.x    - rBot.x   ) * pScale * 1.4;
+            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.8;
+            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.6;
+            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 1.4;
             const leftLegDst = [
                 [cx - hipSpanFull,    pantsTopY],
                 [cx - gapHip,         pantsTopY],
