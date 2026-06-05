@@ -960,16 +960,17 @@
             const gapAnk  = gapHip  * 0.95;
 
             // Six independent segments: { thigh, knee, calf } × { left, right }.
-            // Each leg's outer span is computed INDEPENDENTLY from its own
-            // landmark's distance to the hip-center cx, so moving one leg
-            // never deforms the other. Adjacent segments share edge coords
+            // Each leg's outer span tracks its own landmark independently, then
+            // is capped against shoulderWidth so a sideways-moving leg can't
+            // make the pant width explode. Adjacent segments share edge coords
             // so seams stay closed.
-            const lHipSpan   = Math.abs(lHip.x    - cx) * pScale * 1.35 * 2;
-            const rHipSpan   = Math.abs(rHip.x    - cx) * pScale * 1.35 * 2;
-            const lKneeSpan  = Math.abs(lKneePt.x - cx) * pScale * 1.20 * 2;
-            const rKneeSpan  = Math.abs(rKneePt.x - cx) * pScale * 1.20 * 2;
-            const lAnkleSpan = Math.abs(lBot.x    - cx) * pScale * 1.10 * 2;
-            const rAnkleSpan = Math.abs(rBot.x    - cx) * pScale * 1.10 * 2;
+            const maxSpan    = shoulderWidth * 0.9;
+            const lHipSpan   = Math.min(maxSpan,        Math.abs(lHip.x    - cx) * pScale * 1.10);
+            const rHipSpan   = Math.min(maxSpan,        Math.abs(rHip.x    - cx) * pScale * 1.10);
+            const lKneeSpan  = Math.min(maxSpan * 0.88, Math.abs(lKneePt.x - cx) * pScale * 1.00);
+            const rKneeSpan  = Math.min(maxSpan * 0.88, Math.abs(rKneePt.x - cx) * pScale * 1.00);
+            const lAnkleSpan = Math.min(maxSpan * 0.78, Math.abs(lBot.x    - cx) * pScale * 0.90);
+            const rAnkleSpan = Math.min(maxSpan * 0.78, Math.abs(rBot.x    - cx) * pScale * 0.90);
 
             const lMidThigh = { x: (lHip.x    + lKneePt.x) / 2, y: (lHip.y    + lKneePt.y) / 2 };
             const rMidThigh = { x: (rHip.x    + rKneePt.x) / 2, y: (rHip.y    + rKneePt.y) / 2 };
