@@ -308,8 +308,8 @@
             // Rectangular sleeve hanging from shoulder seam (y=55) to cuff
             // (y=105), with slight outward flare. Shoulder connector trapezoid
             // bridges the gap to the collar.
-            sleeves += `<path d='M58 55 L44 55 L40 105 L62 105 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 55 L196 55 L200 105 L178 105 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M58 55 L44 55 L44 100 L58 100 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L196 55 L196 100 L182 100 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M48 60 L46 102'/>`
                 +   `<path d='M52 60 L51 102'/>`
@@ -319,8 +319,8 @@
         } else if (sleeveType === 'long') {
             // Long sleeve — straight-down rectangle flaring outward to wrist
             // cuff (x=18/222, y=205). Shoulder connector bridges to the collar.
-            sleeves += `<path d='M58 55 L42 55 L18 195 L40 205 L62 115 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 55 L198 55 L222 195 L200 205 L178 115 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M58 55 L42 55 L42 205 L58 205 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L198 55 L198 205 L182 205 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M50 60 L30 198'/>`
                 +   `<path d='M46 60 L24 196'/>`
