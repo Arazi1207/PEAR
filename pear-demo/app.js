@@ -658,11 +658,16 @@
 
         const dlen = Math.hypot(dx, dy) || 1;
         const sign = (side === 'L') ? 1 : -1;
-        const px =  dy / dlen * sign;
-        const py = -dx / dlen * sign;
+        let px =  dy / dlen * sign;
+        let py = -dx / dlen * sign;
+        // Gravity bias — biases the perpendicular push downward so sleeves hang
+        // naturally instead of jutting straight out from the shoulder.
+        py = py + 0.25;
+        const pLen = Math.hypot(px, py);
+        px = px/pLen; py = py/pLen;
 
         // Sleeve end parameter along shoulder→elbow.
-        const tEnd = (type === 'long') ? 1.30 : 0.62;
+        const tEnd = (type === 'long') ? 1.30 : 0.75;
         // Arm thickness estimate from shoulder→elbow distance, clamped to [0.7, 1.2].
         const armLen = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y);
         const armScale = Math.min(1.2, Math.max(0.7, armLen / (shoulderWidth * 1.2)));
@@ -894,29 +899,24 @@
 
             drawMeshWarped(shirtOffscreen, src, dst);
 
-            // Shoulder bridge — fills the seam gap between shirt body edge and
-            // sleeve cap (drawn AFTER torso since existing order is sleeves→torso).
-            if (rings_L && rings_R) {
-                const sc = shirtOffscreen.getContext('2d').getImageData(120, 120, 1, 1).data;
+            // Sleeve→torso connector quad — fills the seam gap between the shirt
+            // body edge and the sleeve cap.
+            function fillSleeveJoin(shirtRingInner, shirtRingOuter, dstShoulderTop, dstArmpitSide) {
                 ctx.save();
-                ctx.fillStyle = `rgba(${sc[0]},${sc[1]},${sc[2]},0.95)`;
-                // Left bridge: shoulder corner → armpit → sleeve cap inner → outer
+                const px = shirtOffscreen.getContext('2d').getImageData(120,80,1,1).data;
+                ctx.fillStyle = `rgba(${px[0]},${px[1]},${px[2]},1.0)`;
                 ctx.beginPath();
-                ctx.moveTo(dst[0][0], dst[0][1]);
-                ctx.lineTo(dst[3][0], dst[3][1]);
-                ctx.lineTo(rings_L[0].inner[0], rings_L[0].inner[1]);
-                ctx.lineTo(rings_L[0].outer[0], rings_L[0].outer[1]);
-                ctx.closePath();
-                ctx.fill();
-                // Right bridge: mirrored
-                ctx.beginPath();
-                ctx.moveTo(dst[2][0], dst[2][1]);
-                ctx.lineTo(dst[5][0], dst[5][1]);
-                ctx.lineTo(rings_R[0].inner[0], rings_R[0].inner[1]);
-                ctx.lineTo(rings_R[0].outer[0], rings_R[0].outer[1]);
+                ctx.moveTo(dstShoulderTop[0], dstShoulderTop[1]);
+                ctx.lineTo(dstArmpitSide[0],  dstArmpitSide[1]);
+                ctx.lineTo(shirtRingInner[0], shirtRingInner[1]);
+                ctx.lineTo(shirtRingOuter[0], shirtRingOuter[1]);
                 ctx.closePath();
                 ctx.fill();
                 ctx.restore();
+            }
+            if (rings_L && rings_R) {
+                fillSleeveJoin(rings_L[0].inner, rings_L[0].outer, dst[0], dst[3]);
+                fillSleeveJoin(rings_R[0].inner, rings_R[0].outer, dst[2], dst[5]);
             }
 
             shirtBottomY = (dst[6][1] + dst[7][1] + dst[8][1]) / 3;
