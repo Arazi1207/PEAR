@@ -623,6 +623,26 @@
         drawWarpedTri(img, [s1, s3, s2], [d1, d3, d2]);
     }
 
+    // Build the 4 dst corners of one leg segment by extruding the segment's
+    // top→bottom direction vector perpendicularly. Same principle as the
+    // sleeve warp: each section follows its own local axis so bending the
+    // knee rotates the calf without dragging the thigh.
+    // side='L' pushes outer to the geometric left of the bone, 'R' to the right.
+    function buildLegSegment(topPt, botPt, topWidth, botWidth, gap, side) {
+        const dx = botPt.x - topPt.x;
+        const dy = botPt.y - topPt.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const sign = (side === 'L') ? 1 : -1;
+        const px = sign * (-dy / len);
+        const py = sign * ( dx / len);
+        return {
+            outerTop: [topPt.x + px * topWidth, topPt.y + py * topWidth],
+            innerTop: [topPt.x - px * gap,      topPt.y - py * gap],
+            outerBot: [botPt.x + px * botWidth, botPt.y + py * botWidth],
+            innerBot: [botPt.x - px * gap,      botPt.y - py * gap],
+        };
+    }
+
     // Sleeve direction cache — used to fall back gracefully when an elbow landmark
     // visibility drops, and to smooth jitter frame-to-frame.
     const _sleeveCache = { L: null, R: null };
@@ -993,47 +1013,66 @@
             const kneeBotY  = 0.58 * imgH;   // = calf top
             const calfBotY  = 0.90 * imgH;
 
-            // LEFT THIGH (hip → midThigh)
-            drawQuad(pantsOffscreen,
-                [0.28*imgW, thighTopY], [0.46*imgW, thighTopY],
-                [0.28*imgW, thighBotY], [0.46*imgW, thighBotY],
-                [cx - lHipSpan,        pantsTopY],   [cx - gapHip,        pantsTopY],
-                [cx - lHipSpan * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y]);
+            // LEFT THIGH (hip → midThigh) — segment direction follows lHip→lMidThigh.
+            {
+                const seg = buildLegSegment(lHip, lMidThigh, lHipSpan, lHipSpan * 0.94, gapHip, 'L');
+                drawQuad(pantsOffscreen,
+                    [0.28*imgW, thighTopY], [0.46*imgW, thighTopY],
+                    [0.28*imgW, thighBotY], [0.46*imgW, thighBotY],
+                    seg.outerTop, seg.innerTop,
+                    seg.outerBot, seg.innerBot);
+            }
 
-            // LEFT KNEE (midThigh → knee)
-            drawQuad(pantsOffscreen,
-                [0.29*imgW, thighBotY], [0.45*imgW, thighBotY],
-                [0.29*imgW, kneeBotY],  [0.45*imgW, kneeBotY],
-                [cx - lHipSpan * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y],
-                [cx - lKneeSpan,       lKneePt.y],   [cx - gapKnee,       lKneePt.y]);
+            // LEFT KNEE (midThigh → knee) — independent direction lMidThigh→lKneePt.
+            {
+                const seg = buildLegSegment(lMidThigh, lKneePt, lHipSpan * 0.94, lKneeSpan, gapKnee, 'L');
+                drawQuad(pantsOffscreen,
+                    [0.29*imgW, thighBotY], [0.45*imgW, thighBotY],
+                    [0.29*imgW, kneeBotY],  [0.45*imgW, kneeBotY],
+                    seg.outerTop, seg.innerTop,
+                    seg.outerBot, seg.innerBot);
+            }
 
-            // LEFT CALF (knee → ankle)
-            drawQuad(pantsOffscreen,
-                [0.30*imgW, kneeBotY], [0.44*imgW, kneeBotY],
-                [0.30*imgW, calfBotY], [0.44*imgW, calfBotY],
-                [cx - lKneeSpan,  lKneePt.y], [cx - gapKnee, lKneePt.y],
-                [cx - lAnkleSpan, lBot.y],    [cx - gapAnk,  lBot.y]);
+            // LEFT CALF (knee → ankle) — independent direction lKneePt→lBot.
+            {
+                const seg = buildLegSegment(lKneePt, lBot, lKneeSpan, lAnkleSpan, gapAnk, 'L');
+                drawQuad(pantsOffscreen,
+                    [0.30*imgW, kneeBotY], [0.44*imgW, kneeBotY],
+                    [0.30*imgW, calfBotY], [0.44*imgW, calfBotY],
+                    seg.outerTop, seg.innerTop,
+                    seg.outerBot, seg.innerBot);
+            }
 
-            // RIGHT THIGH (hip → midThigh)
-            drawQuad(pantsOffscreen,
-                [0.54*imgW, thighTopY], [0.72*imgW, thighTopY],
-                [0.54*imgW, thighBotY], [0.72*imgW, thighBotY],
-                [cx + gapHip,        pantsTopY],   [cx + rHipSpan,        pantsTopY],
-                [cx + gapHip * 0.96, rMidThigh.y], [cx + rHipSpan * 0.94, rMidThigh.y]);
+            // RIGHT THIGH (hip → midThigh). SVG right-leg src goes inner→outer
+            // (low x = center side), so dst order is inner, outer.
+            {
+                const seg = buildLegSegment(rHip, rMidThigh, rHipSpan, rHipSpan * 0.94, gapHip, 'R');
+                drawQuad(pantsOffscreen,
+                    [0.54*imgW, thighTopY], [0.72*imgW, thighTopY],
+                    [0.54*imgW, thighBotY], [0.72*imgW, thighBotY],
+                    seg.innerTop, seg.outerTop,
+                    seg.innerBot, seg.outerBot);
+            }
 
-            // RIGHT KNEE (midThigh → knee)
-            drawQuad(pantsOffscreen,
-                [0.55*imgW, thighBotY], [0.71*imgW, thighBotY],
-                [0.55*imgW, kneeBotY],  [0.71*imgW, kneeBotY],
-                [cx + gapHip * 0.96, rMidThigh.y], [cx + rHipSpan * 0.94, rMidThigh.y],
-                [cx + gapKnee,       rKneePt.y],   [cx + rKneeSpan,       rKneePt.y]);
+            // RIGHT KNEE (midThigh → knee).
+            {
+                const seg = buildLegSegment(rMidThigh, rKneePt, rHipSpan * 0.94, rKneeSpan, gapKnee, 'R');
+                drawQuad(pantsOffscreen,
+                    [0.55*imgW, thighBotY], [0.71*imgW, thighBotY],
+                    [0.55*imgW, kneeBotY],  [0.71*imgW, kneeBotY],
+                    seg.innerTop, seg.outerTop,
+                    seg.innerBot, seg.outerBot);
+            }
 
-            // RIGHT CALF (knee → ankle)
-            drawQuad(pantsOffscreen,
-                [0.56*imgW, kneeBotY], [0.70*imgW, kneeBotY],
-                [0.56*imgW, calfBotY], [0.70*imgW, calfBotY],
-                [cx + gapKnee,  rKneePt.y], [cx + rKneeSpan,  rKneePt.y],
-                [cx + gapAnk,   rBot.y],    [cx + rAnkleSpan, rBot.y]);
+            // RIGHT CALF (knee → ankle).
+            {
+                const seg = buildLegSegment(rKneePt, rBot, rKneeSpan, rAnkleSpan, gapAnk, 'R');
+                drawQuad(pantsOffscreen,
+                    [0.56*imgW, kneeBotY], [0.70*imgW, kneeBotY],
+                    [0.56*imgW, calfBotY], [0.70*imgW, calfBotY],
+                    seg.innerTop, seg.outerTop,
+                    seg.innerBot, seg.outerBot);
+            }
         }
     }
 
