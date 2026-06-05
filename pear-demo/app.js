@@ -305,29 +305,27 @@
         let sleeves = '';
         let foldLines = '';
         if (sleeveType === 'short') {
-            // Sleeves hang straight DOWN from the shoulder seam along the side
-            // of the body. Slight outward flare from shoulder (44/196) to cuff
-            // (38/202).
-            sleeves += `<path d='M58 58 L44 58 L38 95 L58 95 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 58 L196 58 L202 95 L182 95 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            // Rectangular sleeve hanging from shoulder seam (y=55) to cuff
+            // (y=105), with slight outward flare. Shoulder connector trapezoid
+            // bridges the gap to the collar.
+            sleeves += `<path d='M58 55 L44 55 L40 105 L62 105 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L196 55 L200 105 L178 105 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M48 60 L45 93'/>`
-                +   `<path d='M52 60 L50 93'/>`
-                +   `<path d='M192 60 L195 93'/>`
-                +   `<path d='M188 60 L190 93'/>`
+                +   `<path d='M48 60 L46 102'/>`
+                +   `<path d='M52 60 L51 102'/>`
+                +   `<path d='M192 60 L194 102'/>`
+                +   `<path d='M188 60 L189 102'/>`
                 + `</g>`;
         } else if (sleeveType === 'long') {
-            // Long sleeves hang straight DOWN along the side of the body, flaring
-            // outward toward the wrist (cuff at 22/218). Joins at the shoulder
-            // seam (58/182) — inside the body silhouette so the body path covers
-            // the attachment cleanly.
-            sleeves += `<path d='M58 58 L42 58 L22 195 L44 210 L58 105 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 58 L198 58 L218 195 L196 210 L182 105 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            // Long sleeve — straight-down rectangle flaring outward to wrist
+            // cuff (x=18/222, y=205). Shoulder connector bridges to the collar.
+            sleeves += `<path d='M58 55 L42 55 L18 195 L40 205 L62 115 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L198 55 L222 195 L200 205 L178 115 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M50 60 L34 200'/>`
-                +   `<path d='M46 60 L28 198'/>`
-                +   `<path d='M190 60 L206 200'/>`
-                +   `<path d='M194 60 L212 198'/>`
+                +   `<path d='M50 60 L30 198'/>`
+                +   `<path d='M46 60 L24 196'/>`
+                +   `<path d='M190 60 L210 198'/>`
+                +   `<path d='M194 60 L216 196'/>`
                 + `</g>`;
         }
 
@@ -356,6 +354,10 @@
             + sleeves
             + `<path d='${path}' fill='url(#weave${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
+            // Shoulder connectors — filled trapezoids bridging collar base to
+            // sleeve top, creating one continuous shoulder seam.
+            + `<path d='M90 62 L58 55 L62 75 L95 72 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`
+            + `<path d='M150 62 L182 55 L178 75 L145 72 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`
             // crew-neck collar — flat rounded neckline (no spike)
             + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
             + `<path d='M93 60 Q120 72 147 60' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
