@@ -305,26 +305,29 @@
         let sleeves = '';
         let foldLines = '';
         if (sleeveType === 'short') {
-            // Left: shoulder(70,55) → cuff-inner(40,90) curved, around cuff to (28,75), curved up to shoulder-outer(55,42), back to (70,55).
-            sleeves += `<path d='M70 55 Q52 70 40 90 Q34 86 28 75 Q42 56 55 42 Q62 48 70 55 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M170 55 Q188 70 200 90 Q206 86 212 75 Q198 56 185 42 Q178 48 170 55 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            // Sleeves hang straight DOWN from the shoulder seam along the side
+            // of the body. Slight outward flare from shoulder (44/196) to cuff
+            // (38/202).
+            sleeves += `<path d='M58 58 L44 58 L38 95 L58 95 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 58 L196 58 L202 95 L182 95 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M62 50 Q52 68 42 84'/>`
-                +   `<path d='M58 46 Q48 64 38 80'/>`
-                +   `<path d='M178 50 Q188 68 198 84'/>`
-                +   `<path d='M182 46 Q192 64 202 80'/>`
+                +   `<path d='M48 60 L45 93'/>`
+                +   `<path d='M52 60 L50 93'/>`
+                +   `<path d='M192 60 L195 93'/>`
+                +   `<path d='M188 60 L190 93'/>`
                 + `</g>`;
         } else if (sleeveType === 'long') {
-            // Long sleeve — thicker bicep, gentle taper to wrist. Joins flush at
-            // (68,58) / (172,58) which sit inside the body silhouette, so the body
-            // path (drawn after) covers the attachment seam cleanly.
-            sleeves += `<path d='M68 58 L55 42 L22 175 L42 188 L58 115 L68 90 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M172 58 L185 42 L218 175 L198 188 L182 115 L172 90 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            // Long sleeves hang straight DOWN along the side of the body, flaring
+            // outward toward the wrist (cuff at 22/218). Joins at the shoulder
+            // seam (58/182) — inside the body silhouette so the body path covers
+            // the attachment cleanly.
+            sleeves += `<path d='M58 58 L42 58 L22 195 L44 210 L58 105 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 58 L198 58 L218 195 L196 210 L182 105 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M60 55 Q40 120 22 178'/>`
-                +   `<path d='M55 50 Q35 115 18 175'/>`
-                +   `<path d='M180 55 Q200 120 218 178'/>`
-                +   `<path d='M185 50 Q205 115 222 175'/>`
+                +   `<path d='M50 60 L34 200'/>`
+                +   `<path d='M46 60 L28 198'/>`
+                +   `<path d='M190 60 L206 200'/>`
+                +   `<path d='M194 60 L212 198'/>`
                 + `</g>`;
         }
 
