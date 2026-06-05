@@ -389,8 +389,19 @@
         const seam   = _darken (color, 0.45);
         const pocket = _darken (color, 0.20);
         const knee   = _darken (color, 0.10);   // 10% darker for knee-bend shading
-        // Two-leg path: waistband (66-174 @ y=40-55) + two tapered legs joined at crotch (120,100).
-        const path   = 'M58 40 L182 40 L182 55 L145 55 L176 212 L138 212 L120 100 L102 212 L64 212 L96 55 L58 55 Z';
+        // 3-segment-per-leg rectangle layout. Y joins (130, 155) shared exactly so
+        // no transparent gap appears at the segment boundaries.
+        //   waistband: x 66-174,  y 40-55
+        //   L upper  : x 75-115,  y 55-130     L middle: x 78-112, y 130-155     L lower: x 80-110, y 155-210
+        //   R upper  : x 125-165, y 55-130     R middle: x 128-162, y 130-155    R lower: x 130-160, y 155-210
+        const path   =
+              'M66 40 L174 40 L174 55 L66 55 Z'           // waistband
+            + ' M75 55 L115 55 L115 130 L75 130 Z'        // L upper
+            + ' M78 130 L112 130 L112 155 L78 155 Z'      // L middle
+            + ' M80 155 L110 155 L110 210 L80 210 Z'      // L lower
+            + ' M125 55 L165 55 L165 130 L125 130 Z'      // R upper
+            + ' M128 130 L162 130 L162 155 L128 155 Z'    // R middle
+            + ' M130 155 L160 155 L160 210 L130 210 Z';   // R lower
         const id = 'g' + Math.random().toString(36).slice(2, 8);
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
@@ -412,10 +423,6 @@
             + `<path d='${path}' fill='url(#r${id})'/>`
             // waistband band
             + `<rect x='66' y='40' width='108' height='10' fill='${pocket}' opacity='0.55'/>`
-            // center seam (waistband → crotch) and inner-leg seams
-            + `<line x1='120' y1='40' x2='120' y2='96' stroke='${seam}' stroke-width='1.2' opacity='0.75'/>`
-            + `<line x1='120' y1='96' x2='128' y2='212' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
-            + `<line x1='120' y1='96' x2='112' y2='212' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
             // pockets near top
             + `<rect x='74'  y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
             + `<rect x='138' y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
@@ -660,7 +667,7 @@
         const armLen = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y);
         const armScale = Math.min(1.2, Math.max(0.7, armLen / (shoulderWidth * 1.2)));
         const wCap  = shoulderWidth * (type === 'long' ? 0.50 : 0.52) * armScale;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.26 : 0.42) * armScale;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.38 : 0.42) * armScale;
 
         // Ring layout:
         //   short: 8 rings (i=0..7), 7 quads — denser bend tracking
@@ -734,6 +741,8 @@
                 [a.outer, b.outer, b.inner],
                 [A.outer, B.outer, B.inner]);
         }
+
+        return rings;
     }
 
     // === Multiply-blend shadow under armpits for depth realism ===
@@ -876,13 +885,39 @@
 
             // Sleeves drawn BEFORE torso so the shirt body renders ON TOP of the
             // sleeves when arms are down (otherwise sleeves would hide the shirt body).
+            let rings_L = null, rings_R = null;
             if (!isSideways && currentShirtSleeve !== 'sleeveless') {
                 const lEv = raw(13).v, rEv = raw(14).v;
-                drawSleeveQuad('L', currentShirtSleeve, imgW, imgH, lShoulder, lElbow, shoulderWidth, lEv, raw(15));
-                drawSleeveQuad('R', currentShirtSleeve, imgW, imgH, rShoulder, rElbow, shoulderWidth, rEv, raw(16));
+                rings_L = drawSleeveQuad('L', currentShirtSleeve, imgW, imgH, lShoulder, lElbow, shoulderWidth, lEv, raw(15));
+                rings_R = drawSleeveQuad('R', currentShirtSleeve, imgW, imgH, rShoulder, rElbow, shoulderWidth, rEv, raw(16));
             }
 
             drawMeshWarped(shirtOffscreen, src, dst);
+
+            // Shoulder bridge — fills the seam gap between shirt body edge and
+            // sleeve cap (drawn AFTER torso since existing order is sleeves→torso).
+            if (rings_L && rings_R) {
+                const sc = shirtOffscreen.getContext('2d').getImageData(120, 120, 1, 1).data;
+                ctx.save();
+                ctx.fillStyle = `rgba(${sc[0]},${sc[1]},${sc[2]},0.95)`;
+                // Left bridge: shoulder corner → armpit → sleeve cap inner → outer
+                ctx.beginPath();
+                ctx.moveTo(dst[0][0], dst[0][1]);
+                ctx.lineTo(dst[3][0], dst[3][1]);
+                ctx.lineTo(rings_L[0].inner[0], rings_L[0].inner[1]);
+                ctx.lineTo(rings_L[0].outer[0], rings_L[0].outer[1]);
+                ctx.closePath();
+                ctx.fill();
+                // Right bridge: mirrored
+                ctx.beginPath();
+                ctx.moveTo(dst[2][0], dst[2][1]);
+                ctx.lineTo(dst[5][0], dst[5][1]);
+                ctx.lineTo(rings_R[0].inner[0], rings_R[0].inner[1]);
+                ctx.lineTo(rings_R[0].outer[0], rings_R[0].outer[1]);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
 
             shirtBottomY = (dst[6][1] + dst[7][1] + dst[8][1]) / 3;
         }
@@ -926,15 +961,12 @@
             const gapAnk  = gapHip  * 0.95;
 
             // Per-leg, per-segment warp. Each leg is split into THREE quads:
-            //   upper-upper: hip      → mid-thigh
-            //   upper-lower: mid-thigh → knee
-            //   lower:       knee     → ankle
-            // The denser thigh mesh tracks the leg shape more accurately.
-            const hipSpanFull       = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.40;
-            const kneeSpanFull      = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
-            const ankleSpanFull     = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.95;
-            // Mid-thigh outer width: lerp at t=0.5 between hipSpanFull and kneeSpanFull.
-            const midThighSpanFull  = (hipSpanFull + kneeSpanFull) / 2;
+            //   upper  (hip       → midThigh): quadriceps
+            //   middle (midThigh  → knee    ): knee area
+            //   lower  (knee      → ankle   ): calf/shin
+            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.35;
+            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.05;
+            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 0.95;
             // Mid-thigh anchors — midpoint between hip and knee per leg.
             const lMidThigh = { x: (lHip.x + lKneePt.x) / 2, y: (lHip.y + lKneePt.y) / 2 };
             const rMidThigh = { x: (rHip.x + rKneePt.x) / 2, y: (rHip.y + rKneePt.y) / 2 };
@@ -952,19 +984,19 @@
             const midBotY = 0.55 * imgH;   // knee row
             const botY    = 0.90 * imgH;   // ankle row
 
-            // LEFT LEG — upper-upper (hip → mid-thigh)
+            // LEFT LEG — upper (hip → midThigh)
             drawQuad(pantsOffscreen,
                 [0.28*imgW, topY],    [0.46*imgW, topY],
                 [0.28*imgW, midTopY], [0.46*imgW, midTopY],
-                [cx - hipSpanFull,      pantsTopY],   [cx - gapHip, pantsTopY],
-                [cx - midThighSpanFull, lMidThigh.y], [cx - gapHip, lMidThigh.y]);
+                [cx - hipSpanFull,        pantsTopY],   [cx - gapHip,        pantsTopY],
+                [cx - hipSpanFull * 0.92, lMidThigh.y], [cx - gapHip * 0.95, lMidThigh.y]);
 
-            // LEFT LEG — upper-lower (mid-thigh → knee)
+            // LEFT LEG — middle (midThigh → knee)
             drawQuad(pantsOffscreen,
                 [0.28*imgW, midTopY], [0.46*imgW, midTopY],
                 [0.28*imgW, midBotY], [0.46*imgW, midBotY],
-                [cx - midThighSpanFull, lMidThigh.y], [cx - gapHip,  lMidThigh.y],
-                [cx - kneeSpanFull,     lKneePt.y],   [cx - gapKnee, lKneePt.y]);
+                [cx - hipSpanFull * 0.92, lMidThigh.y], [cx - gapHip * 0.95, lMidThigh.y],
+                [cx - kneeSpanFull,       lKneePt.y],   [cx - gapKnee,       lKneePt.y]);
 
             // LEFT LEG — lower (knee → ankle)
             drawQuad(pantsOffscreen,
@@ -973,19 +1005,19 @@
                 [cx - kneeSpanFull,  lKneePt.y], [cx - gapKnee, lKneePt.y],
                 [cx - ankleSpanFull, lBot.y],    [cx - gapAnk,  lBot.y]);
 
-            // RIGHT LEG — upper-upper (hip → mid-thigh)
+            // RIGHT LEG — upper (hip → midThigh)
             drawQuad(pantsOffscreen,
                 [0.54*imgW, topY],    [0.72*imgW, topY],
                 [0.54*imgW, midTopY], [0.72*imgW, midTopY],
-                [cx + gapHip, pantsTopY],   [cx + hipSpanFull,      pantsTopY],
-                [cx + gapHip, rMidThigh.y], [cx + midThighSpanFull, rMidThigh.y]);
+                [cx + gapHip,        pantsTopY],   [cx + hipSpanFull,        pantsTopY],
+                [cx + gapHip * 0.95, rMidThigh.y], [cx + hipSpanFull * 0.92, rMidThigh.y]);
 
-            // RIGHT LEG — upper-lower (mid-thigh → knee)
+            // RIGHT LEG — middle (midThigh → knee)
             drawQuad(pantsOffscreen,
                 [0.54*imgW, midTopY], [0.72*imgW, midTopY],
                 [0.54*imgW, midBotY], [0.72*imgW, midBotY],
-                [cx + gapHip,  rMidThigh.y], [cx + midThighSpanFull, rMidThigh.y],
-                [cx + gapKnee, rKneePt.y],   [cx + kneeSpanFull,     rKneePt.y]);
+                [cx + gapHip * 0.95, rMidThigh.y], [cx + hipSpanFull * 0.92, rMidThigh.y],
+                [cx + gapKnee,       rKneePt.y],   [cx + kneeSpanFull,       rKneePt.y]);
 
             // RIGHT LEG — lower (knee → ankle)
             // NOTE: inner-bottom uses lBot.y per literal spec (likely typo for rBot.y).
