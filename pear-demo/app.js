@@ -308,8 +308,8 @@
             // Rectangular sleeve hanging from shoulder seam (y=55) to cuff
             // (y=105), with slight outward flare. Shoulder connector trapezoid
             // bridges the gap to the collar.
-            sleeves += `<path d='M58 55 L44 55 L44 100 L58 100 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 55 L196 55 L196 100 L182 100 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M44 55 L58 55 L58 108 L44 108 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L196 55 L196 108 L182 108 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M48 60 L46 102'/>`
                 +   `<path d='M52 60 L51 102'/>`
@@ -319,8 +319,8 @@
         } else if (sleeveType === 'long') {
             // Long sleeve — straight-down rectangle flaring outward to wrist
             // cuff (x=18/222, y=205). Shoulder connector bridges to the collar.
-            sleeves += `<path d='M58 55 L42 55 L42 205 L58 205 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
-            sleeves += `<path d='M182 55 L198 55 L198 205 L182 205 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M58 55 L42 55 L22 195 L44 210 L58 105 Z' fill='url(#vL${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
+            sleeves += `<path d='M182 55 L198 55 L218 195 L196 210 L182 105 Z' fill='url(#vR${id})' stroke='${edge}' stroke-width='1.4' stroke-linejoin='round'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M50 60 L30 198'/>`
                 +   `<path d='M46 60 L24 196'/>`
@@ -352,12 +352,13 @@
             +   `</pattern>`
             + `</defs>`
             + sleeves
+            // Shoulder connectors — flat rectangular patches between sleeve top
+            // and collar base. Drawn BEFORE the body path so the body silhouette
+            // covers the inner join cleanly.
+            + `<path d='M58 55 L90 60 L90 75 L58 75 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='0.8'/>`
+            + `<path d='M182 55 L150 60 L150 75 L182 75 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='0.8'/>`
             + `<path d='${path}' fill='url(#weave${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
-            // Shoulder connectors — filled trapezoids bridging collar base to
-            // sleeve top, creating one continuous shoulder seam.
-            + `<path d='M90 62 L58 55 L62 75 L95 72 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`
-            + `<path d='M150 62 L182 55 L178 75 L145 72 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`
             // crew-neck collar — flat rounded neckline (no spike)
             + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
             + `<path d='M93 60 Q120 72 147 60' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
