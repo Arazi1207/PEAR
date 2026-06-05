@@ -957,11 +957,16 @@
             const gapAnk  = gapHip  * 0.95;
 
             // Six independent segments: { thigh, knee, calf } × { left, right }.
-            // Each segment = one drawQuad. Adjacent segments share edge coords
-            // so seams stay closed even though each transform is independent.
-            const hipSpanFull   = (Math.abs(lHip.x    - rHip.x   ) / 2) * pScale * 1.35;
-            const kneeSpanFull  = (Math.abs(lKneePt.x - rKneePt.x) / 2) * pScale * 1.20;
-            const ankleSpanFull = (Math.abs(lBot.x    - rBot.x   ) / 2) * pScale * 1.10;
+            // Each leg's outer span is computed INDEPENDENTLY from its own
+            // landmark's distance to the hip-center cx, so moving one leg
+            // never deforms the other. Adjacent segments share edge coords
+            // so seams stay closed.
+            const lHipSpan   = Math.abs(lHip.x    - cx) * pScale * 1.35 * 2;
+            const rHipSpan   = Math.abs(rHip.x    - cx) * pScale * 1.35 * 2;
+            const lKneeSpan  = Math.abs(lKneePt.x - cx) * pScale * 1.20 * 2;
+            const rKneeSpan  = Math.abs(rKneePt.x - cx) * pScale * 1.20 * 2;
+            const lAnkleSpan = Math.abs(lBot.x    - cx) * pScale * 1.10 * 2;
+            const rAnkleSpan = Math.abs(rBot.x    - cx) * pScale * 1.10 * 2;
 
             const lMidThigh = { x: (lHip.x    + lKneePt.x) / 2, y: (lHip.y    + lKneePt.y) / 2 };
             const rMidThigh = { x: (rHip.x    + rKneePt.x) / 2, y: (rHip.y    + rKneePt.y) / 2 };
@@ -969,10 +974,10 @@
             const rMidCalf  = { x: (rKneePt.x + rBot.x   ) / 2, y: (rKneePt.y + rBot.y   ) / 2 };
             void lMidCalf; void rMidCalf;
 
-            // Waistband strip.
+            // Waistband strip — spans from left outer to right outer plus gap.
             ctx.save();
             ctx.fillStyle = 'rgba(0,0,0,0.20)';
-            const waistW = (hipSpanFull + gapHip) * 2;
+            const waistW = lHipSpan + rHipSpan + gapHip * 2;
             ctx.fillRect(cx - waistW/2, pantsTopY - 6, waistW, 10);
             ctx.restore();
 
@@ -986,43 +991,43 @@
             drawQuad(pantsOffscreen,
                 [0.28*imgW, thighTopY], [0.46*imgW, thighTopY],
                 [0.28*imgW, thighBotY], [0.46*imgW, thighBotY],
-                [cx - hipSpanFull,        pantsTopY],   [cx - gapHip,        pantsTopY],
-                [cx - hipSpanFull * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y]);
+                [cx - lHipSpan,        pantsTopY],   [cx - gapHip,        pantsTopY],
+                [cx - lHipSpan * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y]);
 
             // LEFT KNEE (midThigh → knee)
             drawQuad(pantsOffscreen,
                 [0.29*imgW, thighBotY], [0.45*imgW, thighBotY],
                 [0.29*imgW, kneeBotY],  [0.45*imgW, kneeBotY],
-                [cx - hipSpanFull * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y],
-                [cx - kneeSpanFull,       lKneePt.y],   [cx - gapKnee,       lKneePt.y]);
+                [cx - lHipSpan * 0.94, lMidThigh.y], [cx - gapHip * 0.96, lMidThigh.y],
+                [cx - lKneeSpan,       lKneePt.y],   [cx - gapKnee,       lKneePt.y]);
 
             // LEFT CALF (knee → ankle)
             drawQuad(pantsOffscreen,
                 [0.30*imgW, kneeBotY], [0.44*imgW, kneeBotY],
                 [0.30*imgW, calfBotY], [0.44*imgW, calfBotY],
-                [cx - kneeSpanFull,  lKneePt.y], [cx - gapKnee, lKneePt.y],
-                [cx - ankleSpanFull, lBot.y],    [cx - gapAnk,  lBot.y]);
+                [cx - lKneeSpan,  lKneePt.y], [cx - gapKnee, lKneePt.y],
+                [cx - lAnkleSpan, lBot.y],    [cx - gapAnk,  lBot.y]);
 
             // RIGHT THIGH (hip → midThigh)
             drawQuad(pantsOffscreen,
                 [0.54*imgW, thighTopY], [0.72*imgW, thighTopY],
                 [0.54*imgW, thighBotY], [0.72*imgW, thighBotY],
-                [cx + gapHip,        pantsTopY],   [cx + hipSpanFull,        pantsTopY],
-                [cx + gapHip * 0.96, rMidThigh.y], [cx + hipSpanFull * 0.94, rMidThigh.y]);
+                [cx + gapHip,        pantsTopY],   [cx + rHipSpan,        pantsTopY],
+                [cx + gapHip * 0.96, rMidThigh.y], [cx + rHipSpan * 0.94, rMidThigh.y]);
 
             // RIGHT KNEE (midThigh → knee)
             drawQuad(pantsOffscreen,
                 [0.55*imgW, thighBotY], [0.71*imgW, thighBotY],
                 [0.55*imgW, kneeBotY],  [0.71*imgW, kneeBotY],
-                [cx + gapHip * 0.96, rMidThigh.y], [cx + hipSpanFull * 0.94, rMidThigh.y],
-                [cx + gapKnee,       rKneePt.y],   [cx + kneeSpanFull,       rKneePt.y]);
+                [cx + gapHip * 0.96, rMidThigh.y], [cx + rHipSpan * 0.94, rMidThigh.y],
+                [cx + gapKnee,       rKneePt.y],   [cx + rKneeSpan,       rKneePt.y]);
 
             // RIGHT CALF (knee → ankle)
             drawQuad(pantsOffscreen,
                 [0.56*imgW, kneeBotY], [0.70*imgW, kneeBotY],
                 [0.56*imgW, calfBotY], [0.70*imgW, calfBotY],
-                [cx + gapKnee,  rKneePt.y], [cx + kneeSpanFull,  rKneePt.y],
-                [cx + gapAnk,   rBot.y],    [cx + ankleSpanFull, rBot.y]);
+                [cx + gapKnee,  rKneePt.y], [cx + rKneeSpan,  rKneePt.y],
+                [cx + gapAnk,   rBot.y],    [cx + rAnkleSpan, rBot.y]);
         }
     }
 
