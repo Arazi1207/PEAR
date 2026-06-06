@@ -11,7 +11,6 @@ The UI is in **Hebrew (RTL)**.
 ---
 
 ## ✨ Features
-
 - **Smart size calculator** — recommends a size (S/M/L/XL) from height + weight, refined by optional
   chest / waist / leg measurements, using a weighted penalty match against a Zara-style size chart.
 - **Live virtual try-on** — webcam feed with [MediaPipe Pose](https://google.github.io/mediapipe/)

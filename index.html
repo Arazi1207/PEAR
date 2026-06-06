@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="VANTA — post-physical couture, fitted in real time through the PEAR Camera." />
+  <title>VANTA — Post-Physical Couture</title>
+
+  <!-- Editorial pairing: Fraunces (high-contrast serif) · Inter (geometric sans) · Space Mono (technical accent) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..600&family=Inter:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- atmosphere -->
+  <div class="grain" aria-hidden="true"></div>
+  <div class="rails" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+  <!-- ░░ HEADER ░░ -->
+  <header class="head" id="head">
+    <a class="head__brand" href="#new" data-view="new" aria-label="VANTA — home">
+      <span class="head__mark" aria-hidden="true">◇</span>
+      <span class="head__word">VANTA</span>
+    </a>
+
+    <nav class="head__nav" id="nav" aria-label="Catalog">
+      <a href="#shirts"      data-view="shirts"><span>01</span>Shirts</a>
+      <a href="#pants"       data-view="pants"><span>02</span>Pants</a>
+      <a href="#new"         data-view="new"><span>03</span>New</a>
+      <a href="#collections" data-view="collections"><span>04</span>Collections</a>
+    </nav>
+
+    <div class="head__right">
+      <span class="head__live"><i></i>PEAR&nbsp;LINK&nbsp;ACTIVE</span>
+      <button class="head__bag" id="bagBtn" aria-label="Open selection">
+        <span>Selection</span>
+        <em id="bagCount">0</em>
+      </button>
+    </div>
+  </header>
+
+  <!-- ░░ APP ░░ -->
+  <main id="app">
+
+    <!-- HERO (New only) -->
+    <section class="hero" id="hero">
+      <div class="hero__ghost" aria-hidden="true">VANTA</div>
+      <div class="hero__meta">
+        <span>EST. MMXXVI</span>
+        <span>VOL. 026</span>
+        <span>RENDERED&nbsp;LIVE</span>
+      </div>
+      <div class="hero__head">
+        <h1 class="hero__title">The&nbsp;<em>Post&#8209;</em><br />Physical<br />Wardrobe<sup>®</sup></h1>
+        <div class="hero__side">
+          <p class="hero__lede">
+            A wardrobe that exists as pure signal — drawn in code, then fitted to your
+            body through the <strong>PEAR&nbsp;Camera</strong>. Nothing ships until it fits.
+          </p>
+          <div class="hero__cta">
+            <a class="btn btn--fill" href="#new">Enter the Drop</a>
+            <a class="btn btn--ghost" href="#collections">The Collections</a>
+          </div>
+        </div>
+      </div>
+      <figure class="hero__stage" id="heroStage" aria-hidden="true"></figure>
+    </section>
+
+    <!-- CATALOG -->
+    <section class="cata">
+      <header class="cata__head">
+        <div class="cata__lead">
+          <span class="cata__no" id="cataNo">03 — 026</span>
+          <h2 class="cata__title" id="cataTitle">New&nbsp;Arrivals</h2>
+        </div>
+        <p class="cata__note" id="cataNote">Selected pieces, configured for instant fitting.</p>
+        <p class="cata__count" id="cataCount">—</p>
+      </header>
+
+      <div class="grid" id="grid"></div>
+      <div class="lines" id="lines" hidden></div>
+    </section>
+  </main>
+
+  <!-- ░░ FOOTER ░░ -->
+  <footer class="foot">
+    <div class="foot__statement">
+      <h3>Clothing as<br /><em>information.</em></h3>
+      <a class="btn btn--fill" href="#new" data-view="new">Browse the Atelier</a>
+    </div>
+    <div class="foot__grid">
+      <div class="foot__col">
+        <h4>Index</h4>
+        <a href="#shirts" data-view="shirts">Shirts</a>
+        <a href="#pants" data-view="pants">Pants</a>
+        <a href="#new" data-view="new">New Arrivals</a>
+        <a href="#collections" data-view="collections">Collections</a>
+      </div>
+      <div class="foot__col">
+        <h4>Atelier</h4>
+        <a href="#new" data-view="new">PEAR Camera</a>
+        <a href="#new" data-view="new">Fit Intelligence</a>
+        <a href="#new" data-view="new">Sustainability</a>
+        <a href="#new" data-view="new">Contact</a>
+      </div>
+      <div class="foot__col foot__signal">
+        <h4>Transmission</h4>
+        <p>Receive each drop before it surfaces.</p>
+        <form id="newsForm">
+          <input type="email" placeholder="name@frequency.io" aria-label="Email" required />
+          <button type="submit" aria-label="Subscribe">Subscribe →</button>
+        </form>
+      </div>
+    </div>
+    <div class="foot__bar">
+      <span>© MMXXVI VANTA SYSTEMS — ALL SIGNALS RESERVED</span>
+      <span>52.5200°&nbsp;N, 13.4050°&nbsp;E</span>
+    </div>
+  </footer>
+
+  <!-- Glass selection drawer -->
+  <div class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer__scrim" data-close></div>
+    <aside class="drawer__panel" role="dialog" aria-label="Your selection" aria-modal="true">
+      <header class="drawer__head">
+        <h3>Your Selection</h3>
+        <button class="drawer__x" data-close aria-label="Close">✕</button>
+      </header>
+      <div class="drawer__body" id="drawerItems"></div>
+      <footer class="drawer__foot">
+        <div class="drawer__sum">
+          <span>Subtotal</span>
+          <b id="drawerTotal">$0</b>
+        </div>
+        <button class="btn btn--fill btn--block" id="checkoutBtn">Reserve Fitting</button>
+        <p class="drawer__fine">Fittings are confirmed in the PEAR Camera before any garment ships.</p>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Try-on launch overlay -->
+  <div class="launch" id="launch" aria-hidden="true">
+    <div class="launch__inner">
+      <div class="launch__scan"></div>
+      <div class="launch__label">ESTABLISHING <b>PEAR CAMERA</b> LINK</div>
+      <div class="launch__sub" id="launchSub">routing garment…</div>
+    </div>
+  </div>
+
+  <script src="store.js" defer></script>
+</body>
+</html>
