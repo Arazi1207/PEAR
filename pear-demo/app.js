@@ -308,8 +308,8 @@
             // Rectangular sleeve hanging from shoulder seam (y=55) to cuff
             // (y=105), with slight outward flare. Shoulder connector trapezoid
             // bridges the gap to the collar.
-            sleeves += `<rect x='38' y='55' width='20' height='53' rx='6' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            sleeves += `<rect x='182' y='55' width='20' height='53' rx='6' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
+            sleeves += `<rect x='38' y='55' width='20' height='53' rx='7' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
+            sleeves += `<rect x='182' y='55' width='20' height='53' rx='7' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M48 60 L46 102'/>`
                 +   `<path d='M52 60 L51 102'/>`
@@ -319,8 +319,8 @@
         } else if (sleeveType === 'long') {
             // Long sleeve — straight-down rectangle flaring outward to wrist
             // cuff (x=18/222, y=205). Shoulder connector bridges to the collar.
-            sleeves += `<rect x='36' y='55' width='22' height='155' rx='8' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            sleeves += `<rect x='182' y='55' width='22' height='155' rx='8' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
+            sleeves += `<path d='M58 55 L42 55 L22 195 L44 210 L58 105 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
+            sleeves += `<path d='M182 55 L198 55 L218 195 L196 210 L182 105 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
             foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
                 +   `<path d='M50 60 L30 198'/>`
                 +   `<path d='M46 60 L24 196'/>`
@@ -428,11 +428,14 @@
             +     `<line x1='0' y1='0' x2='0' y2='6' stroke='${_lighten(color,0.10)}' stroke-width='0.8' opacity='0.5'/>`
             +     `<line x1='1.5' y1='0' x2='1.5' y2='6' stroke='${_darken(color,0.08)}' stroke-width='0.5' opacity='0.4'/>`
             +   `</pattern>`
+            +   `<clipPath id='legclip${id}'>`
+            +     `<rect x='60' y='38' width='120' height='178' rx='10'/>`
+            +   `</clipPath>`
             + `</defs>`
-            + `<path d='${path}' fill='url(#denim${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#denim${id})' clip-path='url(#legclip${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
             // waistband band
-            + `<rect x='66' y='40' width='108' height='10' fill='${pocket}' opacity='0.55'/>`
+            + `<rect x='66' y='40' width='108' height='10' rx='10' fill='${pocket}' opacity='0.55'/>`
             // pockets near top
             + `<rect x='74'  y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
             + `<rect x='138' y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
