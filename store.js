@@ -1,52 +1,50 @@
-/* ════════════════════════════════════════════════════════════
-   VANTA storefront — vanilla JS (no build, no deps)
+/* ============================================================
+   MERIDIAN storefront — vanilla JS (no build, no dependencies)
    · product catalog (data objects)
-   · generated SVG garments over animated mesh placeholders
-   · SPA hash routing / view filtering
-   · staggered IntersectionObserver reveals
-   · glass selection drawer
+   · generated SVG garments on clean gradient placeholders
+   · instant single-page category filtering (no reloads)
    · PEAR Camera handoff → ./pear-demo/index.html (root-relative)
-   ════════════════════════════════════════════════════════════ */
+   ============================================================ */
 "use strict";
 
 /* ── config ── */
-const PEAR_PATH = "./pear-demo/index.html";   // store now lives at root
+const PEAR_PATH = "./pear-demo/index.html"; // store lives at root
 const LS_TRYON  = "pear_tryon";
-const LS_BAG    = "vanta_bag";
+const LS_BAG    = "meridian_bag";
 
 /* ── catalog ──
-   schema: id, name, price, category(line), type, subType, color, isNew */
+   schema: id, name, price, category, type, subType, color, isNew */
 const PRODUCTS = [
   // SHIRTS
-  { id: 1,  name: "Halo",      price: 88,  category: "Aero",  type: "shirt", subType: "sleeveless",   color: "#e8ff59", isNew: true  },
-  { id: 2,  name: "Vapor",     price: 72,  category: "Aero",  type: "shirt", subType: "sleeveless",   color: "#b8c0cc", isNew: false },
-  { id: 3,  name: "Ion",       price: 96,  category: "Flux",  type: "shirt", subType: "short_sleeve", color: "#ff5e3a", isNew: true  },
-  { id: 4,  name: "Pulse",     price: 84,  category: "Flux",  type: "shirt", subType: "short_sleeve", color: "#1f6feb", isNew: false },
-  { id: 5,  name: "Circuit",   price: 90,  category: "Prism", type: "shirt", subType: "short_sleeve", color: "#14e0a0", isNew: false },
-  { id: 6,  name: "Strata",    price: 128, category: "Noct",  type: "shirt", subType: "long_sleeve",  color: "#2b2b30", isNew: true  },
-  { id: 7,  name: "Nimbus",    price: 134, category: "Prism", type: "shirt", subType: "long_sleeve",  color: "#c9b6ff", isNew: false },
-  { id: 8,  name: "Echo",      price: 118, category: "Noct",  type: "shirt", subType: "long_sleeve",  color: "#e5e2da", isNew: false },
+  { id: 1,  name: "Halo Tank",         price: 88,  category: "Shirts", type: "shirt", subType: "sleeveless",   color: "#3f5a8a", isNew: true  },
+  { id: 2,  name: "Vapor Sleeveless",  price: 72,  category: "Shirts", type: "shirt", subType: "sleeveless",   color: "#b8c0cc", isNew: false },
+  { id: 3,  name: "Ion Crew Tee",      price: 96,  category: "Shirts", type: "shirt", subType: "short_sleeve", color: "#c2452f", isNew: true  },
+  { id: 4,  name: "Pulse Tee",         price: 84,  category: "Shirts", type: "shirt", subType: "short_sleeve", color: "#1f6feb", isNew: false },
+  { id: 5,  name: "Circuit Tee",       price: 90,  category: "Shirts", type: "shirt", subType: "short_sleeve", color: "#149c7a", isNew: false },
+  { id: 6,  name: "Strata Longsleeve", price: 128, category: "Shirts", type: "shirt", subType: "long_sleeve",  color: "#2b2b30", isNew: true  },
+  { id: 7,  name: "Nimbus Henley",     price: 134, category: "Shirts", type: "shirt", subType: "long_sleeve",  color: "#8e7bd0", isNew: false },
+  { id: 8,  name: "Echo Longsleeve",   price: 118, category: "Shirts", type: "shirt", subType: "long_sleeve",  color: "#d8d4cb", isNew: false },
   // PANTS
-  { id: 9,  name: "Glide",     price: 142, category: "Noct",  type: "pants", subType: "slim",    color: "#2a2d34", isNew: true  },
-  { id: 10, name: "Mono",      price: 118, category: "Aero",  type: "pants", subType: "slim",    color: "#6e7681", isNew: false },
-  { id: 11, name: "Vector",    price: 132, category: "Flux",  type: "pants", subType: "regular", color: "#3b5bdb", isNew: false },
-  { id: 12, name: "Apex",      price: 124, category: "Aero",  type: "pants", subType: "regular", color: "#8a8f98", isNew: true  },
-  { id: 13, name: "Drift",     price: 156, category: "Noct",  type: "pants", subType: "wide",    color: "#1a1a1d", isNew: false },
-  { id: 14, name: "Terra",     price: 148, category: "Prism", type: "pants", subType: "wide",    color: "#b08968", isNew: true  },
-  { id: 15, name: "Null",      price: 138, category: "Noct",  type: "pants", subType: "slim",    color: "#0f0f12", isNew: false },
-  { id: 16, name: "Cargo",     price: 162, category: "Flux",  type: "pants", subType: "wide",    color: "#5c7c3e", isNew: false },
+  { id: 9,  name: "Glide Slim",        price: 142, category: "Pants",  type: "pants", subType: "slim",    color: "#2a2d34", isNew: true  },
+  { id: 10, name: "Mono Slim",         price: 118, category: "Pants",  type: "pants", subType: "slim",    color: "#6e7681", isNew: false },
+  { id: 11, name: "Vector Regular",    price: 132, category: "Pants",  type: "pants", subType: "regular", color: "#3b5bdb", isNew: false },
+  { id: 12, name: "Apex Regular",      price: 124, category: "Pants",  type: "pants", subType: "regular", color: "#8a8f98", isNew: true  },
+  { id: 13, name: "Drift Wide",        price: 156, category: "Pants",  type: "pants", subType: "wide",    color: "#1a1a1d", isNew: false },
+  { id: 14, name: "Terra Wide",        price: 148, category: "Pants",  type: "pants", subType: "wide",    color: "#a8794f", isNew: true  },
+  { id: 15, name: "Null Slim",         price: 138, category: "Pants",  type: "pants", subType: "slim",    color: "#22324f", isNew: false },
+  { id: 16, name: "Cargo Wide",        price: 162, category: "Pants",  type: "pants", subType: "wide",    color: "#566b3e", isNew: false },
 ];
-
-const LINE_INFO = {
-  Aero:  { no: "01", desc: "Weightless technical layers tuned for motion and air." },
-  Flux:  { no: "02", desc: "High-voltage pigments. Garments that refuse to whisper." },
-  Prism: { no: "03", desc: "Iridescent surfaces that shift with the light around you." },
-  Noct:  { no: "04", desc: "Vantablack staples for the architecture of the night." },
-};
 
 const SUBTYPE_LABEL = {
   sleeveless: "Sleeveless", short_sleeve: "Short Sleeve", long_sleeve: "Long Sleeve",
-  slim: "Slim", regular: "Regular", wide: "Wide Leg",
+  slim: "Slim Fit", regular: "Regular Fit", wide: "Wide Leg",
+};
+
+const FILTERS = {
+  all:   { title: "All Products", sub: "Our complete range of premium essentials.",        test: () => true },
+  shirt: { title: "Shirts",       sub: "Tailored upper-body essentials for every day.",     test: (p) => p.type === "shirt" },
+  pants: { title: "Pants",        sub: "Refined trousers cut for comfort and movement.",     test: (p) => p.type === "pants" },
+  new:   { title: "New Arrivals", sub: "The latest additions to the Spring 2026 collection.", test: (p) => p.isNew },
 };
 
 /* ── color helper ── */
@@ -72,20 +70,20 @@ const PANT_PATHS = {
 
 function garmentSVG(p) {
   const gid = "g" + p.id, sid = "s" + p.id;
-  const lite = shade(p.color, 0.24), base = p.color, dark = shade(p.color, -0.34), ink = shade(p.color, -0.5);
+  const lite = shade(p.color, 0.22), base = p.color, dark = shade(p.color, -0.32), ink = shade(p.color, -0.48);
   const isShirt = p.type === "shirt";
   const d = isShirt ? SHIRT_PATHS[p.subType] : PANT_PATHS[p.subType];
 
   let detail = "";
   if (isShirt) {
-    detail += `<ellipse cx="110" cy="55" rx="19" ry="7" fill="none" stroke="${ink}" stroke-width="3" opacity="0.5"/>`;
-    detail += `<path d="M110 60 L110 232" stroke="${ink}" stroke-width="1.6" opacity="0.3" fill="none"/>`;
+    detail += `<ellipse cx="110" cy="55" rx="19" ry="7" fill="none" stroke="${ink}" stroke-width="3" opacity="0.45"/>`;
+    detail += `<path d="M110 60 L110 232" stroke="${ink}" stroke-width="1.6" opacity="0.28" fill="none"/>`;
     if (p.subType === "long_sleeve")
-      detail += `<path d="M186 196 L172 200 M48 196 L34 200" stroke="${ink}" stroke-width="2.4" opacity="0.4"/>`;
+      detail += `<path d="M186 196 L172 200 M48 196 L34 200" stroke="${ink}" stroke-width="2.4" opacity="0.38"/>`;
   } else {
-    detail += `<path d="M64 60 H156" stroke="${ink}" stroke-width="3" opacity="0.4"/>`;
-    detail += `<path d="M110 60 L110 ${p.subType === "wide" ? 126 : 122}" stroke="${ink}" stroke-width="2" opacity="0.3"/>`;
-    detail += `<path d="M78 228 H96 M124 228 H146" stroke="${ink}" stroke-width="2" opacity="0.3"/>`;
+    detail += `<path d="M64 60 H156" stroke="${ink}" stroke-width="3" opacity="0.38"/>`;
+    detail += `<path d="M110 60 L110 ${p.subType === "wide" ? 126 : 122}" stroke="${ink}" stroke-width="2" opacity="0.28"/>`;
+    detail += `<path d="M78 228 H96 M124 228 H146" stroke="${ink}" stroke-width="2" opacity="0.28"/>`;
   }
 
   return `<svg viewBox="0 0 220 260" role="img" aria-label="${p.name}">
@@ -94,7 +92,7 @@ function garmentSVG(p) {
         <stop offset="0" stop-color="${lite}"/><stop offset="0.55" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/>
       </linearGradient>
       <linearGradient id="${sid}" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/><stop offset="0.4" stop-color="#ffffff" stop-opacity="0"/>
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.25"/><stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
       </linearGradient>
     </defs>
     <path d="${d}" fill="url(#${gid})" stroke="${ink}" stroke-width="2.2" stroke-linejoin="round"/>
@@ -107,144 +105,58 @@ function garmentSVG(p) {
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-const grid      = $("#grid");
-const linesView = $("#lines");
-const hero      = $("#hero");
-const cataTitle = $("#cataTitle");
-const cataNo    = $("#cataNo");
-const cataNote  = $("#cataNote");
-const cataCount = $("#cataCount");
-const navLinks  = $$("#nav a");
-const toastEl   = $("#toast");
-const bagCountEl = $("#bagCount");
-const launchEl  = $("#launch");
-const launchSub = $("#launchSub");
-const drawerEl  = $("#drawer");
-const drawerItems = $("#drawerItems");
-const drawerTotal = $("#drawerTotal");
+const grid     = $("#grid");
+const catTitle = $("#catTitle");
+const catSub   = $("#catSub");
+const navLinks = $$("#nav a");
+const chips    = $$("#filters .chip");
+const bagCount = $("#bagCount");
+const toastEl  = $("#toast");
 
-/* ── editorial layout rhythm ── */
-function tileClass(i) {
-  const m = i % 6;
-  if (m === 0) return "tile tile--feature"; // tall, span 3
-  if (m === 3) return "tile tile--wide";    // landscape, span 4
-  return "tile";                            // span 2
-}
-
-/* ── tile template ── */
-function tileHTML(p, i) {
-  const sku = `VN-${String(p.id).padStart(3, "0")}`;
+/* ── card template ── */
+function cardHTML(p, i) {
   return `
-  <article class="${tileClass(i)}" style="--c:${p.color}" data-rev="${i}">
-    <div class="tile__media">
-      <div class="tile__mesh"></div>
-      <div class="tile__grid"></div>
-      <div class="tile__art">${garmentSVG(p)}</div>
-      <div class="tile__sweep"></div>
-      <div class="tile__flags">
-        <span class="tile__sub">${SUBTYPE_LABEL[p.subType]}</span>
-        <span class="tile__new"${p.isNew ? "" : " hidden"}>New</span>
-      </div>
+  <article class="card" style="--i:${i}">
+    <div class="card__media">
+      <span class="card__badge"${p.isNew ? "" : " hidden"}>New</span>
+      ${garmentSVG(p)}
     </div>
-    <div class="tile__body">
-      <div class="tile__row">
-        <h3 class="tile__name">${p.name}</h3>
-        <span class="tile__price">$${p.price}</span>
-      </div>
-      <div class="tile__line">
-        <i style="background:${p.color}"></i>${p.color.toUpperCase()}
-        <span class="sku">${sku}</span>
-      </div>
-      <div class="tile__act">
-        <button class="btn btn--try" data-try="${p.id}">
-          <span class="label">Try on via PEAR Camera</span><span class="cam">👕</span>
-        </button>
-        <button class="btn btn--add" data-bag="${p.id}" aria-label="Add ${p.name} to selection"><span>+</span></button>
+    <div class="card__body">
+      <span class="card__cat">${p.category} · ${SUBTYPE_LABEL[p.subType]}</span>
+      <h3 class="card__name">${p.name}</h3>
+      <span class="card__price">$${p.price}</span>
+      <div class="card__actions">
+        <button class="btn--try" data-try="${p.id}">Try on via PEAR Camera <span>👕</span></button>
+        <button class="btn--add" data-bag="${p.id}" aria-label="Add ${p.name} to bag">+</button>
       </div>
     </div>
   </article>`;
 }
 
-/* ── staggered reveal ── */
-let io;
-function observeTiles(scope) {
-  if (!io) {
-    io = new IntersectionObserver((entries) => {
-      entries.forEach((en) => {
-        if (en.isIntersecting) {
-          const i = +en.target.dataset.rev || 0;
-          en.target.style.transitionDelay = `${Math.min(i, 9) * 70}ms`;
-          en.target.classList.add("is-in");
-          io.unobserve(en.target);
-        }
-      });
-    }, { threshold: 0.08, rootMargin: "0px 0px -8% 0px" });
-  }
-  $$(".tile", scope).forEach((t) => io.observe(t));
+/* ── render + filter ── */
+function render(filterKey) {
+  const cfg = FILTERS[filterKey] || FILTERS.all;
+  const list = PRODUCTS.filter(cfg.test);
+
+  catTitle.textContent = cfg.title;
+  catSub.textContent = cfg.sub;
+
+  grid.innerHTML = list.length
+    ? list.map((p, i) => cardHTML(p, i)).join("")
+    : `<div class="empty">No products found in this category.</div>`;
+
+  // sync active states on nav + chips
+  navLinks.forEach((a) => a.classList.toggle("is-active", a.dataset.filter === filterKey));
+  chips.forEach((c) => c.classList.toggle("is-active", c.dataset.filter === filterKey));
 }
 
-/* ── render helpers ── */
-function renderGrid(list) {
-  if (!list.length) { grid.innerHTML = `<div class="empty">// NO GARMENTS MATCH THIS SIGNAL</div>`; return; }
-  grid.innerHTML = list.map((p, i) => tileHTML(p, i)).join("");
-  observeTiles(grid);
+/* ── routing (hash ↔ filter) ── */
+const HASH_TO_FILTER = { home: "all", all: "all", shirts: "shirt", shirt: "shirt", pants: "pants", new: "new" };
+function currentFilter() {
+  const h = location.hash.replace("#", "").toLowerCase();
+  return HASH_TO_FILTER[h] || "all";
 }
-
-function renderLines() {
-  grid.hidden = true; linesView.hidden = false;
-  const order = ["Aero", "Flux", "Prism", "Noct"];
-  linesView.innerHTML = order.map((name) => {
-    const items = PRODUCTS.filter((p) => p.category === name);
-    const info = LINE_INFO[name];
-    return `
-    <section class="line">
-      <header class="line__head">
-        <span class="line__no">${info.no}</span>
-        <h3 class="line__name">${name}</h3>
-        <p class="line__desc">${info.desc}</p>
-      </header>
-      <div class="grid">${items.map((p, i) => tileHTML(p, i)).join("")}</div>
-    </section>`;
-  }).join("");
-  observeTiles(linesView);
-}
-
-/* ── views / routing ── */
-const VIEWS = {
-  new:         { no: "03 — 026", title: "New Arrivals", note: "Freshly transmitted, configured for instant fitting.", hero: true,  list: () => PRODUCTS.filter((p) => p.isNew) },
-  shirts:      { no: "01 — UPPER", title: "Shirts",       note: "Upper-body silhouettes — sleeveless to long sleeve.", hero: false, list: () => PRODUCTS.filter((p) => p.type === "shirt") },
-  pants:       { no: "02 — LOWER", title: "Pants",        note: "Lower-body cuts — slim, regular and wide leg.",       hero: false, list: () => PRODUCTS.filter((p) => p.type === "pants") },
-  collections: { no: "04 — ARCHIVE", title: "Collections", note: "Four lines, sixteen pieces, one signal.",             hero: false, list: () => PRODUCTS },
-};
-
-function setActiveNav(view) { navLinks.forEach((a) => a.classList.toggle("is-active", a.dataset.view === view)); }
-
-function renderView(view) {
-  const cfg = VIEWS[view] || VIEWS.new;
-  setActiveNav(view);
-  hero.hidden = !cfg.hero;
-  cataNo.textContent = cfg.no;
-  cataTitle.innerHTML = cfg.title;
-  cataNote.textContent = cfg.note;
-
-  if (view === "collections") {
-    cataCount.textContent = `${PRODUCTS.length} PIECES · 4 LINES`;
-    renderLines();
-  } else {
-    linesView.hidden = true; grid.hidden = false;
-    const list = cfg.list();
-    renderGrid(list);
-    cataCount.textContent = `${String(list.length).padStart(2, "0")} PIECES`;
-  }
-
-  if (cfg.hero) window.scrollTo({ top: 0, behavior: "smooth" });
-  else $(".cata").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function routeFromHash() {
-  const v = (location.hash.replace("#", "") || "new").toLowerCase();
-  renderView(VIEWS[v] ? v : "new");
-}
+function routeFromHash() { render(currentFilter()); }
 
 /* ── PEAR try-on handoff ── */
 function tryOn(p) {
@@ -259,97 +171,58 @@ function tryOn(p) {
   const qs = new URLSearchParams({ itemType: p.type, subType: p.subType, color }).toString();
   const url = `${PEAR_PATH}?${qs}`;
 
-  // premium launch sequence, then redirect
-  launchSub.textContent = `routing ${p.name.toLowerCase()}…`;
-  launchEl.classList.add("show");
-  launchEl.setAttribute("aria-hidden", "false");
-  setTimeout(() => { launchSub.textContent = `calibrating fit · ${p.type} · ${color}`; }, 480);
-  setTimeout(() => { window.location.href = url; }, 1080);
+  showToast(`Launching <b>PEAR Camera</b> — ${p.name}…`);
+  setTimeout(() => { window.location.href = url; }, 650);
 }
 
-/* ── selection (bag) + glass drawer ── */
-function getBag() { try { return JSON.parse(localStorage.getItem(LS_BAG)) || []; } catch (_) { return []; } }
-function setBag(arr) { localStorage.setItem(LS_BAG, JSON.stringify(arr)); syncBag(); }
-function syncBag() {
-  const n = getBag().length;
-  bagCountEl.textContent = n;
-  bagCountEl.style.color = n ? "var(--neon)" : "var(--bone-dim)";
+/* ── bag ── */
+function getBag() { return parseInt(localStorage.getItem(LS_BAG) || "0", 10); }
+function setBag(n) {
+  localStorage.setItem(LS_BAG, String(n));
+  bagCount.textContent = n;
+  bagCount.classList.toggle("show", n > 0);
 }
 function addToBag(p) {
-  const bag = getBag(); bag.push(p.id); setBag(bag);
-  bagCountEl.animate([{ transform: "scale(1.5)" }, { transform: "scale(1)" }], { duration: 280, easing: "cubic-bezier(.19,1,.22,1)" });
-  showToast(`<b>${p.name}</b> added to selection`);
+  setBag(getBag() + 1);
+  bagCount.animate([{ transform: "scale(1.4)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
+  showToast(`<b>${p.name}</b> added to bag`);
 }
-function removeFromBag(id) {
-  const bag = getBag(); const i = bag.indexOf(id);
-  if (i > -1) bag.splice(i, 1);
-  setBag(bag); renderDrawer();
-}
-
-function renderDrawer() {
-  const ids = getBag();
-  const counts = ids.reduce((m, id) => (m[id] = (m[id] || 0) + 1, m), {});
-  const entries = Object.keys(counts).map(Number);
-
-  if (!entries.length) {
-    drawerItems.innerHTML = `<div class="drawer__empty">// YOUR SELECTION IS EMPTY</div>`;
-    drawerTotal.textContent = "$0";
-    return;
-  }
-  let total = 0;
-  drawerItems.innerHTML = entries.map((id) => {
-    const p = PRODUCTS.find((x) => x.id === id); const qty = counts[id];
-    total += p.price * qty;
-    return `
-    <div class="drawer__item" style="--c:${p.color}">
-      <div class="drawer__thumb"><div class="m"></div>${garmentSVG(p)}</div>
-      <div class="drawer__meta">
-        <b>${p.name}${qty > 1 ? ` ×${qty}` : ""}</b>
-        <span>${p.type} · ${SUBTYPE_LABEL[p.subType]}</span>
-      </div>
-      <div class="drawer__right">
-        <span class="p">$${p.price * qty}</span>
-        <button class="drawer__rm" data-rm="${p.id}">Remove</button>
-      </div>
-    </div>`;
-  }).join("");
-  drawerTotal.textContent = `$${total}`;
-}
-function openDrawer() { renderDrawer(); drawerEl.classList.add("open"); drawerEl.setAttribute("aria-hidden", "false"); }
-function closeDrawer() { drawerEl.classList.remove("open"); drawerEl.setAttribute("aria-hidden", "true"); }
 
 /* ── toast ── */
 let toastTimer;
 function showToast(html) {
   toastEl.innerHTML = html; toastEl.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2400);
 }
 
 /* ── init ── */
 function init() {
-  syncBag();
-  $("#heroStage").innerHTML = garmentSVG(PRODUCTS[0]); // feature the acid Halo
+  setBag(getBag());
 
-  // delegated actions
+  // any element with data-filter routes via hash (nav, chips, hero, footer)
   document.addEventListener("click", (e) => {
+    const f = e.target.closest("[data-filter]");
+    if (f) {
+      const key = f.dataset.filter;
+      const hash = key === "all" ? "home" : key === "shirt" ? "shirts" : key;
+      if (location.hash.replace("#", "") === hash) render(currentFilter()); // re-click same → still scroll
+      location.hash = hash;
+      if (key !== "all") $("#catalog").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     const t = e.target.closest("[data-try]");
     if (t) { const p = PRODUCTS.find((x) => x.id === +t.dataset.try); if (p) tryOn(p); return; }
     const a = e.target.closest("[data-bag]");
     if (a) { const p = PRODUCTS.find((x) => x.id === +a.dataset.bag); if (p) addToBag(p); return; }
-    const r = e.target.closest("[data-rm]");
-    if (r) { removeFromBag(+r.dataset.rm); return; }
-    if (e.target.closest("[data-close]")) { closeDrawer(); return; }
   });
 
-  $("#bagBtn").addEventListener("click", openDrawer);
-  $("#checkoutBtn").addEventListener("click", () => {
-    if (!getBag().length) return showToast("Your selection is empty");
-    showToast("Fitting reserved — open the <b>PEAR Camera</b> to confirm");
+  $("#bagBtn").addEventListener("click", () => {
+    const n = getBag();
+    showToast(n ? `Your bag holds <b>${n}</b> ${n === 1 ? "item" : "items"}` : "Your bag is empty");
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
-  $("#newsForm").addEventListener("submit", (e) => { e.preventDefault(); e.target.reset(); showToast("You're on the <b>transmission</b> list ✦"); });
+  $("#newsForm").addEventListener("submit", (e) => { e.preventDefault(); e.target.reset(); showToast("Thanks — you're <b>subscribed</b>!"); });
 
   window.addEventListener("hashchange", routeFromHash);
   routeFromHash();

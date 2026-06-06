@@ -3,156 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="VANTA — post-physical couture, fitted in real time through the PEAR Camera." />
-  <title>VANTA — Post-Physical Couture</title>
+  <meta name="description" content="MERIDIAN — modern premium essentials, fitted instantly with the PEAR Camera." />
+  <title>MERIDIAN — Modern Premium Essentials</title>
 
-  <!-- Editorial pairing: Fraunces (high-contrast serif) · Inter (geometric sans) · Space Mono (technical accent) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..600&family=Inter:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
     rel="stylesheet"
   />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- atmosphere -->
-  <div class="grain" aria-hidden="true"></div>
-  <div class="rails" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+  <!-- ░░ ANNOUNCEMENT BAR ░░ -->
+  <div class="announce">
+    Complimentary virtual fitting with every order — Try on instantly via the PEAR&nbsp;Camera&nbsp;👕
+  </div>
 
   <!-- ░░ HEADER ░░ -->
-  <header class="head" id="head">
-    <a class="head__brand" href="#new" data-view="new" aria-label="VANTA — home">
-      <span class="head__mark" aria-hidden="true">◇</span>
-      <span class="head__word">VANTA</span>
-    </a>
+  <header class="header" id="header">
+    <div class="header__inner">
+      <a class="brand" href="#home" data-filter="all" aria-label="MERIDIAN home">
+        <span class="brand__name">MERIDIAN</span>
+        <span class="brand__reg">®</span>
+      </a>
 
-    <nav class="head__nav" id="nav" aria-label="Catalog">
-      <a href="#shirts"      data-view="shirts"><span>01</span>Shirts</a>
-      <a href="#pants"       data-view="pants"><span>02</span>Pants</a>
-      <a href="#new"         data-view="new"><span>03</span>New</a>
-      <a href="#collections" data-view="collections"><span>04</span>Collections</a>
-    </nav>
+      <nav class="nav" id="nav" aria-label="Categories">
+        <a href="#home"     data-filter="all">Home</a>
+        <a href="#shirts"   data-filter="shirt">Shirts</a>
+        <a href="#pants"    data-filter="pants">Pants</a>
+        <a href="#new"      data-filter="new">New Arrivals</a>
+      </nav>
 
-    <div class="head__right">
-      <span class="head__live"><i></i>PEAR&nbsp;LINK&nbsp;ACTIVE</span>
-      <button class="head__bag" id="bagBtn" aria-label="Open selection">
-        <span>Selection</span>
-        <em id="bagCount">0</em>
-      </button>
+      <div class="header__actions">
+        <button class="bag" id="bagBtn" aria-label="Shopping bag">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M6 8h12l-1 12.5H7L6 8Z" stroke-linejoin="round" />
+            <path d="M9 8V6.5a3 3 0 0 1 6 0V8" />
+          </svg>
+          <span class="bag__count" id="bagCount">0</span>
+        </button>
+      </div>
     </div>
   </header>
 
-  <!-- ░░ APP ░░ -->
-  <main id="app">
-
-    <!-- HERO (New only) -->
-    <section class="hero" id="hero">
-      <div class="hero__ghost" aria-hidden="true">VANTA</div>
-      <div class="hero__meta">
-        <span>EST. MMXXVI</span>
-        <span>VOL. 026</span>
-        <span>RENDERED&nbsp;LIVE</span>
+  <!-- ░░ HERO ░░ -->
+  <section class="hero" id="hero">
+    <div class="hero__inner">
+      <span class="hero__eyebrow">The Spring Collection · 2026</span>
+      <h1 class="hero__title">Timeless Style,<br />Fitted&nbsp;<em>Instantly.</em></h1>
+      <p class="hero__text">
+        Premium essentials engineered for the modern wardrobe. Preview every piece on
+        yourself in seconds with the PEAR Camera — no fitting room required.
+      </p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" href="#new" data-filter="new">Shop New Arrivals</a>
+        <a class="btn btn--outline" href="#shirts" data-filter="shirt">Browse Shirts</a>
       </div>
-      <div class="hero__head">
-        <h1 class="hero__title">The&nbsp;<em>Post&#8209;</em><br />Physical<br />Wardrobe<sup>®</sup></h1>
-        <div class="hero__side">
-          <p class="hero__lede">
-            A wardrobe that exists as pure signal — drawn in code, then fitted to your
-            body through the <strong>PEAR&nbsp;Camera</strong>. Nothing ships until it fits.
-          </p>
-          <div class="hero__cta">
-            <a class="btn btn--fill" href="#new">Enter the Drop</a>
-            <a class="btn btn--ghost" href="#collections">The Collections</a>
-          </div>
-        </div>
+    </div>
+  </section>
+
+  <!-- ░░ CATALOG ░░ -->
+  <main class="catalog" id="catalog">
+    <div class="catalog__head">
+      <div>
+        <h2 class="catalog__title" id="catTitle">All Products</h2>
+        <p class="catalog__sub" id="catSub">Our complete range of premium essentials.</p>
       </div>
-      <figure class="hero__stage" id="heroStage" aria-hidden="true"></figure>
-    </section>
+      <div class="catalog__filters" id="filters" role="tablist" aria-label="Filter products">
+        <button class="chip" data-filter="all">All</button>
+        <button class="chip" data-filter="shirt">Shirts</button>
+        <button class="chip" data-filter="pants">Pants</button>
+        <button class="chip" data-filter="new">New Arrivals</button>
+      </div>
+    </div>
 
-    <!-- CATALOG -->
-    <section class="cata">
-      <header class="cata__head">
-        <div class="cata__lead">
-          <span class="cata__no" id="cataNo">03 — 026</span>
-          <h2 class="cata__title" id="cataTitle">New&nbsp;Arrivals</h2>
-        </div>
-        <p class="cata__note" id="cataNote">Selected pieces, configured for instant fitting.</p>
-        <p class="cata__count" id="cataCount">—</p>
-      </header>
-
-      <div class="grid" id="grid"></div>
-      <div class="lines" id="lines" hidden></div>
-    </section>
+    <div class="grid" id="grid"></div>
   </main>
 
+  <!-- ░░ TRUST BAND ░░ -->
+  <section class="trust">
+    <div class="trust__item">
+      <span class="trust__icon" aria-hidden="true">👕</span>
+      <h3>Virtual Fitting</h3>
+      <p>See every garment on yourself with the PEAR Camera before you buy.</p>
+    </div>
+    <div class="trust__item">
+      <span class="trust__icon" aria-hidden="true">🚚</span>
+      <h3>Free Shipping</h3>
+      <p>Complimentary delivery and easy returns on all orders, every time.</p>
+    </div>
+    <div class="trust__item">
+      <span class="trust__icon" aria-hidden="true">✦</span>
+      <h3>Crafted to Last</h3>
+      <p>Premium materials and considered tailoring in every essential piece.</p>
+    </div>
+  </section>
+
   <!-- ░░ FOOTER ░░ -->
-  <footer class="foot">
-    <div class="foot__statement">
-      <h3>Clothing as<br /><em>information.</em></h3>
-      <a class="btn btn--fill" href="#new" data-view="new">Browse the Atelier</a>
+  <footer class="footer">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <span class="brand__name">MERIDIAN</span>
+        <p>Modern premium essentials, fitted instantly through the PEAR Camera.</p>
+      </div>
+      <div class="footer__cols">
+        <div class="footer__col">
+          <h4>Shop</h4>
+          <a href="#shirts" data-filter="shirt">Shirts</a>
+          <a href="#pants" data-filter="pants">Pants</a>
+          <a href="#new" data-filter="new">New Arrivals</a>
+          <a href="#home" data-filter="all">All Products</a>
+        </div>
+        <div class="footer__col">
+          <h4>Company</h4>
+          <a href="#home" data-filter="all">About</a>
+          <a href="#home" data-filter="all">PEAR Camera</a>
+          <a href="#home" data-filter="all">Careers</a>
+          <a href="#home" data-filter="all">Contact</a>
+        </div>
+        <div class="footer__col footer__news">
+          <h4>Newsletter</h4>
+          <p>Be first to preview new arrivals.</p>
+          <form id="newsForm">
+            <input type="email" placeholder="Email address" aria-label="Email address" required />
+            <button type="submit">Join</button>
+          </form>
+        </div>
+      </div>
     </div>
-    <div class="foot__grid">
-      <div class="foot__col">
-        <h4>Index</h4>
-        <a href="#shirts" data-view="shirts">Shirts</a>
-        <a href="#pants" data-view="pants">Pants</a>
-        <a href="#new" data-view="new">New Arrivals</a>
-        <a href="#collections" data-view="collections">Collections</a>
-      </div>
-      <div class="foot__col">
-        <h4>Atelier</h4>
-        <a href="#new" data-view="new">PEAR Camera</a>
-        <a href="#new" data-view="new">Fit Intelligence</a>
-        <a href="#new" data-view="new">Sustainability</a>
-        <a href="#new" data-view="new">Contact</a>
-      </div>
-      <div class="foot__col foot__signal">
-        <h4>Transmission</h4>
-        <p>Receive each drop before it surfaces.</p>
-        <form id="newsForm">
-          <input type="email" placeholder="name@frequency.io" aria-label="Email" required />
-          <button type="submit" aria-label="Subscribe">Subscribe →</button>
-        </form>
-      </div>
-    </div>
-    <div class="foot__bar">
-      <span>© MMXXVI VANTA SYSTEMS — ALL SIGNALS RESERVED</span>
-      <span>52.5200°&nbsp;N, 13.4050°&nbsp;E</span>
+    <div class="footer__bar">
+      <span>© 2026 MERIDIAN. All rights reserved.</span>
+      <span>Privacy · Terms · Shipping</span>
     </div>
   </footer>
 
-  <!-- Glass selection drawer -->
-  <div class="drawer" id="drawer" aria-hidden="true">
-    <div class="drawer__scrim" data-close></div>
-    <aside class="drawer__panel" role="dialog" aria-label="Your selection" aria-modal="true">
-      <header class="drawer__head">
-        <h3>Your Selection</h3>
-        <button class="drawer__x" data-close aria-label="Close">✕</button>
-      </header>
-      <div class="drawer__body" id="drawerItems"></div>
-      <footer class="drawer__foot">
-        <div class="drawer__sum">
-          <span>Subtotal</span>
-          <b id="drawerTotal">$0</b>
-        </div>
-        <button class="btn btn--fill btn--block" id="checkoutBtn">Reserve Fitting</button>
-        <p class="drawer__fine">Fittings are confirmed in the PEAR Camera before any garment ships.</p>
-      </footer>
-    </aside>
-  </div>
-
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-  <!-- Try-on launch overlay -->
-  <div class="launch" id="launch" aria-hidden="true">
-    <div class="launch__inner">
-      <div class="launch__scan"></div>
-      <div class="launch__label">ESTABLISHING <b>PEAR CAMERA</b> LINK</div>
-      <div class="launch__sub" id="launchSub">routing garment…</div>
-    </div>
-  </div>
 
   <script src="store.js" defer></script>
 </body>
