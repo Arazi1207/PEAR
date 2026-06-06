@@ -181,14 +181,117 @@ function routeFromHash() {
   if (f) renderCatalog(f);
 }
 
-/* ── PEAR try-on handoff ── */
-function tryOn(p) {
+/* ── PEAR full-camera handoff (deep-link with the active garment) ── */
+function launchPearCamera(p) {
   const color = p.color.replace("#", "");
   try { localStorage.setItem(LS_TRYON, JSON.stringify({ itemType: p.type, subType: p.subType, color, name: p.name })); } catch (_) {}
   const qs = new URLSearchParams({ itemType: p.type, subType: p.subType, color }).toString();
   const url = `${PEAR_PATH}?${qs}`;
-  showToast(`Launching <b>PEAR Camera</b> — ${p.name}…`);
+  showToast(`Launching full <b>PEAR Camera</b> — ${p.name}…`);
   setTimeout(() => { window.location.href = url; }, 650);
+}
+
+/* ============================================================
+   TRY-ON VIEW — product-isolated in-store camera + Complete the Look
+   ============================================================ */
+const tryonEl    = $("#tryon");
+const statusEl    = $("#tryonStatus");
+const ctlTrack   = $("#ctlTrack");
+const ctlSub     = $("#ctlSub");
+const frame      = $("#tryonFrame");
+let activeItem   = null;   // the garment currently isolated in the session
+let frameLoaded  = false;  // lazy-load the camera iframe only once per session
+
+/* Cross-category recommendation engine.
+   Trying a SHIRT → surface PANTS that pair well (and vice-versa).
+   Pairing heuristic: opposite category, ranked by tonal contrast against the
+   active garment (a premium outfit balances a statement piece with a neutral),
+   then by favorite / new status. Returns 4 picks. */
+function recommendFor(p) {
+  const wantType = p.type === "shirt" ? "pants" : "shirt";
+  const lum = (hex) => {
+    const f = parseInt(hex.slice(1), 16);
+    return (0.299 * (f >> 16) + 0.587 * ((f >> 8) & 0xff) + 0.114 * (f & 0xff)) / 255;
+  };
+  const baseLum = lum(p.color);
+  return PRODUCTS
+    .filter((x) => x.type === wantType)
+    .map((x) => ({
+      item: x,
+      score: Math.abs(lum(x.color) - baseLum) * 2 + (x.fav ? 0.6 : 0) + (x.isNew ? 0.3 : 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map((r) => r.item);
+}
+
+/* Status bar — isolates and presents the selected garment beside the feed. */
+function renderTryOnStatus(p) {
+  statusEl.innerHTML = `
+    <div class="tryon__swatch" style="--c:${p.color}">${garmentSVG(p)}</div>
+    <div class="tryon__meta">
+      <span class="tryon__eyebrow">Now trying on · פריט נבחר</span>
+      <h2 class="tryon__name">${p.name}</h2>
+      <div class="tryon__facts">
+        <span class="tryon__fact"><b>Price</b>$${p.price}</span>
+        <span class="tryon__fact"><b>Fit</b>${SUBTYPE_LABEL[p.subType]}</span>
+        <span class="tryon__fact"><b>Category</b>${p.category}</span>
+      </div>
+    </div>
+    <div class="tryon__cta">
+      <button class="btn btn--white tryon__launch" data-launch="${p.id}">Open in PEAR Camera →</button>
+      <button class="tryon__add btn--add" data-bag="${p.id}" aria-label="Add ${p.name} to bag">Add to bag</button>
+    </div>`;
+}
+
+/* Complete the Look slider — mini-thumbnails + quick-swap. */
+function renderRecommendations(p) {
+  const recs = recommendFor(p);
+  const wantHe = p.type === "shirt" ? "מכנסיים תואמים" : "חולצות תואמות";
+  const wantEn = p.type === "shirt" ? "Pants that pair with this shirt" : "Shirts that pair with these pants";
+  ctlSub.textContent = `${wantHe} · ${wantEn}`;
+  ctlTrack.innerHTML = recs.map((r, i) => `
+    <article class="ctl__card" style="--i:${i}">
+      <div class="ctl__media">${garmentSVG(r)}</div>
+      <div class="ctl__body">
+        <span class="ctl__cat">${r.category} · ${SUBTYPE_LABEL[r.subType]}</span>
+        <h4 class="ctl__name">${r.name}</h4>
+        <span class="ctl__price">$${r.price}</span>
+      </div>
+      <button class="ctl__swap" data-switch="${r.id}">החלף פריט · Switch Item</button>
+    </article>`).join("");
+}
+
+/* Make a garment the active try-on item (entry point + quick-swap target). */
+function setActiveItem(p, opts = {}) {
+  activeItem = p;
+  renderTryOnStatus(p);
+  renderRecommendations(p);
+  if (opts.pulse) {
+    statusEl.animate(
+      [{ boxShadow: "0 0 0 0 rgba(65,105,225,0.55)" }, { boxShadow: "0 0 0 14px rgba(65,105,225,0)" }],
+      { duration: 600, easing: "ease-out" }
+    );
+  }
+}
+
+function openTryOn(p) {
+  setActiveItem(p);
+  if (!frameLoaded) { frame.src = PEAR_PATH; frameLoaded = true; }
+  tryonEl.classList.add("open");
+  tryonEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("tryon-open");
+}
+
+function closeTryOn() {
+  tryonEl.classList.remove("open");
+  tryonEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("tryon-open");
+}
+
+function switchItem(p) {
+  setActiveItem(p, { pulse: true });
+  showToast(`Now trying on <b>${p.name}</b>`);
 }
 
 /* ── bag ── */
@@ -240,9 +343,19 @@ function init() {
       return;
     }
     const t = e.target.closest("[data-try]");
-    if (t) { const p = PRODUCTS.find((x) => x.id === +t.dataset.try); if (p) tryOn(p); return; }
+    if (t) { const p = PRODUCTS.find((x) => x.id === +t.dataset.try); if (p) openTryOn(p); return; }
+    const sw = e.target.closest("[data-switch]");
+    if (sw) { const p = PRODUCTS.find((x) => x.id === +sw.dataset.switch); if (p) switchItem(p); return; }
+    const lc = e.target.closest("[data-launch]");
+    if (lc) { const p = PRODUCTS.find((x) => x.id === +lc.dataset.launch); if (p) launchPearCamera(p); return; }
+    if (e.target.closest("[data-tryon-close]")) { closeTryOn(); return; }
     const a = e.target.closest("[data-bag]");
     if (a) { const p = PRODUCTS.find((x) => x.id === +a.dataset.bag); if (p) addToBag(p); return; }
+  });
+
+  // close try-on with Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tryonEl.classList.contains("open")) closeTryOn();
   });
 
   // favorites carousel controls

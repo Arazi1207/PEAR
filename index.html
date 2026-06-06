@@ -205,6 +205,41 @@
     </div>
   </footer>
 
+  <!-- ░░ TRY-ON VIEW (product-isolated, in-store camera + Complete the Look) ░░ -->
+  <div class="tryon" id="tryon" aria-hidden="true" role="dialog" aria-modal="true" aria-label="PEAR Try-On Mode">
+    <div class="tryon__backdrop" data-tryon-close></div>
+    <div class="tryon__panel" role="document">
+
+      <!-- Product-isolation status bar -->
+      <div class="tryon__status" id="tryonStatus"></div>
+
+      <!-- Camera feed (PEAR engine, isolated to the selected garment) -->
+      <div class="tryon__stage">
+        <div class="tryon__camera">
+          <span class="tryon__live"><i></i>PEAR Camera · Live Try-On</span>
+          <div class="tryon__frameWrap" id="tryonFrameWrap">
+            <iframe class="tryon__frame" id="tryonFrame" title="PEAR Camera virtual try-on"
+                    allow="camera; fullscreen" loading="lazy"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- Complete the Look — cross-category recommendation engine -->
+      <section class="ctl" aria-labelledby="ctlTitle">
+        <header class="ctl__head">
+          <div>
+            <span class="ctl__eyebrow">Outfit Builder</span>
+            <h3 class="ctl__title" id="ctlTitle">מערכות לבוש מומלצות עבורך · Complete the Look</h3>
+            <p class="ctl__sub" id="ctlSub"></p>
+          </div>
+        </header>
+        <div class="ctl__track" id="ctlTrack"></div>
+      </section>
+
+      <button class="tryon__close" id="tryonClose" aria-label="Close try-on" data-tryon-close>×</button>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
