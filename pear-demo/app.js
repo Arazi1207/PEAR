@@ -536,8 +536,10 @@
             + `</g>`
             + `<rect x='61' y='193' width='118' height='6' fill='url(#stitch${id})' opacity='0.30'/>`;
 
+        // NOTE: no background <rect> — the area outside the garment paths stays
+        // fully transparent so the shirt composites cleanly onto the camera
+        // canvas (no white bounding box).
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
-            + `<rect width='240' height='240' fill='#ffffff'/>`
             + `<defs>`
 
             // ── Gradients ────────────────────────────────────────────────
@@ -632,7 +634,12 @@
             +     `<feDiffuseLighting in='warped' surfaceScale='1.8' diffuseConstant='0.85' lighting-color='white' result='diffuse'>`
             +       `<feDistantLight azimuth='315' elevation='55'/>`
             +     `</feDiffuseLighting>`
-            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.85' k3='0.25' k4='0'/>`
+            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.85' k3='0.25' k4='0' result='lit'/>`
+            // feDiffuseLighting fills the ENTIRE filter region with alpha=1, which
+            // is what produced the opaque rectangular halo around the garment.
+            // Re-clip the lit result to the displaced source's alpha so anything
+            // outside the actual garment shape becomes transparent again.
+            +     `<feComposite in='lit' in2='warped' operator='in'/>`
             +   `</filter>`
 
             + `</defs>`
@@ -776,8 +783,9 @@
             + `<rect x='145' y='39' width='7' height='14' rx='1'/>`
             + `</g>`;
 
+        // NOTE: no background <rect> — keep everything outside the trouser path
+        // transparent so it composites onto the camera canvas without a white box.
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
-            + `<rect width='240' height='240' fill='#ffffff'/>`
             + `<defs>`
             +   `<linearGradient id='v${id}' x1='0' y1='0' x2='0' y2='1'>`
             +     `<stop offset='0'   stop-color='${top}'/>`
@@ -832,7 +840,10 @@
             +     `<feDiffuseLighting in='warped' surfaceScale='1.4' diffuseConstant='0.80' lighting-color='white' result='diffuse'>`
             +       `<feDistantLight azimuth='310' elevation='50'/>`
             +     `</feDiffuseLighting>`
-            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.82' k3='0.28' k4='0'/>`
+            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.82' k3='0.28' k4='0' result='lit'/>`
+            // Clip the lit result back to the garment shape — feDiffuseLighting
+            // otherwise leaves an opaque rectangle across the whole filter region.
+            +     `<feComposite in='lit' in2='warped' operator='in'/>`
             +   `</filter>`
             + `</defs>`
             + `<path d='${path}' fill='url(#denim${id})' filter='url(#fab${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
