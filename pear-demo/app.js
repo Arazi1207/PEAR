@@ -127,6 +127,10 @@
         // החלפת מסכים
         screenCalc.classList.remove('active');
         screenFit.classList.add('active');
+
+        // אם המשתמש הגיע מדף מוצר בחנות — הפעל את הפריט הממוקד עכשיו
+        // (אחרי שהושלם חישוב המידה במסך 1).
+        if (typeof activateFocusFitting === 'function') activateFocusFitting();
     });
 
     document.getElementById('btn-back').addEventListener('click', () => {
@@ -1045,6 +1049,12 @@
             ],
         },
     ];
+
+    // Flat list of every catalog item — used by the cross-category
+    // "Complete the Look" recommender (renderCompleteTheLook).
+    const GARMENT_CATALOG = GARMENT_CONFIG.flatMap(
+        c => c.subcategories.flatMap(s => s.items)
+    );
 
     // Active shirt's sleeve type — drives sleeve mesh quads in onResults().
     let currentShirtSleeve = 'short';
@@ -2146,10 +2156,11 @@
                     '<span class="cl-name">' + item.name + '</span>' +
                     '<span class="cl-tag">' + (item.type === 'shirt' ? 'חולצה' : 'מכנסיים') + '</span>' +
                 '</div>' +
-                '<button class="cl-swap" type="button">החלף פריט · Quick Swap</button>';
+                '<button class="cl-swap" type="button">הוסף ללוק · Quick Add</button>';
 
             card.querySelector('.cl-swap').addEventListener('click', () => {
-                // Layer (if the slot is empty) or swap (replace that category).
+                // Adds the complementary garment so the user sees the full set
+                // (focused shirt + these pants, or vice-versa).
                 if (item.type === 'shirt') currentShirtSleeve = item.sleeve || 'short';
                 else                       currentPantsFit    = item.fit    || 'regular';
                 loadGarmentFromSrc(dataUri, item.type);
@@ -2164,6 +2175,37 @@
         section.hidden = false;
     }
 
+    // Garment carried over from a store product page. It is REMEMBERED here
+    // and only applied to the camera once the user finishes Screen 1 (the size
+    // calculator) and continues to Screen 2 — the size recommendation is
+    // essential to the fit, so the calculator is never skipped on this flow.
+    let pendingHandoff = null;
+
+    // Apply the focused garment when the user reaches the fitting/camera screen.
+    // Called from the "continue" button handler (Screen 1 → Screen 2).
+    function activateFocusFitting() {
+        if (!pendingHandoff) return;
+        const h = pendingHandoff;
+
+        // 1) build + activate the garment inside the camera engine
+        applyHandoffGarment(h.itemType, h.subType, h.color);
+
+        // 2) immersive layout — hide the general catalog, isolate this item
+        document.body.classList.add('focus-mode');
+
+        // 3) royal-blue focused-session status bar over the canvas
+        const status = document.getElementById('focusStatus');
+        if (status) {
+            status.innerHTML = 'מדידת פריט ממוקדת: <strong>' + h.name + '</strong>';
+            status.hidden = false;
+        }
+
+        // 4) cross-category "Complete the Look" slider
+        renderCompleteTheLook(h.itemType);
+
+        if (placeholder) placeholder.innerText = 'לחץ "הפעל מצלמה למדידה" כדי להתחיל';
+    }
+
     (function initFocusMode() {
         const sp       = new URLSearchParams(window.location.search);
         const itemType = sp.get('itemType');
@@ -2171,8 +2213,8 @@
         const subType  = sp.get('subType') || '';
         if (!itemType || !color) return;                 // no handoff → normal flow
 
-        // embed=1 → the store overlay wraps this iframe and provides its own
-        // status bar + Complete the Look, so suppress the in-iframe chrome.
+        // embed=1 → legacy in-store iframe modal: the store handled sizing and
+        // wraps this iframe with its own chrome, so jump straight to the camera.
         const embed   = sp.get('embed') === '1';
         const isShirt = (itemType === 'shirt');
         const sleeve  = SLEEVE_MAP[subType] || 'short';
@@ -2190,25 +2232,25 @@
             itemName = (isShirt ? 'חולצה' : 'מכנסיים') + ' · ' + fitHe;
         }
 
-        // 1) build + activate the garment inside the camera engine
-        applyHandoffGarment(itemType, subType, color);
+        pendingHandoff = { itemType, subType, color, name: itemName };
 
-        // 2) immersive layout — jump straight to the fitting screen, hide clutter
-        document.body.classList.add('focus-mode');
-        if (embed) document.body.classList.add('embed-mode');
-        screenCalc.classList.remove('active');
-        screenFit.classList.add('active');
-        placeholder.innerText = 'לחץ "הפעל מצלמה למדידה" כדי להתחיל';
+        if (embed) {
+            // Legacy embedded flow — skip the calculator, suppress in-iframe chrome.
+            document.body.classList.add('focus-mode', 'embed-mode');
+            applyHandoffGarment(itemType, subType, color);
+            screenCalc.classList.remove('active');
+            screenFit.classList.add('active');
+            placeholder.innerText = 'לחץ "הפעל מצלמה למדידה" כדי להתחיל';
+            return;
+        }
 
-        if (!embed) {
-            // 3) Royal-blue status bar over the canvas
-            const status = document.getElementById('focusStatus');
-            if (status) {
-                status.innerHTML = 'מדידת פריט ממוקדת: <strong>' + itemName + '</strong>';
-                status.hidden = false;
-            }
-            // 4) cross-category Complete the Look slider
-            renderCompleteTheLook(itemType);
+        // Product-page flow (full redirect): KEEP Screen 1 (calculator) first.
+        // Surface a banner so the user knows which item is queued while they
+        // enter their measurements; the garment is applied on "continue".
+        const hint = document.getElementById('focusCalcHint');
+        if (hint) {
+            hint.innerHTML = 'מודדים עבור: <strong>' + itemName + '</strong> — חשבו מידה והמשיכו לחדר המדידה';
+            hint.hidden = false;
         }
     })();
 

@@ -834,12 +834,31 @@ input[type="number"] {
 body.focus-mode .fs-btn,
 body.focus-mode .size-badge { top: 56px; }
 
-/* Strip the catalog clutter — only the camera + the chosen garment remain */
+/* Strip the catalog clutter — only the camera + the chosen garment remain.
+   The general garment catalog + upload controls are hidden so the session is
+   focused 100% on the item carried over from the store product page. */
 body.focus-mode .catalog-title,
 body.focus-mode .selector-row,
 body.focus-mode .personal-title,
+body.focus-mode .upload-bar,
+body.focus-mode #catalog-grid-container,
 body.focus-mode #btn-back { display: none; }
 body.focus-mode h1 { font-size: 1.5rem; margin-bottom: 16px; }
+
+/* Calculator hint banner — shows the queued garment while the user sizes up
+   (product-page flow keeps the size calculator as Screen 1). */
+.focus-calc-hint {
+    background: linear-gradient(120deg, var(--primary-color), var(--accent-color));
+    color: #fff;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 8px 22px -10px rgba(11, 60, 149, 0.55);
+}
+.focus-calc-hint strong { font-weight: 800; }
 
 /* Embedded inside the store overlay → store provides its own chrome */
 body.embed-mode .app-header,
