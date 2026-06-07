@@ -181,14 +181,19 @@ function routeFromHash() {
   if (f) renderCatalog(f);
 }
 
+/* ── PEAR handoff URL builder (focused / isolated mode) ── */
+function pearUrl(p, embed) {
+  const params = { itemType: p.type, subType: p.subType, color: p.color.replace("#", ""), name: p.name };
+  if (embed) params.embed = "1";
+  return `${PEAR_PATH}?${new URLSearchParams(params).toString()}`;
+}
+
 /* ── PEAR full-camera handoff (deep-link with the active garment) ── */
 function launchPearCamera(p) {
   const color = p.color.replace("#", "");
   try { localStorage.setItem(LS_TRYON, JSON.stringify({ itemType: p.type, subType: p.subType, color, name: p.name })); } catch (_) {}
-  const qs = new URLSearchParams({ itemType: p.type, subType: p.subType, color }).toString();
-  const url = `${PEAR_PATH}?${qs}`;
   showToast(`Launching full <b>PEAR Camera</b> — ${p.name}…`);
-  setTimeout(() => { window.location.href = url; }, 650);
+  setTimeout(() => { window.location.href = pearUrl(p, false); }, 650);
 }
 
 /* ============================================================
@@ -277,7 +282,9 @@ function setActiveItem(p, opts = {}) {
 
 function openTryOn(p) {
   setActiveItem(p);
-  if (!frameLoaded) { frame.src = PEAR_PATH; frameLoaded = true; }
+  // Load the PEAR camera isolated to this garment (embedded = store supplies chrome).
+  frame.src = pearUrl(p, true);
+  frameLoaded = true;
   tryonEl.classList.add("open");
   tryonEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("tryon-open");
@@ -291,6 +298,13 @@ function closeTryOn() {
 
 function switchItem(p) {
   setActiveItem(p, { pulse: true });
+  // Live-swap the garment inside the running camera (no reload → no restart).
+  if (frame.contentWindow) {
+    frame.contentWindow.postMessage(
+      { type: "pear:swap", itemType: p.type, subType: p.subType, color: p.color.replace("#", ""), name: p.name },
+      "*"
+    );
+  }
   showToast(`Now trying on <b>${p.name}</b>`);
 }
 

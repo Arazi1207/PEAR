@@ -1201,3 +1201,134 @@
              document.msExitFullscreen).call(document);
         }
     });
+
+    /**
+     * =======================================================
+     * FOCUSED TRY-ON MODE — triggered by the store handoff.
+     * URL: ?itemType=shirt|pants&subType=...&color=RRGGBB
+     * → isolate that one garment, skip the catalog, show a
+     *   status bar + a cross-category "Complete the Look" slider.
+     * =======================================================
+     */
+    // Store vocab → pear-demo vocab (shared by the URL handoff + live swaps).
+    const SLEEVE_MAP = { short_sleeve: 'short', long_sleeve: 'long', sleeveless: 'sleeveless', short: 'short', long: 'long' };
+
+    // Load + activate a garment in the camera engine from raw handoff fields.
+    function applyHandoffGarment(itemType, subType, color) {
+        if (color && color.charAt(0) !== '#') color = '#' + color;
+        if (itemType === 'shirt') {
+            currentShirtSleeve = SLEEVE_MAP[subType] || 'short';
+            loadGarmentFromSrc(svgToDataUri(shirtSVG(color, currentShirtSleeve)), 'shirt');
+        } else if (itemType === 'pants') {
+            currentPantsFit = (['slim', 'regular', 'wide'].indexOf(subType) !== -1) ? subType : 'regular';
+            loadGarmentFromSrc(svgToDataUri(pantsSVG(color)), 'pants');
+        }
+    }
+
+    // Cross-category recommendations from GARMENT_CATALOG.
+    // Shirt handoff → suggest PANTS; pants handoff → suggest SHIRTS.
+    function renderCompleteTheLook(focusType) {
+        const section = document.getElementById('completeLook');
+        const track   = document.getElementById('clTrack');
+        const sub     = document.getElementById('clSub');
+        if (!section || !track) return;
+
+        const wantType = (focusType === 'shirt') ? 'pants' : 'shirt';
+        if (sub) sub.innerText = (focusType === 'shirt')
+            ? 'מכנסיים שמשלימים את החולצה שלך'
+            : 'חולצות שמשלימות את המכנסיים שלך';
+
+        const recs = GARMENT_CATALOG.filter(i => i.type === wantType).slice(0, 4);
+        track.innerHTML = '';
+
+        recs.forEach(item => {
+            const svg = (item.type === 'shirt')
+                ? shirtSVG(item.color, item.sleeve)
+                : pantsSVG(item.color);
+            const dataUri = svgToDataUri(svg);
+
+            const card = document.createElement('article');
+            card.className = 'cl-card';
+            card.innerHTML =
+                '<div class="cl-media"><img alt="' + item.name + '" src="' + dataUri + '"></div>' +
+                '<div class="cl-info">' +
+                    '<span class="cl-name">' + item.name + '</span>' +
+                    '<span class="cl-tag">' + (item.type === 'shirt' ? 'חולצה' : 'מכנסיים') + '</span>' +
+                '</div>' +
+                '<button class="cl-swap" type="button">החלף פריט · Quick Swap</button>';
+
+            card.querySelector('.cl-swap').addEventListener('click', () => {
+                // Layer (if the slot is empty) or swap (replace that category).
+                if (item.type === 'shirt') currentShirtSleeve = item.sleeve || 'short';
+                else                       currentPantsFit    = item.fit    || 'regular';
+                loadGarmentFromSrc(dataUri, item.type);
+                track.querySelectorAll('.cl-card').forEach(c => c.classList.remove('active'));
+                card.classList.add('active');
+                placeholder.innerText = 'הלוק עודכן — ' + item.name;
+            });
+
+            track.appendChild(card);
+        });
+
+        section.hidden = false;
+    }
+
+    (function initFocusMode() {
+        const sp       = new URLSearchParams(window.location.search);
+        const itemType = sp.get('itemType');
+        const color    = sp.get('color');
+        const subType  = sp.get('subType') || '';
+        if (!itemType || !color) return;                 // no handoff → normal flow
+
+        // embed=1 → the store overlay wraps this iframe and provides its own
+        // status bar + Complete the Look, so suppress the in-iframe chrome.
+        const embed   = sp.get('embed') === '1';
+        const isShirt = (itemType === 'shirt');
+        const sleeve  = SLEEVE_MAP[subType] || 'short';
+        const fit     = (['slim', 'regular', 'wide'].indexOf(subType) !== -1) ? subType : 'regular';
+
+        // resolve display name: URL > localStorage handoff > generated
+        let itemName = sp.get('name');
+        if (!itemName) {
+            try { const t = JSON.parse(localStorage.getItem('pear_tryon') || 'null'); if (t && t.name) itemName = t.name; } catch (e) {}
+        }
+        if (!itemName) {
+            const fitHe = isShirt
+                ? ({ short: 'שרוול קצר', long: 'שרוול ארוך', sleeveless: 'גופייה' }[sleeve])
+                : ({ slim: 'צמוד', regular: 'רגיל', wide: 'רחב' }[fit]);
+            itemName = (isShirt ? 'חולצה' : 'מכנסיים') + ' · ' + fitHe;
+        }
+
+        // 1) build + activate the garment inside the camera engine
+        applyHandoffGarment(itemType, subType, color);
+
+        // 2) immersive layout — jump straight to the fitting screen, hide clutter
+        document.body.classList.add('focus-mode');
+        if (embed) document.body.classList.add('embed-mode');
+        screenCalc.classList.remove('active');
+        screenFit.classList.add('active');
+        placeholder.innerText = 'לחץ "הפעל מצלמה למדידה" כדי להתחיל';
+
+        if (!embed) {
+            // 3) Royal-blue status bar over the canvas
+            const status = document.getElementById('focusStatus');
+            if (status) {
+                status.innerHTML = 'מדידת פריט ממוקדת: <strong>' + itemName + '</strong>';
+                status.hidden = false;
+            }
+            // 4) cross-category Complete the Look slider
+            renderCompleteTheLook(itemType);
+        }
+    })();
+
+    // Live swap from the store overlay (no reload → camera keeps running).
+    window.addEventListener('message', (ev) => {
+        const d = ev.data;
+        if (!d || d.type !== 'pear:swap') return;
+        applyHandoffGarment(d.itemType, d.subType || '', d.color || '');
+        const status = document.getElementById('focusStatus');
+        if (status && !status.hidden && d.name) {
+            status.innerHTML = 'מדידת פריט ממוקדת: <strong>' + d.name + '</strong>';
+        }
+        if (placeholder && d.name) placeholder.innerText = 'הלוק עודכן — ' + d.name;
+    });

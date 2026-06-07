@@ -3,31 +3,31 @@
    Warm beige canvas, white cards, deep navy accent
    ============================================================ */
 :root {
-    --primary-color: #1a1a2e;                    /* deep navy */
-    --primary-soft:  rgba(26, 26, 46, 0.45);
-    --bg-color:      #f5f0e8;                    /* warm beige */
-    --bg-rich:       #efe8dc;                    /* slight elevation */
+    --primary-color: #0b3c95;                    /* royal blue */
+    --primary-soft:  rgba(11, 60, 149, 0.45);
+    --bg-color:      #ffffff;                    /* crisp white */
+    --bg-rich:       #f1f4f9;                    /* light blue-gray elevation */
     --card-bg:       #ffffff;                    /* clean white card */
     --card-solid:    #ffffff;
-    --input-bg:      #faf7f2;                    /* very soft cream */
-    --border-color:  rgba(180, 170, 155, 0.35);
-    --border-glow:   rgba(26, 26, 46, 0.30);
-    --text-color:    #2a2520;
-    --text-muted:    #8a8078;
-    --accent-color:  #16213e;                    /* darker navy (hover) */
+    --input-bg:      #f8f9fa;                    /* very soft gray */
+    --border-color:  #e5e7eb;                    /* crisp 1px border */
+    --border-glow:   rgba(11, 60, 149, 0.30);
+    --text-color:    #14181f;
+    --text-muted:    #6b7280;
+    --accent-color:  #082e73;                    /* deep blue (hover) */
     --error-color:   #c44a5b;
-    --success-color: #1a1a2e;
-    --shadow-deep:   0 12px 32px -10px rgba(0, 0, 0, 0.12);
-    --shadow-soft:   0 2px 12px rgba(0, 0, 0, 0.06);
-    --glow-navy:     0 0 16px rgba(26, 26, 46, 0.18);
-    --ease-premium:  cubic-bezier(0.4, 0, 0.2, 1);
+    --success-color: #0b3c95;
+    --shadow-deep:   0 18px 40px -16px rgba(11, 60, 149, 0.22);
+    --shadow-soft:   0 2px 14px rgba(20, 30, 60, 0.07);
+    --glow-navy:     0 0 16px rgba(11, 60, 149, 0.18);
+    --ease-premium:  cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    /* Warm beige base + subtle navy glow from top-center */
+    font-family: 'Urbanist', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    /* White base + subtle royal-blue glow from top-center */
     background:
-        radial-gradient(ellipse 70% 50% at 50% 0%, rgba(26, 26, 46, 0.04), transparent 70%),
+        radial-gradient(ellipse 70% 50% at 50% 0%, rgba(11, 60, 149, 0.06), transparent 70%),
         var(--bg-color);
     background-attachment: fixed;
     color: var(--text-color);
@@ -169,12 +169,12 @@ button {
 button:hover:not(:disabled) {
     transform: translateY(-1px);
     background: var(--accent-color);
-    box-shadow: 0 8px 22px rgba(26, 26, 46, 0.18);
+    box-shadow: 0 8px 22px rgba(11, 60, 149, 0.18);
 }
 button:active:not(:disabled) { transform: translateY(0); }
 button:disabled {
-    background: #d8d2c8;
-    color: #a8a098;
+    background: #e9ecef;
+    color: #9aa1ab;
     cursor: not-allowed;
     box-shadow: none;
 }
@@ -259,7 +259,7 @@ button:disabled {
     padding: 6px 12px;
     background: var(--input-bg);
     color: var(--text-color);
-    border: 1px dashed rgba(26, 26, 46, 0.35);
+    border: 1px dashed rgba(11, 60, 149, 0.35);
     border-radius: 6px;
     cursor: pointer;
     transition: border-color 0.2s, color 0.2s;
@@ -318,8 +318,8 @@ button:disabled {
     background: var(--card-bg);
     box-shadow:
         var(--shadow-deep),
-        inset 0 0 0 1px rgba(26, 26, 46, 0.55),
-        0 0 18px rgba(26, 26, 46, 0.18);
+        inset 0 0 0 1px rgba(11, 60, 149, 0.55),
+        0 0 18px rgba(11, 60, 149, 0.18);
     transform: translateY(-1px);
 }
 .catalog-card.selected::after {
@@ -329,7 +329,7 @@ button:disabled {
     border-radius: 14px;
     pointer-events: none;
     background: radial-gradient(circle at 50% 0%,
-        rgba(26, 26, 46, 0.10),
+        rgba(11, 60, 149, 0.10),
         transparent 60%);
 }
 .catalog-card img {
@@ -359,7 +359,7 @@ button:disabled {
 
 .upload-box {
     flex: 1;
-    border: 2px dashed rgba(26, 26, 46, 0.35);
+    border: 2px dashed rgba(11, 60, 149, 0.35);
     padding: 15px;
     border-radius: 8px;
     background-color: var(--input-bg);
@@ -387,7 +387,7 @@ input[type="file"] { width: 100%; font-size: 13px; color: var(--text-color); }
 .preview-section.scanning {
     box-shadow:
         var(--shadow-deep),
-        0 0 24px rgba(26, 26, 46, 0.12);
+        0 0 24px rgba(11, 60, 149, 0.12);
 }
 
 #output_canvas {
@@ -443,8 +443,8 @@ table {
 
 th, td { padding: 10px 12px; border: 1px solid var(--border-color); }
 th { background-color: var(--input-bg); font-weight: 600; color: var(--text-color); }
-tr:nth-child(even) { background-color: #faf7f2; }
-.highlight-header { background-color: #efe8dc; }
+tr:nth-child(even) { background-color: #f8f9fa; }
+.highlight-header { background-color: #eef3fc; }
 
 .personal-title {
     color: var(--primary-color);
@@ -517,7 +517,7 @@ tr:nth-child(even) { background-color: #faf7f2; }
     height: 100%;
     width: 0;
     background: linear-gradient(90deg, var(--accent-color), var(--primary-color));
-    box-shadow: 0 0 8px rgba(26, 26, 46, 0.35);
+    box-shadow: 0 0 8px rgba(11, 60, 149, 0.35);
     transition: width var(--t-med) var(--ease);
 }
 
@@ -529,8 +529,8 @@ input[type="number"]:focus {
     animation: inputPulse var(--t-pulse) ease-in-out infinite;
 }
 @keyframes inputPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(26, 26, 46, 0.25); }
-    50%      { box-shadow: 0 0 0 4px rgba(26, 26, 46, 0.08); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(11, 60, 149, 0.25); }
+    50%      { box-shadow: 0 0 0 4px rgba(11, 60, 149, 0.08); }
 }
 
 .form-group {
@@ -583,7 +583,7 @@ input[type="number"]:focus {
     inset: 0;
     background: linear-gradient(110deg,
         transparent 30%,
-        rgba(26, 26, 46, 0.10) 50%,
+        rgba(11, 60, 149, 0.10) 50%,
         transparent 70%);
     background-size: 220% 100%;
     animation: shimmerSweep var(--t-shimmer) linear infinite;
@@ -606,8 +606,8 @@ input[type="number"]:focus {
     animation: btnGlow var(--t-pulse) ease-in-out infinite;
 }
 @keyframes btnGlow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(26, 26, 46, 0.35); }
-    50%      { box-shadow: 0 0 18px 2px rgba(26, 26, 46, 0.20); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(11, 60, 149, 0.35); }
+    50%      { box-shadow: 0 0 18px 2px rgba(11, 60, 149, 0.20); }
 }
 
 .catalog-card {
@@ -620,7 +620,7 @@ input[type="number"]:focus {
     top: 0; left: -75%;
     width: 50%; height: 100%;
     background: linear-gradient(120deg, transparent 0%,
-        rgba(26, 26, 46, 0.12) 50%, transparent 100%);
+        rgba(11, 60, 149, 0.12) 50%, transparent 100%);
     transform: skewX(-20deg);
     transition: left var(--t-slow) var(--ease);
     pointer-events: none;
@@ -630,9 +630,9 @@ input[type="number"]:focus {
     animation: cardPulse var(--t-pulse) ease-in-out infinite;
 }
 @keyframes cardPulse {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(26, 26, 46, 0.35); }
-    50%      { box-shadow: 0 0 0 4px rgba(26, 26, 46, 0.16),
-                           0 0 12px rgba(26, 26, 46, 0.20); }
+    0%, 100% { box-shadow: 0 0 0 2px rgba(11, 60, 149, 0.35); }
+    50%      { box-shadow: 0 0 0 4px rgba(11, 60, 149, 0.16),
+                           0 0 12px rgba(11, 60, 149, 0.20); }
 }
 
 .preview-section {
@@ -656,7 +656,7 @@ input[type="number"]:focus {
     height: 2px;
     background: linear-gradient(90deg, transparent,
         var(--primary-color), transparent);
-    box-shadow: 0 0 12px rgba(26, 26, 46, 0.50);
+    box-shadow: 0 0 12px rgba(11, 60, 149, 0.50);
     opacity: 0;
     z-index: 2;
     pointer-events: none;
@@ -682,7 +682,7 @@ input[type="number"]:focus {
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.85);
     color: var(--primary-color);
-    border: 1px solid rgba(26, 26, 46, 0.35);
+    border: 1px solid rgba(11, 60, 149, 0.35);
     cursor: pointer;
     font-size: 16px;
     line-height: 36px;
@@ -749,8 +749,8 @@ input[type="number"]:focus {
     color: #ffffff;
     border: none;
     cursor: pointer;
-    box-shadow: 0 6px 20px rgba(26, 26, 46, 0.30),
-                0 0 0 0 rgba(26, 26, 46, 0.35);
+    box-shadow: 0 6px 20px rgba(11, 60, 149, 0.30),
+                0 0 0 0 rgba(11, 60, 149, 0.35);
     font-size: 26px;
     line-height: 60px;
     text-align: center;
@@ -762,8 +762,8 @@ input[type="number"]:focus {
 .fab:hover { transform: scale(1.08); background: var(--accent-color); }
 .fab.hidden { display: none; }
 @keyframes fabPulse {
-    0%, 100% { box-shadow: 0 6px 20px rgba(26, 26, 46, 0.30), 0 0 0  0 rgba(26, 26, 46, 0.35); }
-    50%      { box-shadow: 0 6px 20px rgba(26, 26, 46, 0.30), 0 0 0 12px rgba(26, 26, 46, 0.00); }
+    0%, 100% { box-shadow: 0 6px 20px rgba(11, 60, 149, 0.30), 0 0 0  0 rgba(11, 60, 149, 0.35); }
+    50%      { box-shadow: 0 6px 20px rgba(11, 60, 149, 0.30), 0 0 0 12px rgba(11, 60, 149, 0.00); }
 }
 
 /* Monospace for numeric/size display elements */
@@ -774,4 +774,107 @@ input[type="number"]:focus {
 .step-progress-label,
 input[type="number"] {
     font-family: var(--mono-stack);
+}
+
+/* ============================================================
+   FOCUSED TRY-ON MODE (store handoff via URL params)
+   ============================================================ */
+/* Royal-blue status bar pinned across the top of the canvas */
+.focus-status {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 5;
+    background: linear-gradient(120deg, var(--primary-color), var(--accent-color));
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-align: center;
+    padding: 12px 16px;
+    box-shadow: 0 4px 14px rgba(11, 60, 149, 0.28);
+}
+.focus-status strong { font-weight: 800; }
+
+/* Nudge the on-canvas controls below the status bar */
+body.focus-mode .fs-btn,
+body.focus-mode .size-badge { top: 56px; }
+
+/* Strip the catalog clutter — only the camera + the chosen garment remain */
+body.focus-mode .catalog-title,
+body.focus-mode .selector-row,
+body.focus-mode .personal-title,
+body.focus-mode #btn-back { display: none; }
+body.focus-mode h1 { font-size: 1.5rem; margin-bottom: 16px; }
+
+/* Embedded inside the store overlay → store provides its own chrome */
+body.embed-mode .app-header,
+body.embed-mode h1,
+body.embed-mode .focus-status { display: none; }
+body.embed-mode .container { margin-bottom: 0; padding: 0; border: none; box-shadow: none; background: transparent; }
+body.embed-mode { padding: 0; }
+
+/* ============================================================
+   COMPLETE THE LOOK — cross-category recommendation slider
+   ============================================================ */
+.complete-look {
+    width: 100%;
+    max-width: 640px;
+    margin: 26px auto 0;
+    text-align: right;
+}
+.cl-title {
+    text-align: right;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--primary-color);
+    margin-bottom: 4px;
+}
+.cl-title span { color: var(--text-muted); font-weight: 600; font-size: 0.82rem; }
+.cl-sub {
+    text-align: right;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0 0 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+.cl-track {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding: 4px 2px 14px;
+    scroll-snap-type: x mandatory;
+}
+.cl-track::-webkit-scrollbar { height: 6px; }
+.cl-track::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 100px; }
+
+.cl-card {
+    flex: 0 0 152px;
+    scroll-snap-align: start;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.3s var(--ease-premium), box-shadow 0.3s var(--ease-premium), border-color 0.3s var(--ease-premium);
+}
+.cl-card:hover { transform: translateY(-4px); border-color: var(--primary-soft); box-shadow: var(--shadow-deep); }
+.cl-card.active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px var(--primary-color), var(--shadow-deep);
+}
+.cl-media { border-radius: 10px; overflow: hidden; background: var(--bg-rich); border: 1px solid var(--border-color); }
+.cl-media img { width: 100%; height: auto; display: block; }
+.cl-info { display: flex; flex-direction: column; gap: 2px; margin: 10px 2px 12px; text-align: right; }
+.cl-name { font-size: 0.86rem; font-weight: 700; color: var(--text-color); }
+.cl-tag { font-size: 0.72rem; color: var(--text-muted); letter-spacing: 0.3px; }
+.cl-swap {
+    margin: 0;
+    padding: 10px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 9px;
+    box-shadow: none;
 }

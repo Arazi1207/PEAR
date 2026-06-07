@@ -8,6 +8,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -125,6 +129,7 @@
         <button id="btn-back" style="background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 20px;">חזור למחשבון המידות</button>
 
         <div class="preview-section" id="previewSection">
+            <div class="focus-status" id="focusStatus" hidden></div>
             <div class="size-badge" id="size-badge"></div>
             <button class="fs-btn" id="fsBtn" title="מסך מלא">⛶</button>
             <div class="skeleton" id="previewSkeleton"></div>
@@ -135,6 +140,13 @@
             <video id="webcam" playsinline></video>
             <canvas id="output_canvas" width="640" height="480"></canvas>
         </div>
+
+        <!-- ░░ COMPLETE THE LOOK — cross-category recommendations ░░ -->
+        <section class="complete-look" id="completeLook" hidden>
+            <h3 class="cl-title">השלמת הלוק <span>(Complete the Look)</span></h3>
+            <p class="cl-sub" id="clSub"></p>
+            <div class="cl-track" id="clTrack"></div>
+        </section>
     </div>
 </div>
 
