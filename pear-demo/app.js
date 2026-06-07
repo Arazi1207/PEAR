@@ -162,15 +162,68 @@
         offCtx.clearRect(0, 0, off.width, off.height);
         offCtx.drawImage(sourceImg, 0, 0, off.width, off.height);
 
-        const imageData = offCtx.getImageData(0, 0, off.width, off.height);
+        const W = off.width, H = off.height;
+        const imageData = offCtx.getImageData(0, 0, W, H);
         const data = imageData.data;
-        for (let i = 0; i < data.length; i += 4) {
-            if (data[i] > WHITE_THRESHOLD && data[i + 1] > WHITE_THRESHOLD && data[i + 2] > WHITE_THRESHOLD) {
-                data[i + 3] = 0;
+
+        // BFS flood-fill from all 4 image borders.
+        // Only removes white/near-white pixels that are spatially connected to
+        // the edge of the image (the actual background). Interior highlights or
+        // near-white fabric regions that are fully surrounded by garment pixels
+        // are preserved, eliminating halos and jagged border artifacts.
+        // Threshold matches WHITE_THRESHOLD (240) so procedural SVG pixels
+        // clamped to ≤239 are never incorrectly erased.
+        const BG = WHITE_THRESHOLD;  // 240 — must beat original to keep parity
+        const visited = new Uint8Array(W * H);
+        const queue   = new Int32Array(W * H);
+        let qHead = 0, qTail = 0;
+
+        const enqueue = (idx) => {
+            if (visited[idx]) return;
+            const p = idx * 4;
+            if (data[p] > BG && data[p+1] > BG && data[p+2] > BG) {
+                visited[idx] = 1;
+                queue[qTail++] = idx;
+            }
+        };
+
+        // Seed from all four edges
+        for (let x = 0; x < W; x++) { enqueue(x); enqueue((H-1)*W + x); }
+        for (let y = 1; y < H-1; y++) { enqueue(y*W); enqueue(y*W + W-1); }
+
+        // 4-connected BFS expansion
+        while (qHead < qTail) {
+            const idx = queue[qHead++];
+            const x = idx % W, y = (idx / W) | 0;
+            if (x > 0)   enqueue(idx - 1);
+            if (x < W-1) enqueue(idx + 1);
+            if (y > 0)   enqueue(idx - W);
+            if (y < H-1) enqueue(idx + W);
+        }
+
+        // Erase background + 1-px feathered boundary to kill anti-alias halos.
+        for (let i = 0; i < W * H; i++) {
+            const p = i * 4;
+            if (visited[i]) {
+                data[p+3] = 0;
+            } else {
+                // Soft-clip: any pixel touching a removed pixel gets its alpha
+                // reduced in proportion to how close it is to white — dissolves
+                // the residual semi-transparent fringe without touching the garment.
+                const x = i % W, y = (i / W) | 0;
+                const touchesBg =
+                    (x > 0   && visited[i-1]) ||
+                    (x < W-1 && visited[i+1]) ||
+                    (y > 0   && visited[i-W]) ||
+                    (y < H-1 && visited[i+W]);
+                if (touchesBg) {
+                    const w = Math.min(data[p], data[p+1], data[p+2]) / 255;
+                    data[p+3] = Math.round(data[p+3] * (1 - w * 0.80));
+                }
             }
         }
-        offCtx.putImageData(imageData, 0, 0);
 
+        offCtx.putImageData(imageData, 0, 0);
         if (type === 'shirt') shirtLoaded = true;
         else                  pantsLoaded = true;
     }
@@ -218,18 +271,82 @@
             ? buildShirtSilhouette(currentShirtSleeve || 'short')
             : buildPantsSilhouette();
 
-        // 1) Clip to silhouette, then draw the texture image filling 240x240 with
-        //    "cover" semantics so the entire silhouette is covered with pattern.
         c.save();
         c.clip(silhouette);
+
+        // ── 1. Base layer: uploaded photo, cover-fit scaled ───────────
         const iw = srcImg.naturalWidth  || srcImg.width  || 1;
         const ih = srcImg.naturalHeight || srcImg.height || 1;
         const scale = Math.max(240 / iw, 240 / ih);
         const sw = iw * scale, sh = ih * scale;
         c.drawImage(srcImg, (240 - sw) / 2, (240 - sh) / 2, sw, sh);
-        c.restore();
 
-        // 2) Edge stroke — gives the textured fabric a clean defined boundary.
+        // ── 2. Multiply pass — shadows darken without adding hue ──────
+        // All gradient fills below are clipped to the silhouette and
+        // composited as multiply (result = photo × gradient / 255).
+        // rgba(255,255,255,0) is transparent white → multiply = no change.
+        c.globalCompositeOperation = 'multiply';
+
+        // Perimeter vignette — fabric wraps away from viewer at edges
+        const vignette = c.createRadialGradient(120, 120, 48, 120, 120, 138);
+        vignette.addColorStop(0.30, 'rgba(255,255,255,0)');
+        vignette.addColorStop(0.72, 'rgba(165,165,165,1)');
+        vignette.addColorStop(1.00, 'rgba(110,110,110,1)');
+        c.fillStyle = vignette;
+        c.fillRect(0, 0, 240, 240);
+
+        // Left-side curvature shadow
+        const leftShadow = c.createLinearGradient(0, 0, 240, 0);
+        leftShadow.addColorStop(0,    'rgba(100,100,100,1)');
+        leftShadow.addColorStop(0.20, 'rgba(210,210,210,1)');
+        leftShadow.addColorStop(0.38, 'rgba(255,255,255,0)');
+        c.fillStyle = leftShadow;
+        c.globalAlpha = 0.55;
+        c.fillRect(0, 0, 240, 240);
+
+        // Right-side curvature shadow
+        const rightShadow = c.createLinearGradient(240, 0, 0, 0);
+        rightShadow.addColorStop(0,    'rgba(100,100,100,1)');
+        rightShadow.addColorStop(0.20, 'rgba(210,210,210,1)');
+        rightShadow.addColorStop(0.38, 'rgba(255,255,255,0)');
+        c.fillStyle = rightShadow;
+        c.fillRect(0, 0, 240, 240);
+        c.globalAlpha = 1;
+
+        // Bottom hem/ankle shadow — fabric weight pulling down
+        const hemShadow = c.createLinearGradient(0, 0, 0, 240);
+        hemShadow.addColorStop(0.70, 'rgba(255,255,255,0)');
+        hemShadow.addColorStop(1.00, 'rgba(115,115,115,1)');
+        c.fillStyle = hemShadow;
+        c.globalAlpha = 0.60;
+        c.fillRect(0, 0, 240, 240);
+        c.globalAlpha = 1;
+
+        // ── 3. Screen pass — shoulder/chest highlight ─────────────────
+        // screen = 1-(1-src)(1-dst); lightens only; preserves colour
+        c.globalCompositeOperation = 'screen';
+
+        const shoulderHL = c.createRadialGradient(120, 52, 6, 120, 52, 108);
+        shoulderHL.addColorStop(0,   'rgba(255,255,255,0.18)');
+        shoulderHL.addColorStop(0.6, 'rgba(255,255,255,0.04)');
+        shoulderHL.addColorStop(1,   'rgba(255,255,255,0)');
+        c.fillStyle = shoulderHL;
+        c.fillRect(0, 0, 240, 240);
+
+        // ── 4. Overlay pass — micro-contrast boost ───────────────────
+        // overlay pops weave/texture detail in the mid-tones
+        c.globalCompositeOperation = 'overlay';
+
+        const foldAccent = c.createLinearGradient(0, 50, 0, 210);
+        foldAccent.addColorStop(0,    'rgba(255,255,255,0.08)');
+        foldAccent.addColorStop(0.45, 'rgba(255,255,255,0)');
+        foldAccent.addColorStop(1,    'rgba(0,0,0,0.10)');
+        c.fillStyle = foldAccent;
+        c.fillRect(0, 0, 240, 240);
+
+        c.restore(); // resets clip, compositeOperation, and globalAlpha
+
+        // ── 5. Edge stroke — clean garment boundary ───────────────────
         c.save();
         c.lineWidth = 1.5;
         c.strokeStyle = 'rgba(0, 0, 0, 0.42)';
@@ -282,176 +399,461 @@
     function _lighten(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r+(239-r)*p,g+(239-g)*p,b+(239-b)*p);}
     function _darken(hex,p){const[r,g,b]=_hexToRgb(hex);return _toHex(r*(1-p),g*(1-p),b*(1-p));}
 
-    // FIX 4 — shirtSVG now accepts a pattern param so visuals match catalog names:
+    // shirtSVG visual overhaul — hyper-realistic fabric textures, multi-layer shading, stitching detail.
+    // Mechanics (mesh source points, silhouette paths) are unchanged.
     //   'plain'   → solid colored shirt
     //   'polo'    → vertical placket + 2 small buttons at the collar
     //   'stripes' → 5 horizontal contrasting bands across the torso
     function shirtSVG(color, sleeveType, pattern) {
         sleeveType = sleeveType || 'short';
-        pattern = pattern || 'plain';
-        const top    = _lighten(color, 0.15);
-        const bottom = _darken (color, 0.15);
-        const dark   = _darken (color, 0.25);
-        const edge   = _darken (color, 0.30);
-        const collar = _lighten(color, 0.10);
-        const seam   = _darken (color, 0.40);
-        const fold   = _darken (color, 0.35);   // fold-line color (subtle, opacity 0.08)
-        // Body path now uses the rounded crew-neck notch (no spike).
-        const path   = 'M58 55 L90 50 Q120 68 150 50 L182 55 L200 90 L182 112 L182 200 L58 200 L58 112 L40 90 Z';
-        const id = 'g' + Math.random().toString(36).slice(2, 8);
+        pattern    = pattern    || 'plain';
 
-        // Sleeves: curved edges + natural taper, anchored to the SAME shoulder
-        // points (70,55) / (170,55) as the body so there is NO gap at the seam.
-        let sleeves = '';
-        let foldLines = '';
+        // ── Derived colour palette ────────────────────────────────────────
+        const hi      = _lighten(color, 0.28);   // specular highlight
+        const top     = _lighten(color, 0.18);   // top shading stop
+        const mid     = _lighten(color, 0.06);   // mid-tone stop
+        const bot     = _darken (color, 0.20);   // bottom shading stop
+        const dark    = _darken (color, 0.30);   // shadow tone
+        const vdark   = _darken (color, 0.45);   // deep shadow / edge
+        const edge    = _darken (color, 0.35);   // outline stroke
+        const collar  = _lighten(color, 0.10);   // collar fill
+        const seam    = _darken (color, 0.48);   // stitch / seam lines
+        const thread  = _darken (color, 0.12);   // warp thread shadow
+        const threadH = _lighten(color, 0.18);   // weft thread highlight
+
+        const path = 'M58 55 L90 50 Q120 68 150 50 L182 55 C198 62 204 80 200 90 C197 101 190 109 182 112 L182 200 L58 200 L58 112 C50 109 43 101 40 90 C36 80 42 62 58 55 Z';
+        const id   = 'g' + Math.random().toString(36).slice(2, 8);
+
+        // ── Sleeves, cuff stitching, fold lines ──────────────────────────
+        let sleeves = '', foldLines = '', cuffDetails = '';
+
         if (sleeveType === 'short') {
-            // Rectangular sleeve hanging from shoulder seam (y=55) to cuff
-            // (y=105), with slight outward flare. Shoulder connector trapezoid
-            // bridges the gap to the collar.
-            sleeves += `<rect x='38' y='55' width='20' height='53' rx='7' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            sleeves += `<rect x='182' y='55' width='20' height='53' rx='7' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M48 60 L46 102'/>`
-                +   `<path d='M52 60 L51 102'/>`
-                +   `<path d='M192 60 L194 102'/>`
-                +   `<path d='M188 60 L189 102'/>`
+            // Cylindrical sleeve cap — wider at the armhole attachment,
+            // tapers to a curved hem. Cubic bezier outer edge bows slightly
+            // outward to suggest the roundness of the arm underneath.
+            sleeves =
+                `<path d='M40 55 C28 62 24 78 26 98 C27 102 30 106 34 108 L52 108 C56 106 59 102 60 98 C62 78 62 62 58 55 Z' fill='url(#vSl${id})' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
+              + `<path d='M200 55 C212 62 216 78 214 98 C213 102 210 106 206 108 L188 108 C184 106 181 102 180 98 C178 78 178 62 182 55 Z' fill='url(#vSl${id})' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`;
+            // Double-stitch hem following the curved cuff line
+            cuffDetails = `<g fill='none' stroke='${seam}' stroke-width='0.65' opacity='0.55'>`
+                + `<path d='M26 98 C27 102 30 106 34 108 L52 108 C56 106 59 102 60 98'/>`
+                + `<path d='M27 95 C28 99 31 103 35 105 L51 105 C55 103 58 99 59 95'/>`
+                + `<path d='M214 98 C213 102 210 106 206 108 L188 108 C184 106 181 102 180 98'/>`
+                + `<path d='M213 95 C212 99 209 103 205 105 L189 105 C185 103 182 99 181 95'/>`
+                + `</g>`;
+            // Cylindrical fold lines — arc with the sleeve curvature.
+            // Shadow on near-body edge, highlight at apex, shadow on far edge.
+            foldLines = `<g fill='none'>`
+                + `<path d='M29 64 C28 78 27 92 29 104' stroke='${dark}' stroke-width='0.8' opacity='0.22'/>`
+                + `<path d='M37 60 C36 76 35 90 36 104' stroke='${hi}'   stroke-width='0.5' opacity='0.16'/>`
+                + `<path d='M55 60 C56 76 57 90 56 104' stroke='${dark}' stroke-width='0.7' opacity='0.18'/>`
+                + `<path d='M211 64 C212 78 213 92 211 104' stroke='${dark}' stroke-width='0.8' opacity='0.22'/>`
+                + `<path d='M203 60 C204 76 205 90 204 104' stroke='${hi}'   stroke-width='0.5' opacity='0.16'/>`
+                + `<path d='M185 60 C184 76 183 90 184 104' stroke='${dark}' stroke-width='0.7' opacity='0.18'/>`
                 + `</g>`;
         } else if (sleeveType === 'long') {
-            // Long sleeve — straight-down rectangle flaring outward to wrist
-            // cuff (x=18/222, y=205). Shoulder connector bridges to the collar.
-            sleeves += `<path d='M58 55 L42 55 L22 195 L44 210 L58 105 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            sleeves += `<path d='M182 55 L198 55 L218 195 L196 210 L182 105 Z' fill='url(#v${id})' stroke='${edge}' stroke-width='1'/>`;
-            foldLines += `<g opacity='0.08' stroke='${fold}' stroke-width='1' fill='none'>`
-                +   `<path d='M50 60 L30 198'/>`
-                +   `<path d='M46 60 L24 196'/>`
-                +   `<path d='M190 60 L210 198'/>`
-                +   `<path d='M194 60 L216 196'/>`
+            sleeves = `<path d='M58 55 L42 55 L22 195 L44 210 L58 105 Z' fill='url(#vSlL${id})' stroke='${edge}' stroke-width='1'/>`
+                    + `<path d='M182 55 L198 55 L218 195 L196 210 L182 105 Z' fill='url(#vSlR${id})' stroke='${edge}' stroke-width='1'/>`;
+            // Rib-knit cuff block — filled band with hand-fitted rib lines.
+            // Cuff quads derived from the sleeve wrist corners (see sleeve path).
+            // Left wrist: outer(22,195) inner(44,210) → top of band 15px up the sleeve.
+            // Right wrist: outer(218,195) inner(196,210) → mirrored.
+            const _cuff = _darken(color, 0.12);
+            cuffDetails =
+                // ── Left cuff ──────────────────────────────────────────
+                `<path d='M24 179 L46 194 L44 212 L22 197 Z' fill='${_cuff}' stroke='${edge}' stroke-width='0.9' stroke-linejoin='round'/>`
+                + `<g fill='none' stroke='${seam}' stroke-width='0.75' opacity='0.52'>`
+                + `<line x1='24' y1='183' x2='44' y2='197'/>`
+                + `<line x1='24' y1='187' x2='44' y2='201'/>`
+                + `<line x1='24' y1='191' x2='44' y2='205'/>`
+                + `</g>`
+                + `<g fill='none' stroke='${hi}' stroke-width='0.38' opacity='0.28'>`
+                + `<line x1='24' y1='185' x2='44' y2='199'/>`
+                + `<line x1='24' y1='189' x2='44' y2='203'/>`
+                + `<line x1='24' y1='193' x2='44' y2='207'/>`
+                + `</g>`
+                + `<line x1='24' y1='179' x2='46' y2='194' stroke='${seam}' stroke-width='0.7' opacity='0.65'/>`
+                // ── Right cuff (mirror of left) ────────────────────────
+                + `<path d='M216 179 L194 194 L196 212 L218 197 Z' fill='${_cuff}' stroke='${edge}' stroke-width='0.9' stroke-linejoin='round'/>`
+                + `<g fill='none' stroke='${seam}' stroke-width='0.75' opacity='0.52'>`
+                + `<line x1='216' y1='183' x2='196' y2='197'/>`
+                + `<line x1='216' y1='187' x2='196' y2='201'/>`
+                + `<line x1='216' y1='191' x2='196' y2='205'/>`
+                + `</g>`
+                + `<g fill='none' stroke='${hi}' stroke-width='0.38' opacity='0.28'>`
+                + `<line x1='216' y1='185' x2='196' y2='199'/>`
+                + `<line x1='216' y1='189' x2='196' y2='203'/>`
+                + `<line x1='216' y1='193' x2='196' y2='207'/>`
+                + `</g>`
+                + `<line x1='216' y1='179' x2='194' y2='194' stroke='${seam}' stroke-width='0.7' opacity='0.65'/>`;
+            // Long curved fold pairs along full sleeve length
+            foldLines = `<g fill='none'>`
+                + `<path d='M50 60 Q38 128 28 198' stroke='${dark}' stroke-width='0.8' opacity='0.18'/>`
+                + `<path d='M52 62 Q40 130 30 200' stroke='${hi}'   stroke-width='0.5' opacity='0.12'/>`
+                + `<path d='M46 60 Q32 126 22 196' stroke='${dark}' stroke-width='0.5' opacity='0.12'/>`
+                + `<path d='M190 60 Q202 128 212 198' stroke='${dark}' stroke-width='0.8' opacity='0.18'/>`
+                + `<path d='M188 62 Q200 130 210 200' stroke='${hi}'   stroke-width='0.5' opacity='0.12'/>`
+                + `<path d='M194 60 Q208 126 218 196' stroke='${dark}' stroke-width='0.5' opacity='0.12'/>`
                 + `</g>`;
         }
+
+        // Body drape folds — cubic-bezier paths simulate gravity-driven fabric.
+        // Each shadow+highlight pair forms a "fold unit": the shadow marks the
+        // valley where the fabric bends away; the highlight sits on the ridge.
+        // Control points bulge outward at mid-torso (fabric gathered at sides)
+        // and converge toward the hem (weight pulls fabric downward and inward).
+        const bodyFolds = `<g fill='none'>`
+            // Left-side main drape: bows out at mid-chest, returns at hem
+            + `<path d='M85 72 C82 108 79 150 85 195' stroke='${dark}' stroke-width='0.90' opacity='0.16'/>`
+            + `<path d='M88 72 C85 110 83 152 88 195' stroke='${hi}'   stroke-width='0.55' opacity='0.10'/>`
+            // Mid-left tension crease: subtle inward curve from chest taper
+            + `<path d='M108 68 C104 112 106 154 108 196' stroke='${dark}' stroke-width='0.72' opacity='0.12'/>`
+            // Centre seam shadow — very subtle bilateral axis
+            + `<path d='M120 72 C119 118 121 158 120 196' stroke='${dark}' stroke-width='0.45' opacity='0.07'/>`
+            // Mid-right tension crease: mirror of mid-left
+            + `<path d='M132 68 C136 112 134 154 132 196' stroke='${dark}' stroke-width='0.72' opacity='0.12'/>`
+            // Right-side main drape: mirror of left
+            + `<path d='M152 72 C156 108 158 150 152 195' stroke='${dark}' stroke-width='0.90' opacity='0.16'/>`
+            + `<path d='M155 72 C158 110 160 152 155 195' stroke='${hi}'   stroke-width='0.55' opacity='0.10'/>`
+            + `</g>`;
+
+        // Side seam double-stitch lines
+        const sideSeams = `<g fill='none' stroke='${seam}' stroke-width='0.65' opacity='0.38'>`
+            + `<path d='M60 112 L60 196'/>`
+            + `<path d='M63 112 L63 196'/>`
+            + `<path d='M180 112 L180 196'/>`
+            + `<path d='M177 112 L177 196'/>`
+            + `</g>`;
+
+        // Hem double-stitch + running-stitch pattern overlay
+        const hemDetails = `<g fill='none' stroke='${seam}' stroke-width='0.65' opacity='0.42'>`
+            + `<line x1='60' y1='195' x2='180' y2='195'/>`
+            + `<line x1='60' y1='198' x2='180' y2='198'/>`
+            + `</g>`
+            + `<rect x='61' y='193' width='118' height='6' fill='url(#stitch${id})' opacity='0.30'/>`;
 
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
             + `<defs>`
+
+            // ── Gradients ────────────────────────────────────────────────
+            // Body: 3-stop top→mid→bottom for smooth tonal shading
             +   `<linearGradient id='v${id}' x1='0' y1='0' x2='0' y2='1'>`
-            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            +     `<stop offset='0'   stop-color='${top}'/>`
+            +     `<stop offset='0.4' stop-color='${mid}'/>`
+            +     `<stop offset='1'   stop-color='${bot}'/>`
             +   `</linearGradient>`
-            +   `<linearGradient id='vL${id}' x1='1' y1='0' x2='0' y2='1'>`
-            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            // Short sleeve — horizontal cylindrical shading (light apex, dark at edges)
+            // so the sleeve reads as a round arm cross-section, not a flat plank.
+            +   `<linearGradient id='vSl${id}' x1='0' y1='0' x2='1' y2='0'>`
+            +     `<stop offset='0'    stop-color='${_darken(color, 0.26)}'/>`
+            +     `<stop offset='0.30' stop-color='${top}'/>`
+            +     `<stop offset='0.55' stop-color='${hi}' stop-opacity='0.70'/>`
+            +     `<stop offset='0.75' stop-color='${top}'/>`
+            +     `<stop offset='1'    stop-color='${_darken(color, 0.28)}'/>`
             +   `</linearGradient>`
-            +   `<linearGradient id='vR${id}' x1='0' y1='0' x2='1' y2='1'>`
-            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            // Long sleeve left — diagonal matches arm taper direction
+            +   `<linearGradient id='vSlL${id}' x1='1' y1='0' x2='0' y2='1'>`
+            +     `<stop offset='0' stop-color='${top}'/>`
+            +     `<stop offset='1' stop-color='${_darken(color, 0.25)}'/>`
             +   `</linearGradient>`
-            +   `<radialGradient id='r${id}' cx='0.5' cy='0.55' r='0.55'>`
-            +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
-            +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
+            // Long sleeve right — mirrored diagonal
+            +   `<linearGradient id='vSlR${id}' x1='0' y1='0' x2='1' y2='1'>`
+            +     `<stop offset='0' stop-color='${top}'/>`
+            +     `<stop offset='1' stop-color='${_darken(color, 0.25)}'/>`
+            +   `</linearGradient>`
+            // Edge vignette — 3-stop radial, punchy at extreme edges
+            +   `<radialGradient id='r${id}' cx='0.5' cy='0.50' r='0.60'>`
+            +     `<stop offset='0.25' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='0.72' stop-color='${dark}'  stop-opacity='0.28'/>`
+            +     `<stop offset='1'    stop-color='${vdark}' stop-opacity='0.58'/>`
             +   `</radialGradient>`
-            +   `<pattern id='weave${id}' x='0' y='0' width='6' height='6' patternUnits='userSpaceOnUse'>`
-            +     `<rect width='6' height='6' fill='${color}'/>`
-            +     `<line x1='0' y1='0' x2='6' y2='6' stroke='${_darken(color,0.08)}' stroke-width='0.3' opacity='0.25'/>`
-            +     `<line x1='6' y1='0' x2='0' y2='6' stroke='${_lighten(color,0.06)}' stroke-width='0.3' opacity='0.15'/>`
+            // Left-side shadow — simulates torso curvature (fabric wraps around body)
+            +   `<linearGradient id='lSide${id}' x1='0' y1='0' x2='1' y2='0'>`
+            +     `<stop offset='0'    stop-color='${vdark}' stop-opacity='0.40'/>`
+            +     `<stop offset='0.22' stop-color='${dark}'  stop-opacity='0.08'/>`
+            +     `<stop offset='0.35' stop-color='${color}' stop-opacity='0'/>`
+            +   `</linearGradient>`
+            // Right-side shadow — mirror of left
+            +   `<linearGradient id='rSide${id}' x1='1' y1='0' x2='0' y2='0'>`
+            +     `<stop offset='0'    stop-color='${vdark}' stop-opacity='0.40'/>`
+            +     `<stop offset='0.22' stop-color='${dark}'  stop-opacity='0.08'/>`
+            +     `<stop offset='0.35' stop-color='${color}' stop-opacity='0'/>`
+            +   `</linearGradient>`
+            // Shoulder highlight — simulates overhead light source
+            +   `<radialGradient id='hl${id}' cx='0.5' cy='0.20' r='0.42'>`
+            +     `<stop offset='0' stop-color='${hi}'    stop-opacity='0.30'/>`
+            +     `<stop offset='1' stop-color='${color}' stop-opacity='0'/>`
+            +   `</radialGradient>`
+            // Chest highlight — subtle fabric surface bulge at pectoral region
+            +   `<radialGradient id='chHL${id}' cx='0.5' cy='0.48' r='0.30'>`
+            +     `<stop offset='0' stop-color='${hi}'    stop-opacity='0.16'/>`
+            +     `<stop offset='1' stop-color='${color}' stop-opacity='0'/>`
+            +   `</radialGradient>`
+            // Hem shadow — bottom edge darkens like fabric hanging under gravity
+            +   `<linearGradient id='hemSh${id}' x1='0' y1='0' x2='0' y2='1'>`
+            +     `<stop offset='0.72' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='1'    stop-color='${vdark}' stop-opacity='0.38'/>`
+            +   `</linearGradient>`
+
+            // ── Woven cotton texture ─────────────────────────────────────
+            // 4×4 tile: alternating warp (vertical) and weft (horizontal)
+            // thread lines with highlight/shadow pairs + checkerboard gloss
+            +   `<pattern id='weave${id}' x='0' y='0' width='4' height='4' patternUnits='userSpaceOnUse'>`
+            +     `<rect width='4' height='4' fill='${color}'/>`
+            +     `<line x1='0.5' y1='0' x2='0.5' y2='4' stroke='${threadH}' stroke-width='0.9' opacity='0.22'/>`
+            +     `<line x1='2.0' y1='0' x2='2.0' y2='4' stroke='${thread}'  stroke-width='0.8' opacity='0.14'/>`
+            +     `<line x1='3.5' y1='0' x2='3.5' y2='4' stroke='${threadH}' stroke-width='0.6' opacity='0.10'/>`
+            +     `<line x1='0' y1='0.5' x2='4' y2='0.5' stroke='${thread}'  stroke-width='0.8' opacity='0.14'/>`
+            +     `<line x1='0' y1='2.0' x2='4' y2='2.0' stroke='${threadH}' stroke-width='0.6' opacity='0.10'/>`
+            +     `<line x1='0' y1='3.5' x2='4' y2='3.5' stroke='${thread}'  stroke-width='0.5' opacity='0.08'/>`
+            +     `<rect x='0' y='0' width='2' height='2' fill='${threadH}' opacity='0.06'/>`
+            +     `<rect x='2' y='2' width='2' height='2' fill='${threadH}' opacity='0.06'/>`
             +   `</pattern>`
-            +   `<filter id='fab${id}' x='0%' y='0%' width='100%' height='100%'>`
-            +     `<feTurbulence type='turbulence' baseFrequency='0.9 0.4' numOctaves='4' seed='2' result='noise'/>`
-            +     `<feDisplacementMap in='SourceGraphic' in2='noise' scale='1.8' xChannelSelector='R' yChannelSelector='G'/>`
+
+            // Running-stitch tile for hem overlay
+            +   `<pattern id='stitch${id}' x='0' y='0' width='5' height='6' patternUnits='userSpaceOnUse'>`
+            +     `<line x1='1' y1='0' x2='3' y2='3' stroke='${seam}' stroke-width='0.7'/>`
+            +     `<line x1='3' y1='3' x2='1' y2='6' stroke='${seam}' stroke-width='0.7'/>`
+            +   `</pattern>`
+
+            // ── Fabric surface filter ────────────────────────────────────
+            // Stage 1: fractalNoise displacement simulates woven micro-relief.
+            // Stage 2: feDiffuseLighting treats the noise as a bump map so
+            //   individual threads catch directional light (woven cotton look).
+            // Stage 3: arithmetic composite — 85% warped texture + 25% diffuse.
+            +   `<filter id='fab${id}' x='-2%' y='-2%' width='104%' height='104%' color-interpolation-filters='sRGB'>`
+            +     `<feTurbulence type='fractalNoise' baseFrequency='0.65 0.32' numOctaves='4' seed='11' result='noise'/>`
+            +     `<feDisplacementMap in='SourceGraphic' in2='noise' scale='2.4' xChannelSelector='R' yChannelSelector='G' result='warped'/>`
+            +     `<feDiffuseLighting in='warped' surfaceScale='1.8' diffuseConstant='0.85' lighting-color='white' result='diffuse'>`
+            +       `<feDistantLight azimuth='315' elevation='55'/>`
+            +     `</feDiffuseLighting>`
+            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.85' k3='0.25' k4='0'/>`
             +   `</filter>`
+
             + `</defs>`
+
+            // ── Render order ─────────────────────────────────────────────
+            // Layer 1 — sleeves (behind body silhouette)
             + sleeves
-            // Shoulder connectors — flat rectangular patches between sleeve top
-            // and collar base. Drawn BEFORE the body path so the body silhouette
-            // covers the inner join cleanly.
+            // Layer 2 — shoulder connector patches
             + `<rect x='52' y='54' width='40' height='20' rx='5' fill='url(#v${id})' stroke='${edge}' stroke-width='0.8'/>`
             + `<rect x='148' y='54' width='40' height='20' rx='5' fill='url(#v${id})' stroke='${edge}' stroke-width='0.8'/>`
+            // Layer 3 — body base: woven texture with fabric displacement
             + `<path d='${path}' fill='url(#weave${id})' filter='url(#fab${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            // Layer 4 — tonal gradient overlay (reveals depth without killing texture)
+            + `<path d='${path}' fill='url(#v${id})' opacity='0.45'/>`
+            // Layer 5 — side curvature shadows (left and right independently)
+            + `<path d='${path}' fill='url(#lSide${id})'/>`
+            + `<path d='${path}' fill='url(#rSide${id})'/>`
+            // Layer 6 — edge vignette (deepens perimeter)
             + `<path d='${path}' fill='url(#r${id})'/>`
-            // crew-neck collar — flat rounded neckline (no spike)
-            + `<path d='M90 50 Q120 68 150 50 L148 60 Q120 76 92 60 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
-            + `<path d='M93 60 Q120 72 147 60' fill='none' stroke='${seam}' stroke-width='1' opacity='0.55'/>`
+            // Layer 7 — shoulder + chest highlights (simulates overhead diffuse light)
+            + `<path d='${path}' fill='url(#hl${id})'/>`
+            + `<path d='${path}' fill='url(#chHL${id})'/>`
+            // Layer 8 — hem shadow (fabric weight pulling downward)
+            + `<path d='${path}' fill='url(#hemSh${id})'/>`
+            // Layer 9 — crew-neck collar with cubic-bezier inner band + rib-knit lines.
+            // Outer edge follows body neckline exactly (Q120 68).
+            // Inner band: cubic bezier drops to y≈73 at centre then rises back up,
+            // giving the collar proper volume vs. the old flat quadratic shape.
+            + `<path d='M90 50 Q120 68 150 50 L148 58 C142 68 120 73 98 68 C93 64 91 59 91 54 Z' fill='${collar}' stroke='${edge}' stroke-width='1' stroke-linejoin='round'/>`
+            + `<path d='M93 58 C100 70 120 74 147 58' fill='none' stroke='${seam}' stroke-width='1'   opacity='0.55'/>`
+            + `<path d='M94 54 Q120 68 146 54' fill='none' stroke='${seam}' stroke-width='0.6' opacity='0.30'/>`
+            + `<path d='M96 52 Q120 64 144 52' fill='none' stroke='${seam}' stroke-width='0.4' opacity='0.20'/>`
+            // Layer 10 — structural details: seams, folds, cuff, hem stitching
+            + sideSeams
+            + bodyFolds
             + foldLines
-            // FIX 4 — pattern overlays so visuals match catalog names
+            + cuffDetails
+            + hemDetails
+            // Layer 11 — pattern overlays (polo / stripes)
             + (pattern === 'polo'
                 ? `<line x1='120' y1='72' x2='120' y2='115' stroke='${seam}' stroke-width='1.6' opacity='0.85'/>`
-                  + `<circle cx='120' cy='86'  r='2.2' fill='${_lighten(color, 0.25)}' stroke='${edge}' stroke-width='0.8'/>`
-                  + `<circle cx='120' cy='102' r='2.2' fill='${_lighten(color, 0.25)}' stroke='${edge}' stroke-width='0.8'/>`
+                  + `<line x1='117' y1='72' x2='117' y2='115' stroke='${seam}' stroke-width='0.8' opacity='0.40'/>`
+                  + `<line x1='123' y1='72' x2='123' y2='115' stroke='${seam}' stroke-width='0.8' opacity='0.40'/>`
+                  + `<circle cx='120' cy='87'  r='2.4' fill='${_lighten(color, 0.35)}' stroke='${edge}' stroke-width='0.8'/>`
+                  + `<circle cx='120' cy='101' r='2.4' fill='${_lighten(color, 0.35)}' stroke='${edge}' stroke-width='0.8'/>`
+                  + `<circle cx='120' cy='87'  r='1.0' fill='${seam}' opacity='0.55'/>`
+                  + `<circle cx='120' cy='101' r='1.0' fill='${seam}' opacity='0.55'/>`
                 : '')
             + (pattern === 'stripes'
-                ? `<g opacity='0.85'>`
-                  + `<rect x='42'  y='95'  width='156' height='8' fill='${_lighten(color, 0.55)}'/>`
-                  + `<rect x='44'  y='125' width='152' height='8' fill='${_lighten(color, 0.55)}'/>`
-                  + `<rect x='46'  y='155' width='148' height='8' fill='${_lighten(color, 0.55)}'/>`
-                  + `<rect x='48'  y='185' width='144' height='8' fill='${_lighten(color, 0.55)}'/>`
+                ? `<g opacity='0.82'>`
+                  + `<rect x='42'  y='95'  width='156' height='8' fill='${_lighten(color, 0.55)}' rx='1'/>`
+                  + `<rect x='44'  y='125' width='152' height='8' fill='${_lighten(color, 0.55)}' rx='1'/>`
+                  + `<rect x='46'  y='155' width='148' height='8' fill='${_lighten(color, 0.55)}' rx='1'/>`
+                  + `<rect x='48'  y='182' width='144' height='7' fill='${_lighten(color, 0.55)}' rx='1'/>`
                   + `</g>`
                 : '')
-            + `<g opacity='0.06' stroke='#000' stroke-width='1'>`
-            +   `<line x1='50' y1='90'  x2='190' y2='90' />`
-            +   `<line x1='52' y1='115' x2='188' y2='115'/>`
-            +   `<line x1='54' y1='140' x2='186' y2='140'/>`
-            +   `<line x1='56' y1='165' x2='184' y2='165'/>`
-            +   `<line x1='58' y1='185' x2='182' y2='185'/>`
-            + `</g>`
             + `</svg>`;
     }
 
     function pantsSVG(color) {
-        const top    = _lighten(color, 0.15);
-        const bottom = _darken (color, 0.15);
-        const dark   = _darken (color, 0.25);
-        const edge   = _darken (color, 0.30);
-        const seam   = _darken (color, 0.45);
-        const pocket = _darken (color, 0.20);
-        const knee   = _darken (color, 0.10);   // 10% darker for knee-bend shading
-        // 3-segment-per-leg rectangle layout. Y joins (130, 155) shared exactly so
-        // no transparent gap appears at the segment boundaries.
-        //   waistband: x 66-174,  y 40-55
-        //   L upper  : x 75-115,  y 55-130     L middle: x 78-112, y 130-155     L lower: x 80-110, y 155-210
-        //   R upper  : x 125-165, y 55-130     R middle: x 128-162, y 130-155    R lower: x 130-160, y 155-210
-        const path   =
-              'M66 40 L174 40 L174 55 L66 55 Z'           // waistband
-            + ' M75 55 L115 55 L115 130 L75 130 Z'        // L upper
-            + ' M78 130 L112 130 L112 155 L78 155 Z'      // L middle
-            + ' M80 155 L110 155 L110 210 L80 210 Z'      // L lower
-            + ' M125 55 L165 55 L165 130 L125 130 Z'      // R upper
-            + ' M128 130 L162 130 L162 155 L128 155 Z'    // R middle
-            + ' M130 155 L160 155 L160 210 L130 210 Z';   // R lower
+        const hi      = _lighten(color, 0.28);   // thigh/front face specular
+        const top     = _lighten(color, 0.15);   // waist shading
+        const mid     = _lighten(color, 0.05);   // mid-tone
+        const bot     = _darken (color, 0.22);   // cuff/ankle shading
+        const dark    = _darken (color, 0.28);   // shadow tone
+        const vdark   = _darken (color, 0.45);   // deep shadow
+        const edge    = _darken (color, 0.35);   // outline stroke
+        const waist   = _darken (color, 0.18);   // waistband fill
+        const seam    = _darken (color, 0.48);   // stitch/seam lines
+        const fade    = _lighten(color, 0.32);   // whisker/fade highlights
+        const thread  = _darken (color, 0.12);   // warp thread shadow
+        const threadH = _lighten(color, 0.18);   // weft thread highlight
+        // Tapered trapezoid legs with a crotch gusset — replaces disconnected
+        // rectangles so the silhouette is a proper connected pants shape.
+        // Key Y anchors: waistband 40-56, thigh 56-92, knee 92-130, calf 130-157, hem 212.
+        const path =
+              'M66 40 L174 40 L174 56 L66 56 Z'
+            + ' M70 56 L116 56 L114 92 L112 130 L110 157 L108 212 L78 212 L76 157 L74 130 L74 92 Z'
+            + ' M124 56 L170 56 L170 92 L168 130 L166 157 L162 212 L132 212 L130 157 L128 130 L126 92 Z'
+            + ' M114 56 L126 56 L128 92 L112 92 Z';
         const id = 'g' + Math.random().toString(36).slice(2, 8);
+
+        const whiskerL =
+              `<line x1='80' y1='127' x2='106' y2='120' stroke='${fade}' stroke-width='1.4' opacity='0.22'/>`
+            + `<line x1='82' y1='132' x2='108' y2='125' stroke='${fade}' stroke-width='0.8' opacity='0.14'/>`
+            + `<line x1='84' y1='136' x2='108' y2='130' stroke='${fade}' stroke-width='0.6' opacity='0.10'/>`;
+        const whiskerR =
+              `<line x1='134' y1='127' x2='160' y2='120' stroke='${fade}' stroke-width='1.4' opacity='0.22'/>`
+            + `<line x1='132' y1='132' x2='158' y2='125' stroke='${fade}' stroke-width='0.8' opacity='0.14'/>`
+            + `<line x1='130' y1='136' x2='156' y2='130' stroke='${fade}' stroke-width='0.6' opacity='0.10'/>`;
+
+        const legFolds = `<g fill='none'>`
+            + `<path d='M93 60 Q92 100 93 128' stroke='${dark}' stroke-width='0.75' opacity='0.16'/>`
+            + `<path d='M95 60 Q94 100 95 128' stroke='${hi}'   stroke-width='0.50' opacity='0.11'/>`
+            + `<path d='M100 60 Q102 95 100 128' stroke='${dark}' stroke-width='0.55' opacity='0.10'/>`
+            + `<path d='M143 60 Q144 100 143 128' stroke='${dark}' stroke-width='0.75' opacity='0.16'/>`
+            + `<path d='M145 60 Q146 100 145 128' stroke='${hi}'   stroke-width='0.50' opacity='0.11'/>`
+            + `<path d='M150 60 Q148 95 150 128' stroke='${dark}' stroke-width='0.55' opacity='0.10'/>`
+            + `<path d='M90 157 Q89 178 90 207' stroke='${dark}' stroke-width='0.55' opacity='0.12'/>`
+            + `<path d='M143 157 Q144 178 143 207' stroke='${dark}' stroke-width='0.55' opacity='0.12'/>`
+            + `</g>`;
+
+        const seamLines = `<g fill='none' stroke='${seam}' stroke-width='0.65' opacity='0.40'>`
+            + `<line x1='77' y1='55' x2='77' y2='130'/>`
+            + `<line x1='80' y1='130' x2='82' y2='155'/>`
+            + `<line x1='82' y1='155' x2='82' y2='210'/>`
+            + `<line x1='163' y1='55' x2='163' y2='130'/>`
+            + `<line x1='160' y1='130' x2='158' y2='155'/>`
+            + `<line x1='158' y1='155' x2='158' y2='210'/>`
+            + `<line x1='113' y1='55' x2='113' y2='130'/>`
+            + `<line x1='110' y1='130' x2='108' y2='155'/>`
+            + `<line x1='108' y1='155' x2='108' y2='210'/>`
+            + `<line x1='127' y1='55' x2='127' y2='130'/>`
+            + `<line x1='130' y1='130' x2='132' y2='155'/>`
+            + `<line x1='132' y1='155' x2='132' y2='210'/>`
+            + `</g>`;
+
+        const flySeam = `<g fill='none' stroke='${seam}' opacity='0.55'>`
+            + `<line x1='120' y1='55' x2='120' y2='95' stroke-width='1.2'/>`
+            + `<line x1='117' y1='55' x2='117' y2='95' stroke-width='0.6' opacity='0.45'/>`
+            + `<line x1='123' y1='55' x2='123' y2='95' stroke-width='0.6' opacity='0.45'/>`
+            + `</g>`;
+
+        const hemDetails = `<g fill='none' stroke='${seam}' stroke-width='0.65' opacity='0.42'>`
+            + `<line x1='79' y1='208' x2='108' y2='208'/>`
+            + `<line x1='79' y1='212' x2='108' y2='212'/>`
+            + `<line x1='132' y1='208' x2='161' y2='208'/>`
+            + `<line x1='132' y1='212' x2='161' y2='212'/>`
+            + `</g>`;
+
+        const pockets =
+              `<path d='M76 57 Q76 72 90 75 L90 57 Z' fill='none' stroke='${seam}' stroke-width='0.9' opacity='0.55'/>`
+            + `<path d='M78 58 Q78 70 90 73' fill='none' stroke='${seam}' stroke-width='0.5' opacity='0.30'/>`
+            + `<path d='M130 57 Q164 57 164 72 L164 75 Q145 80 130 75 Z' fill='none' stroke='${seam}' stroke-width='0.9' opacity='0.55'/>`
+            + `<path d='M132 59 Q162 59 162 72' fill='none' stroke='${seam}' stroke-width='0.5' opacity='0.30'/>`;
+
+        const beltLoops = `<g fill='none' stroke='${seam}' stroke-width='1.0' opacity='0.45'>`
+            + `<rect x='88'  y='39' width='7' height='14' rx='1'/>`
+            + `<rect x='108' y='39' width='7' height='14' rx='1'/>`
+            + `<rect x='125' y='39' width='7' height='14' rx='1'/>`
+            + `<rect x='145' y='39' width='7' height='14' rx='1'/>`
+            + `</g>`;
+
         return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
             + `<rect width='240' height='240' fill='#ffffff'/>`
             + `<defs>`
             +   `<linearGradient id='v${id}' x1='0' y1='0' x2='0' y2='1'>`
-            +     `<stop offset='0' stop-color='${top}'/><stop offset='1' stop-color='${bottom}'/>`
+            +     `<stop offset='0'   stop-color='${top}'/>`
+            +     `<stop offset='0.5' stop-color='${mid}'/>`
+            +     `<stop offset='1'   stop-color='${bot}'/>`
             +   `</linearGradient>`
-            +   `<radialGradient id='r${id}' cx='0.5' cy='0.5' r='0.55'>`
-            +     `<stop offset='0.45' stop-color='${color}' stop-opacity='0'/>`
-            +     `<stop offset='1' stop-color='${dark}' stop-opacity='0.55'/>`
+            +   `<linearGradient id='lLeg${id}' x1='0' y1='0' x2='1' y2='0'>`
+            +     `<stop offset='0'    stop-color='${vdark}' stop-opacity='0.38'/>`
+            +     `<stop offset='0.20' stop-color='${dark}'  stop-opacity='0.08'/>`
+            +     `<stop offset='0.38' stop-color='${color}' stop-opacity='0'/>`
+            +   `</linearGradient>`
+            +   `<linearGradient id='rLeg${id}' x1='1' y1='0' x2='0' y2='0'>`
+            +     `<stop offset='0'    stop-color='${vdark}' stop-opacity='0.38'/>`
+            +     `<stop offset='0.20' stop-color='${dark}'  stop-opacity='0.08'/>`
+            +     `<stop offset='0.38' stop-color='${color}' stop-opacity='0'/>`
+            +   `</linearGradient>`
+            +   `<radialGradient id='r${id}' cx='0.5' cy='0.50' r='0.60'>`
+            +     `<stop offset='0.30' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='0.72' stop-color='${dark}'  stop-opacity='0.25'/>`
+            +     `<stop offset='1'    stop-color='${vdark}' stop-opacity='0.55'/>`
             +   `</radialGradient>`
-            +   `<pattern id='denim${id}' x='0' y='0' width='3' height='6' patternUnits='userSpaceOnUse'>`
-            +     `<rect width='3' height='6' fill='${color}'/>`
-            +     `<line x1='0' y1='0' x2='0' y2='6' stroke='${_lighten(color,0.10)}' stroke-width='0.8' opacity='0.5'/>`
-            +     `<line x1='1.5' y1='0' x2='1.5' y2='6' stroke='${_darken(color,0.08)}' stroke-width='0.5' opacity='0.4'/>`
+            +   `<radialGradient id='thighHL${id}' cx='0.5' cy='0.28' r='0.45'>`
+            +     `<stop offset='0' stop-color='${hi}'    stop-opacity='0.25'/>`
+            +     `<stop offset='1' stop-color='${color}' stop-opacity='0'/>`
+            +   `</radialGradient>`
+            +   `<radialGradient id='kHL${id}' cx='0.5' cy='0.5' r='0.55'>`
+            +     `<stop offset='0' stop-color='${fade}'  stop-opacity='0.30'/>`
+            +     `<stop offset='1' stop-color='${color}' stop-opacity='0'/>`
+            +   `</radialGradient>`
+            +   `<radialGradient id='kSh${id}' cx='0.5' cy='0.5' r='0.5'>`
+            +     `<stop offset='0' stop-color='${dark}' stop-opacity='0.50'/>`
+            +     `<stop offset='1' stop-color='${dark}' stop-opacity='0'/>`
+            +   `</radialGradient>`
+            +   `<linearGradient id='hemSh${id}' x1='0' y1='0' x2='0' y2='1'>`
+            +     `<stop offset='0.70' stop-color='${color}' stop-opacity='0'/>`
+            +     `<stop offset='1'    stop-color='${vdark}' stop-opacity='0.40'/>`
+            +   `</linearGradient>`
+            +   `<pattern id='denim${id}' x='0' y='0' width='4' height='8' patternUnits='userSpaceOnUse'>`
+            +     `<rect width='4' height='8' fill='${color}'/>`
+            +     `<line x1='0' y1='0' x2='4' y2='8' stroke='${threadH}' stroke-width='1.1' opacity='0.18'/>`
+            +     `<line x1='-2' y1='0' x2='2' y2='8' stroke='${thread}'  stroke-width='0.8' opacity='0.12'/>`
+            +     `<line x1='2' y1='0' x2='6' y2='8' stroke='${thread}'  stroke-width='0.8' opacity='0.10'/>`
+            +     `<line x1='0' y1='8' x2='4' y2='0' stroke='${threadH}' stroke-width='0.5' opacity='0.06'/>`
+            +     `<line x1='0' y1='2' x2='4' y2='2' stroke='${thread}'  stroke-width='0.6' opacity='0.08'/>`
+            +     `<line x1='0' y1='5' x2='4' y2='5' stroke='${threadH}' stroke-width='0.5' opacity='0.06'/>`
             +   `</pattern>`
-            +   `<clipPath id='legclip${id}'>`
-            +     `<rect x='60' y='38' width='120' height='178' rx='10'/>`
-            +   `</clipPath>`
+            // Denim filter: low-freq displacement for coarse twill weave +
+            // diffuse lighting for cross-dye yarn depth (dark warp/light weft).
+            +   `<filter id='fab${id}' x='-2%' y='-2%' width='104%' height='104%' color-interpolation-filters='sRGB'>`
+            +     `<feTurbulence type='fractalNoise' baseFrequency='0.50 0.25' numOctaves='3' seed='7' result='noise'/>`
+            +     `<feDisplacementMap in='SourceGraphic' in2='noise' scale='3.0' xChannelSelector='R' yChannelSelector='G' result='warped'/>`
+            +     `<feDiffuseLighting in='warped' surfaceScale='1.4' diffuseConstant='0.80' lighting-color='white' result='diffuse'>`
+            +       `<feDistantLight azimuth='310' elevation='50'/>`
+            +     `</feDiffuseLighting>`
+            +     `<feComposite in='warped' in2='diffuse' operator='arithmetic' k1='0' k2='0.82' k3='0.28' k4='0'/>`
+            +   `</filter>`
             + `</defs>`
-            + `<path d='${path}' fill='url(#denim${id})' clip-path='url(#legclip${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#denim${id})' filter='url(#fab${id})' stroke='${edge}' stroke-width='1.5' stroke-linejoin='round'/>`
+            + `<path d='${path}' fill='url(#v${id})' opacity='0.50'/>`
+            + `<path d='${path}' fill='url(#lLeg${id})'/>`
+            + `<path d='${path}' fill='url(#rLeg${id})'/>`
             + `<path d='${path}' fill='url(#r${id})'/>`
-            // waistband band
-            + `<rect x='66' y='40' width='108' height='10' rx='10' fill='${pocket}' opacity='0.55'/>`
-            // pockets near top
-            + `<rect x='74'  y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
-            + `<rect x='138' y='54' width='28' height='18' rx='2' fill='none' stroke='${seam}' stroke-width='1' opacity='0.7'/>`
-            // knee-area shading — 10% darker bands centered on the knee bend (y≈130)
-            + `<defs>`
-            +   `<radialGradient id='kL${id}' cx='0.5' cy='0.5' r='0.5'>`
-            +     `<stop offset='0' stop-color='${knee}' stop-opacity='0.55'/>`
-            +     `<stop offset='1' stop-color='${knee}' stop-opacity='0'/>`
-            +   `</radialGradient>`
-            +   `<radialGradient id='kR${id}' cx='0.5' cy='0.5' r='0.5'>`
-            +     `<stop offset='0' stop-color='${knee}' stop-opacity='0.55'/>`
-            +     `<stop offset='1' stop-color='${knee}' stop-opacity='0'/>`
-            +   `</radialGradient>`
-            + `</defs>`
-            + `<ellipse cx='92'  cy='130' rx='22' ry='14' fill='url(#kL${id})'/>`
-            + `<ellipse cx='148' cy='130' rx='22' ry='14' fill='url(#kR${id})'/>`
+            + `<path d='${path}' fill='url(#thighHL${id})'/>`
+            + `<path d='${path}' fill='url(#hemSh${id})'/>`
+            + `<rect x='66' y='40' width='108' height='15' rx='4' fill='${waist}' stroke='${edge}' stroke-width='1'/>`
+            + `<rect x='66' y='40' width='108' height='8'  rx='4' fill='${_lighten(waist, 0.12)}' opacity='0.50'/>`
+            + `<line x1='66' y1='50' x2='174' y2='50' stroke='${seam}' stroke-width='0.8' opacity='0.55'/>`
+            + `<line x1='66' y1='53' x2='174' y2='53' stroke='${seam}' stroke-width='0.5' opacity='0.30'/>`
+            + beltLoops
+            + pockets
+            + `<ellipse cx='92'  cy='130' rx='20' ry='12' fill='url(#kHL${id})'/>`
+            + `<ellipse cx='148' cy='130' rx='20' ry='12' fill='url(#kHL${id})'/>`
+            + `<ellipse cx='92'  cy='122' rx='18' ry='9'  fill='url(#kSh${id})'/>`
+            + `<ellipse cx='148' cy='122' rx='18' ry='9'  fill='url(#kSh${id})'/>`
+            + whiskerL
+            + whiskerR
+            + seamLines
+            + flySeam
+            + legFolds
+            + hemDetails
             + `</svg>`;
     }
 
@@ -459,27 +861,189 @@
         return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
     }
 
-    // TASK 2 — Unified catalog. Every shirt entry uses ONE of the 3 archetypes
-    // (sleeveless / short / long); colors vary, silhouettes match the archetype.
-    // No mismatched styles (polo, stripes, photo-uploads) — uniform e-commerce feel.
-    const GARMENT_CATALOG = [
-        // Tank tops (sleeveless archetype)
-        { name: 'גופייה שחורה',       type: 'shirt', color: '#1a1a22', sleeve: 'sleeveless' },
-        { name: 'גופייה לבנה',         type: 'shirt', color: '#dad4c4', sleeve: 'sleeveless' },
-        { name: 'גופייה נייבי',        type: 'shirt', color: '#27496d', sleeve: 'sleeveless' },
-        // Short sleeve
-        { name: 'חולצה קצרה נייבי',   type: 'shirt', color: '#27496d', sleeve: 'short' },
-        { name: 'חולצה קצרה ירוקה',   type: 'shirt', color: '#2f5233', sleeve: 'short' },
-        { name: 'חולצה קצרה שחורה',   type: 'shirt', color: '#1a1a22', sleeve: 'short' },
-        // Long sleeve
-        { name: 'חולצה ארוכה בורדו',  type: 'shirt', color: '#7a2d3b', sleeve: 'long' },
-        { name: 'חולצה ארוכה אפורה',  type: 'shirt', color: '#3a3a4a', sleeve: 'long' },
-        { name: 'חולצה ארוכה לבנה',   type: 'shirt', color: '#dad4c4', sleeve: 'long' },
-        // Pants (single archetype; fit modes are width-only)
-        { name: 'ג׳ינס כחול',          type: 'pants', color: '#34495e' },
-        { name: 'מכנסיים שחורים',     type: 'pants', color: '#222a33' },
-        { name: 'מכנסי חאקי',          type: 'pants', color: '#8b7355' },
-        { name: 'מכנסי אפור',          type: 'pants', color: '#4a4a55' },
+    // Shorts thumbnail — same denim texture as pantsSVG, legs cut at y≈145.
+    function shortsSVG(color) {
+        const id      = 'g' + Math.random().toString(36).slice(2, 8);
+        const hi      = _lighten(color, 0.28);
+        const top     = _lighten(color, 0.15);
+        const mid     = _lighten(color, 0.05);
+        const bot     = _darken(color,  0.22);
+        const dark    = _darken(color,  0.28);
+        const edge    = _darken(color,  0.35);
+        const waist   = _darken(color,  0.18);
+        const seam    = _darken(color,  0.48);
+        const thread  = _darken(color,  0.12);
+        const threadH = _lighten(color, 0.18);
+        void hi; void bot;
+
+        const path = 'M66 40 L174 40 L174 55 L135 55 L155 145 L130 145 L120 100 L115 145 L85 145 L106 55 L66 55 Z';
+
+        const tw = `<pattern id='tw${id}' width='4' height='8' patternUnits='userSpaceOnUse' patternTransform='rotate(45)'>`
+            + `<rect width='4' height='8' fill='${color}'/>`
+            + `<line x1='2' y1='0' x2='2' y2='8' stroke='${threadH}' stroke-width='0.9' opacity='0.55'/>`
+            + `<line x1='1' y1='0' x2='1' y2='8' stroke='${thread}' stroke-width='0.5' opacity='0.45'/>`
+            + `<line x1='3' y1='0' x2='3' y2='8' stroke='${thread}' stroke-width='0.5' opacity='0.45'/>`
+            + `<line x1='0' y1='2' x2='4' y2='2' stroke='${thread}' stroke-width='0.4' opacity='0.28'/>`
+            + `</pattern>`;
+
+        const grads = `<linearGradient id='lg${id}' x1='0' y1='0' x2='0' y2='1'>`
+            + `<stop offset='0'   stop-color='${top}'/>`
+            + `<stop offset='0.5' stop-color='${mid}'/>`
+            + `<stop offset='1'   stop-color='${_darken(color, 0.30)}'/>`
+            + `</linearGradient>`
+            + `<linearGradient id='lL${id}' x1='0' y1='0' x2='1' y2='0'>`
+            + `<stop offset='0'   stop-color='${dark}' stop-opacity='0.60'/>`
+            + `<stop offset='0.5' stop-color='${dark}' stop-opacity='0'/>`
+            + `</linearGradient>`
+            + `<linearGradient id='lR${id}' x1='1' y1='0' x2='0' y2='0'>`
+            + `<stop offset='0'   stop-color='${dark}' stop-opacity='0.60'/>`
+            + `<stop offset='0.5' stop-color='${dark}' stop-opacity='0'/>`
+            + `</linearGradient>`;
+
+        const seamLines = `<line x1='92'  y1='55' x2='82'  y2='145' stroke='${seam}' stroke-width='0.7' opacity='0.50'/>`
+            + `<line x1='148' y1='55' x2='153' y2='145' stroke='${seam}' stroke-width='0.7' opacity='0.50'/>`
+            + `<line x1='120' y1='100' x2='117' y2='145' stroke='${seam}' stroke-width='0.5' opacity='0.40'/>`
+            + `<line x1='120' y1='100' x2='123' y2='145' stroke='${seam}' stroke-width='0.5' opacity='0.40'/>`;
+
+        const cuffHem = `<line x1='85' y1='145' x2='115' y2='145' stroke='${seam}' stroke-width='1.8'/>`
+            + `<line x1='130' y1='145' x2='155' y2='145' stroke='${seam}' stroke-width='1.8'/>`
+            + `<line x1='86' y1='142' x2='114' y2='142' stroke='${thread}' stroke-width='0.7' opacity='0.55'/>`
+            + `<line x1='131' y1='142' x2='154' y2='142' stroke='${thread}' stroke-width='0.7' opacity='0.55'/>`;
+
+        const pockets = `<path d='M77 62 Q86 72 88 84' fill='none' stroke='${seam}' stroke-width='1.2' opacity='0.65'/>`
+            + `<path d='M163 62 Q154 72 152 84' fill='none' stroke='${seam}' stroke-width='1.2' opacity='0.65'/>`;
+
+        return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
+            + `<defs>${tw}${grads}`
+            + `<filter id='fn${id}'><feTurbulence type='fractalNoise' baseFrequency='0.50 0.25' numOctaves='3' seed='5'/>`
+            + `<feDisplacementMap in='SourceGraphic' scale='2.8' xChannelSelector='R' yChannelSelector='G'/></filter>`
+            + `</defs>`
+            + `<clipPath id='cp${id}'><path d='${path}'/></clipPath>`
+            + `<g clip-path='url(#cp${id})'>`
+            + `<rect width='240' height='240' fill='url(#tw${id})' filter='url(#fn${id})'/>`
+            + `<rect width='240' height='240' fill='url(#lg${id})' opacity='0.50'/>`
+            + `<rect width='240' height='240' fill='url(#lL${id})'/>`
+            + `<rect width='240' height='240' fill='url(#lR${id})'/>`
+            + `</g>`
+            + `<path d='${path}' fill='none' stroke='${edge}' stroke-width='1.5'/>`
+            + `<rect x='66' y='40' width='108' height='15' rx='2' fill='${waist}' opacity='0.45'/>`
+            + `<line x1='66' y1='50' x2='174' y2='50' stroke='${seam}' stroke-width='0.8' opacity='0.55'/>`
+            + pockets + seamLines + cuffHem
+            + `</svg>`;
+    }
+
+    // Beanie hat thumbnail SVG.
+    function beaniesSVG(color) {
+        const id    = 'g' + Math.random().toString(36).slice(2, 8);
+        const dark  = _darken(color,  0.30);
+        const light = _lighten(color, 0.25);
+        const ribD  = _darken(color,  0.20);
+
+        const ribs = Array.from({length: 9}, (_, i) =>
+            `<line x1='${42 + i * 18}' y1='152' x2='${42 + i * 18}' y2='190'`
+            + ` stroke='${ribD}' stroke-width='1.2' opacity='0.45'/>`
+        ).join('');
+
+        return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
+            + `<defs>`
+            + `<linearGradient id='bd${id}' x1='0' y1='0' x2='1' y2='1'>`
+            + `<stop offset='0'   stop-color='${light}'/>`
+            + `<stop offset='0.6' stop-color='${color}'/>`
+            + `<stop offset='1'   stop-color='${dark}'/>`
+            + `</linearGradient>`
+            + `<linearGradient id='cu${id}' x1='0' y1='0' x2='0' y2='1'>`
+            + `<stop offset='0' stop-color='${_darken(color, 0.08)}'/>`
+            + `<stop offset='1' stop-color='${_darken(color, 0.32)}'/>`
+            + `</linearGradient>`
+            + `</defs>`
+            + `<path d='M38 158 Q38 58 120 48 Q202 58 202 158 Z'`
+            + ` fill='url(#bd${id})' stroke='${dark}' stroke-width='1.5'/>`
+            + `<rect x='36' y='150' width='168' height='42' rx='5'`
+            + ` fill='url(#cu${id})' stroke='${dark}' stroke-width='1'/>`
+            + ribs
+            + `<circle cx='120' cy='52' r='17' fill='${light}' stroke='${dark}' stroke-width='0.8'/>`
+            + `<circle cx='114' cy='46' r='5' fill='${_lighten(color, 0.45)}' opacity='0.55'/>`
+            + `<ellipse cx='80' cy='98' rx='26' ry='32' fill='${light}' opacity='0.20'/>`
+            + `</svg>`;
+    }
+
+    // Baseball cap thumbnail SVG.
+    function capSVG(color) {
+        const id    = 'g' + Math.random().toString(36).slice(2, 8);
+        const dark  = _darken(color,  0.30);
+        const light = _lighten(color, 0.22);
+
+        return `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>`
+            + `<defs>`
+            + `<linearGradient id='cd${id}' x1='0' y1='0' x2='1' y2='1'>`
+            + `<stop offset='0'    stop-color='${light}'/>`
+            + `<stop offset='0.55' stop-color='${color}'/>`
+            + `<stop offset='1'    stop-color='${dark}'/>`
+            + `</linearGradient>`
+            + `</defs>`
+            + `<path d='M48 158 Q120 148 202 158 Q218 170 196 180 Q120 173 44 180 Q22 170 48 158 Z'`
+            + ` fill='${_darken(color, 0.25)}'/>`
+            + `<path d='M38 155 Q38 58 120 50 Q202 58 202 155 Z'`
+            + ` fill='url(#cd${id})' stroke='${dark}' stroke-width='1.5'/>`
+            + `<rect x='36' y='142' width='168' height='20'`
+            + ` fill='${_darken(color, 0.12)}' stroke='${dark}' stroke-width='1'/>`
+            + `<circle cx='120' cy='56' r='6' fill='${_darken(color, 0.22)}'/>`
+            + `<ellipse cx='84' cy='100' rx='28' ry='34' fill='${light}' opacity='0.22'/>`
+            + `</svg>`;
+    }
+
+    // Hierarchical catalog: Category → Subcategory → Items.
+    const GARMENT_CONFIG = [
+        {
+            id: 'shirts', label: 'חולצות',
+            subcategories: [
+                { id: 'tanks', label: 'גופיות', items: [
+                    { name: 'גופייה שחורה', type: 'shirt', color: '#1a1a22', sleeve: 'sleeveless' },
+                    { name: 'גופייה לבנה',  type: 'shirt', color: '#e0d8c8', sleeve: 'sleeveless' },
+                    { name: 'גופייה אדומה', type: 'shirt', color: '#8b2020', sleeve: 'sleeveless' },
+                ]},
+                { id: 'short-sleeve', label: 'חולצות קצרות', items: [
+                    { name: 'חולצה נייבי',  type: 'shirt', color: '#27496d', sleeve: 'short' },
+                    { name: 'חולצה ירוקה',  type: 'shirt', color: '#2f5233', sleeve: 'short' },
+                    { name: 'חולצה שחורה',  type: 'shirt', color: '#1a1a22', sleeve: 'short' },
+                ]},
+                { id: 'long-sleeve', label: 'חולצות ארוכות', items: [
+                    { name: 'חולצה בורדו',  type: 'shirt', color: '#7a2d3b', sleeve: 'long' },
+                    { name: 'חולצה אפורה',  type: 'shirt', color: '#3a3a4a', sleeve: 'long' },
+                    { name: 'חולצה לבנה',   type: 'shirt', color: '#e0d8c8', sleeve: 'long' },
+                ]},
+            ],
+        },
+        {
+            id: 'pants', label: 'מכנסיים',
+            subcategories: [
+                { id: 'long-pants', label: 'מכנסיים ארוכים', items: [
+                    { name: "ג'ינס כחול",     type: 'pants', color: '#34495e', pantsLength: 'long' },
+                    { name: 'מכנסיים שחורים', type: 'pants', color: '#222a33', pantsLength: 'long' },
+                    { name: 'מכנסי חאקי',     type: 'pants', color: '#8b7355', pantsLength: 'long' },
+                ]},
+                { id: 'shorts', label: 'מכנסיים קצרים', items: [
+                    { name: "שורט ג'ינס",     type: 'pants', color: '#4a6b8a', pantsLength: 'short' },
+                    { name: 'שורט שחור',      type: 'pants', color: '#1a1a22', pantsLength: 'short' },
+                    { name: 'שורט חאקי',      type: 'pants', color: '#7a6548', pantsLength: 'short' },
+                ]},
+            ],
+        },
+        {
+            id: 'hats', label: 'כובעים',
+            subcategories: [
+                { id: 'beanie', label: 'כובע גרב', items: [
+                    { name: 'כובע גרב שחור', type: 'hat', color: '#1a1a22', hatStyle: 'beanie' },
+                    { name: 'כובע גרב אפור', type: 'hat', color: '#555566', hatStyle: 'beanie' },
+                    { name: 'כובע גרב אדום', type: 'hat', color: '#8b2020', hatStyle: 'beanie' },
+                ]},
+                { id: 'cap', label: 'כובע מצחיה', items: [
+                    { name: 'כובע שחור',     type: 'hat', color: '#1a1a22', hatStyle: 'cap' },
+                    { name: 'כובע נייבי',    type: 'hat', color: '#27496d', hatStyle: 'cap' },
+                    { name: 'כובע ירוק',     type: 'hat', color: '#2f5233', hatStyle: 'cap' },
+                ]},
+            ],
+        },
     ];
 
     // Active shirt's sleeve type — drives sleeve mesh quads in onResults().
@@ -489,76 +1053,143 @@
     // pushed the outer leg edge no further out than the hip landmark, which made
     // the pants look like leggings on a normal frame. The new values give pants
     // the visible coverage of real garments (regular ≈ +25% beyond the hip line).
-    let currentPantsFit = 'regular';
+    let currentPantsFit    = 'regular';
+    let currentPantsLength = 'long';  // 'long' | 'short'
+    let currentHat         = null;    // currently selected hat item, or null
+    let _activeCatId       = 'shirts'; // which catalog tab is active
     const PANTS_FIT_SCALE = { slim: 1.25, regular: 1.45, wide: 1.70 };
     // Cache last stable knee positions so a brief landmark loss doesn't collapse legs.
     const _pantsCache = { lKnee: null, rKnee: null };
 
-    // FIX 5 — reorder the in-memory catalog so items matching the picked subtype
-    // (sleeve for shirts, fit for pants) come first, then re-render the affected
-    // grid. The clicked card keeps its .selected state across the re-render.
-    function sortCatalogBySubtype(picked) {
-        const key = picked.type === 'shirt' ? 'sleeve' : 'fit';
-        const pickedKey = picked[key];
-        const sameType    = GARMENT_CATALOG.filter(i => i.type === picked.type);
-        const otherType   = GARMENT_CATALOG.filter(i => i.type !== picked.type);
-        sameType.sort((a, b) => {
-            const am = (a[key] === pickedKey) ? 0 : 1;
-            const bm = (b[key] === pickedKey) ? 0 : 1;
-            return am - bm;
-        });
-        // Rebuild list in place: shirts first or pants first per original ordering.
-        GARMENT_CATALOG.length = 0;
-        if (picked.type === 'shirt') GARMENT_CATALOG.push(...sameType, ...otherType);
-        else                          GARMENT_CATALOG.push(...otherType, ...sameType);
-        renderCatalog(picked);
+    // ── Ambient lighting sampler ──────────────────────────────────────────────
+    // Samples the canvas torso region every 10 frames (~3 Hz at 30 fps) and
+    // computes average luminance + warmth from the background behind the user.
+    // Results are applied as ctx.filter before each garment draw so clothes
+    // respond to dark rooms, warm tungsten light, cool daylight, etc.
+    const _ambientLight = { brightness: 100, contrast: 100, sepia: 0, _tick: 0 };
+
+    function _sampleLighting(cx, cy, halfW, halfH) {
+        if (++_ambientLight._tick % 10 !== 0) return;   // rate-limit to ~3 Hz
+        const W = canvasElement.width, H = canvasElement.height;
+        const x = Math.max(0, Math.floor(cx - halfW));
+        const y = Math.max(0, Math.floor(cy - halfH));
+        const w = Math.min(W - x, Math.ceil(halfW * 2));
+        const h = Math.min(H - y, Math.ceil(halfH * 2));
+        if (w < 2 || h < 2) return;
+        try {
+            const d = ctx.getImageData(x, y, w, h).data;
+            let r = 0, g = 0, b = 0, n = 0;
+            // Sample every 4th pixel (stride 16) — cheap, representative
+            for (let i = 0; i < d.length; i += 16) { r += d[i]; g += d[i+1]; b += d[i+2]; n++; }
+            if (!n) return;
+            r /= n; g /= n; b /= n;
+            const lum = 0.299*r + 0.587*g + 0.114*b;
+            // Brightness: dark room (lum≈0) → 80%, bright room (lum≈255) → 118%
+            const targetBri = 80 + (lum / 255) * 38;
+            // Contrast: low light → slightly softer, high light → slightly crisper
+            const targetCon = 92 + (lum / 255) * 16;
+            // Warm bias: warm ambient (red > blue) → subtle sepia shift, max 10%
+            const targetSep = Math.max(0, Math.min(10, ((r - b) / 255) * 16));
+            // EMA — smooth to avoid jarring per-frame jumps
+            const a = 0.14;
+            _ambientLight.brightness += a * (targetBri - _ambientLight.brightness);
+            _ambientLight.contrast   += a * (targetCon - _ambientLight.contrast);
+            _ambientLight.sepia      += a * (targetSep - _ambientLight.sepia);
+        } catch (_) { /* cross-origin / security guard */ }
     }
 
+    function sortCatalogBySubtype(picked) { renderCatalog(picked); }
+
     function renderCatalog(selected) {
-        const shirtGrid = document.getElementById('catalog-shirts');
-        const pantsGrid = document.getElementById('catalog-pants');
-        shirtGrid.innerHTML = '';
-        pantsGrid.innerHTML = '';
+        const container = document.getElementById('catalog-grid-container');
+        if (!container) return;
+        container.innerHTML = '';
 
-        GARMENT_CATALOG.forEach(item => {
-            const card = document.createElement('div');
-            card.className = 'catalog-card';
-            card.dataset.type = item.type;
-            if (selected && item === selected) card.classList.add('selected');
-            const img = document.createElement('img');
-            if (item.src) {
-                img.src = item.src;
-                img.crossOrigin = 'anonymous';
-            } else {
-                const svg = item.type === 'shirt'
-                    ? shirtSVG(item.color, item.sleeve)   // uniform 'plain' style across catalog
-                    : pantsSVG(item.color);
-                img.src = svgToDataUri(svg);
-            }
-            img.alt = item.name;
-            const span = document.createElement('span');
-            span.innerText = item.name;
-            card.appendChild(img);
-            card.appendChild(span);
+        // Tab bar
+        const tabs = document.createElement('div');
+        tabs.className = 'cat-tabs';
+        GARMENT_CONFIG.forEach(cat => {
+            const btn = document.createElement('button');
+            btn.className = 'cat-tab' + (cat.id === _activeCatId ? ' active' : '');
+            btn.textContent = cat.label;
+            btn.addEventListener('click', () => { _activeCatId = cat.id; renderCatalog(null); });
+            tabs.appendChild(btn);
+        });
+        container.appendChild(tabs);
 
-            card.addEventListener('click', () => {
+        // Active category panel
+        const cat = GARMENT_CONFIG.find(c => c.id === _activeCatId);
+        if (!cat) return;
+
+        cat.subcategories.forEach(sub => {
+            const section = document.createElement('div');
+            section.className = 'cat-section';
+            const lbl = document.createElement('div');
+            lbl.className = 'cat-section-label';
+            lbl.textContent = sub.label;
+            section.appendChild(lbl);
+            const grid = document.createElement('div');
+            grid.className = 'catalog-grid';
+
+            sub.items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'catalog-card';
+                card.dataset.type = item.type;
+                if (selected && item === selected) card.classList.add('selected');
+
+                const img = document.createElement('img');
                 if (item.src) {
-                    loadGarmentFromSrc(item.src, item.type);
+                    img.src = item.src;
+                    img.crossOrigin = 'anonymous';
                 } else {
-                    const svg = item.type === 'shirt'
-                        ? shirtSVG(item.color, item.sleeve)
-                        : pantsSVG(item.color);
-                    loadGarmentFromSrc(svgToDataUri(svg), item.type);
+                    let svg;
+                    if      (item.type === 'shirt')              svg = shirtSVG(item.color, item.sleeve);
+                    else if (item.pantsLength === 'short')        svg = shortsSVG(item.color);
+                    else if (item.type === 'pants')               svg = pantsSVG(item.color);
+                    else if (item.hatStyle === 'beanie')          svg = beaniesSVG(item.color);
+                    else                                          svg = capSVG(item.color);
+                    img.src = svgToDataUri(svg);
                 }
-                if (item.type === 'shirt') currentShirtSleeve = item.sleeve || 'short';
-                else                       currentPantsFit    = item.fit    || 'regular';
-                placeholder.innerText = 'בגד נבחר — לחץ על כפתור המצלמה';
-                // FIX 5 — reorder the grid so items of the SAME subtype as the
-                // clicked item bubble to the top of the category.
-                sortCatalogBySubtype(item);
+                img.alt = item.name;
+                const span = document.createElement('span');
+                span.textContent = item.name;
+                card.appendChild(img);
+                card.appendChild(span);
+
+                card.addEventListener('click', () => {
+                    container.querySelectorAll(`.catalog-card[data-type="${item.type}"]`)
+                        .forEach(c => c.classList.remove('selected'));
+                    card.classList.add('selected');
+
+                    if (item.type === 'hat') {
+                        currentHat = item;
+                        placeholder.innerText = 'כובע נבחר — לחץ על כפתור המצלמה';
+                        return;
+                    }
+
+                    if (item.src) {
+                        loadGarmentFromSrc(item.src, item.type);
+                    } else {
+                        const svg = item.type === 'shirt'
+                            ? shirtSVG(item.color, item.sleeve)
+                            : (item.pantsLength === 'short' ? shortsSVG(item.color) : pantsSVG(item.color));
+                        loadGarmentFromSrc(svgToDataUri(svg), item.type);
+                    }
+
+                    if (item.type === 'shirt') {
+                        currentShirtSleeve = item.sleeve || 'short';
+                    } else {
+                        currentPantsFit    = item.fit         || 'regular';
+                        currentPantsLength = item.pantsLength || 'long';
+                    }
+                    placeholder.innerText = 'בגד נבחר — לחץ על כפתור המצלמה';
+                });
+
+                grid.appendChild(card);
             });
 
-            (item.type === 'shirt' ? shirtGrid : pantsGrid).appendChild(card);
+            section.appendChild(grid);
+            container.appendChild(section);
         });
     }
 
@@ -591,9 +1222,21 @@
         if (!m) return;
         ctx.save();
         ctx.beginPath();
-        ctx.moveTo(dst[0][0], dst[0][1]);
-        ctx.lineTo(dst[1][0], dst[1][1]);
-        ctx.lineTo(dst[2][0], dst[2][1]);
+        // Expand each vertex 1.5 px outward from the triangle centroid.
+        // Adjacent triangles share an edge; without overdraw the browser's
+        // rasterizer can leave a 1-px transparent crack at that boundary due
+        // to floating-point rounding. The expansion fills it without visibly
+        // stretching the texture (1.5 px is sub-perceptible at 640×480).
+        const EXPAND = 1.5;
+        const cx = (dst[0][0] + dst[1][0] + dst[2][0]) / 3;
+        const cy = (dst[0][1] + dst[1][1] + dst[2][1]) / 3;
+        for (let i = 0; i < 3; i++) {
+            const dx = dst[i][0] - cx, dy = dst[i][1] - cy;
+            const len = Math.hypot(dx, dy) || 1;
+            const px = dst[i][0] + (dx / len) * EXPAND;
+            const py = dst[i][1] + (dy / len) * EXPAND;
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
         ctx.closePath();
         ctx.clip();
         // setTransform OVERWRITES the matrix (vs transform which multiplies).
@@ -627,6 +1270,26 @@
     // Single quad (4 pts → 2 triangles). Used for per-segment pants warp
     // (upper hip→knee and lower knee→ankle on each leg).
     function drawQuad(img, s0, s1, s2, s3, d0, d1, d2, d3) {
+        // ── Contact shadow pass ───────────────────────────────────────────
+        // Blurred multiply polygon at the destination quad corners — drawn
+        // BEFORE the texture so the shadow falls on the body surface beneath
+        // the pants. Blur extends beyond the hard pant edge, creating a
+        // penumbra that makes each leg segment look grounded on the body.
+        ctx.save();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.filter = 'blur(7px)';
+        ctx.globalAlpha = 0.48;
+        ctx.fillStyle = 'rgba(55,55,55,1)';
+        ctx.beginPath();
+        ctx.moveTo(d0[0], d0[1]);
+        ctx.lineTo(d1[0], d1[1]);
+        ctx.lineTo(d3[0], d3[1]);
+        ctx.lineTo(d2[0], d2[1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        // ── Texture warp ──────────────────────────────────────────────────
         drawWarpedTri(img, [s0, s1, s2], [d0, d1, d2]);
         drawWarpedTri(img, [s1, s3, s2], [d1, d3, d2]);
     }
@@ -695,23 +1358,31 @@
         let py = -dx / dlen * sign;
         // Gravity bias — biases the perpendicular push downward so sleeves hang
         // naturally instead of jutting straight out from the shoulder.
-        py = py + 0.25;
+        // Short: reduced gravity bias (0.14 vs 0.25) — less downward pull on the
+        // outer edge so the hem drapes horizontally across the arm rather than
+        // hanging into a spike below it.
+        py = py + (type === 'long' ? 0.25 : 0.14);
         const pLen = Math.hypot(px, py);
         px = px/pLen; py = py/pLen;
 
         // Sleeve end parameter along shoulder→elbow.
-        const tEnd = (type === 'long') ? 1.30 : 0.75;
+        // Short: 0.62 keeps the cap well above the elbow — no pointy over-extension.
+        const tEnd = (type === 'long') ? 1.30 : 0.62;
         // Arm thickness estimate from shoulder→elbow distance, clamped to [0.7, 1.2].
         const armLen = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y);
         const armScale = Math.min(1.2, Math.max(0.7, armLen / (shoulderWidth * 1.2)));
-        const wCap  = shoulderWidth * (type === 'long' ? 0.50 : 0.52) * armScale;
-        const wCuff = shoulderWidth * (type === 'long' ? 0.38 : 0.42) * armScale;
+        // Short-sleeve: narrower cap (0.46) and much narrower cuff (0.30) so the
+        // sleeve tapers naturally and the hem ring is no wider than the arm itself.
+        const wCap  = shoulderWidth * (type === 'long' ? 0.50 : 0.46) * armScale;
+        const wCuff = shoulderWidth * (type === 'long' ? 0.38 : 0.30) * armScale;
 
         // Ring layout:
         //   short: 8 rings (i=0..7), 7 quads — denser bend tracking
         //   long : 10 rings (i=0..7 main bicep mesh, i=8..9 forearm extension)
-        const ringCount = (type === 'long') ? 10 : 8;
-        const mainRingCount = 8;
+        // Short: 6 rings (5 quads = 10 triangles) — fewer segments reduce the
+        // chance of a spike at the outer tip; geometry stays smooth at 30 fps.
+        const ringCount     = (type === 'long') ? 10 : 6;
+        const mainRingCount = (type === 'long') ?  8 : 6;
 
         const rings = [];
         for (let i = 0; i < ringCount; i++) {
@@ -735,14 +1406,13 @@
                 cyR = shoulder.y + dy * t;
                 w = wCap + (wCuff - wCap) * f;
             }
-            const inner = [cxR - px * w * 0.55, cyR - py * w * 0.55];
-            const outer = [cxR + px * w * 0.45, cyR + py * w * 0.45];
+            // Short: symmetric 0.52/0.48 split keeps the sleeve centred on the arm
+            // axis; the old 0.55/0.45 body-side bias was making the outer edge spike.
+            const iF = type === 'long' ? 0.55 : 0.52;
+            const oF = type === 'long' ? 0.45 : 0.48;
+            const inner = [cxR - px * w * iF, cyR - py * w * iF];
+            const outer = [cxR + px * w * oF, cyR + py * w * oF];
             rings.push({ inner, outer });
-        }
-
-        // Pin short-sleeve cap inner to shoulder so no gap at the body seam.
-        if (type === 'short') {
-            rings[0].inner = [shoulder.x, shoulder.y];
         }
 
         // Source rings — sample the sleeve quadrilateral in the flat-lay SVG.
@@ -783,17 +1453,171 @@
         return rings;
     }
 
-    // === Multiply-blend shadow under armpits for depth realism ===
+    // === Hat rendering helpers — draw directly onto ctx in translated/rotated space ===
+    // Origin (0,0) = hat bottom. Hat grows upward (negative y). Width spans ±width/2.
+    function _drawBeanie(c, width, color) {
+        const cuffH = width * 0.22;
+        const domeH = width * 0.62;
+        const pomR  = width * 0.11;
+        const dark   = _darken(color,  0.30);
+        const light  = _lighten(color, 0.24);
+        const ribD   = _darken(color,  0.18);
+
+        // dome
+        const dGrad = c.createLinearGradient(-width * 0.35, -cuffH - domeH, width * 0.35, -cuffH);
+        dGrad.addColorStop(0, light);
+        dGrad.addColorStop(0.6, color);
+        dGrad.addColorStop(1, dark);
+        c.fillStyle = dGrad;
+        c.beginPath();
+        c.moveTo(-width / 2, -cuffH);
+        c.bezierCurveTo(-width / 2, -cuffH - domeH * 1.35, width / 2, -cuffH - domeH * 1.35, width / 2, -cuffH);
+        c.fill();
+        c.strokeStyle = dark; c.lineWidth = 1.5;
+        c.stroke();
+
+        // cuff
+        const cGrad = c.createLinearGradient(0, -cuffH, 0, 0);
+        cGrad.addColorStop(0, _darken(color, 0.08));
+        cGrad.addColorStop(1, _darken(color, 0.32));
+        c.fillStyle = cGrad;
+        c.beginPath(); c.rect(-width / 2, -cuffH, width, cuffH); c.fill();
+        c.strokeStyle = dark; c.lineWidth = 1; c.stroke();
+
+        // rib lines
+        c.strokeStyle = ribD; c.lineWidth = 1;
+        for (let i = 1; i < 9; i++) {
+            const x = -width / 2 + (i / 9) * width;
+            c.globalAlpha = 0.40;
+            c.beginPath(); c.moveTo(x, -cuffH + 2); c.lineTo(x, -2); c.stroke();
+        }
+        c.globalAlpha = 1;
+
+        // cuff fold line
+        c.strokeStyle = dark; c.lineWidth = 1.5; c.globalAlpha = 0.55;
+        c.beginPath(); c.moveTo(-width / 2 + 3, -cuffH); c.lineTo(width / 2 - 3, -cuffH); c.stroke();
+        c.globalAlpha = 1;
+
+        // pom-pom
+        const pomY = -cuffH - domeH * 1.02;
+        const pGrad = c.createRadialGradient(-pomR * 0.3, pomY - pomR * 0.3, pomR * 0.05, 0, pomY, pomR);
+        pGrad.addColorStop(0, _lighten(color, 0.48));
+        pGrad.addColorStop(1, light);
+        c.beginPath(); c.arc(0, pomY, pomR, 0, Math.PI * 2);
+        c.fillStyle = pGrad; c.fill();
+        c.strokeStyle = dark; c.lineWidth = 0.8; c.stroke();
+
+        // dome highlight
+        c.beginPath();
+        c.ellipse(-width * 0.18, -cuffH - domeH * 0.62, width * 0.13, domeH * 0.20, -0.3, 0, Math.PI * 2);
+        c.fillStyle = light; c.globalAlpha = 0.30; c.fill(); c.globalAlpha = 1;
+    }
+
+    function _drawCap(c, width, color, facing) {
+        // facing: 1 = brim extends right, -1 = brim extends left
+        const bandH  = width * 0.17;
+        const domeH  = width * 0.50;
+        const brimW  = width * 0.62;
+        const brimH  = width * 0.09;
+        const dark   = _darken(color,  0.30);
+        const light  = _lighten(color, 0.22);
+        const brimCX = facing * width * 0.20;
+        const brimCY = -bandH * 0.5;
+
+        // brim (drawn before dome so dome covers the inner edge)
+        const bGrad = c.createLinearGradient(0, brimCY - brimH, 0, brimCY + brimH * 1.4);
+        bGrad.addColorStop(0, _darken(color, 0.14));
+        bGrad.addColorStop(1, _darken(color, 0.44));
+        c.fillStyle = bGrad;
+        c.beginPath(); c.ellipse(brimCX, brimCY, brimW / 2, brimH, 0, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = dark; c.lineWidth = 0.8; c.stroke();
+
+        // dome
+        const dGrad = c.createLinearGradient(-width * 0.3, -bandH - domeH, width * 0.3, -bandH);
+        dGrad.addColorStop(0, light);
+        dGrad.addColorStop(0.5, color);
+        dGrad.addColorStop(1, dark);
+        c.fillStyle = dGrad;
+        c.beginPath();
+        c.moveTo(-width / 2, -bandH);
+        c.bezierCurveTo(-width / 2, -bandH - domeH * 1.5, width / 2, -bandH - domeH * 1.5, width / 2, -bandH);
+        c.closePath(); c.fill();
+        c.strokeStyle = dark; c.lineWidth = 1.5; c.stroke();
+
+        // sweatband
+        const sGrad = c.createLinearGradient(0, -bandH, 0, 0);
+        sGrad.addColorStop(0, _darken(color, 0.10));
+        sGrad.addColorStop(1, _darken(color, 0.30));
+        c.fillStyle = sGrad; c.fillRect(-width / 2, -bandH, width, bandH);
+        c.strokeStyle = dark; c.lineWidth = 1.5; c.globalAlpha = 0.58;
+        c.beginPath(); c.moveTo(-width / 2 + 2, -bandH); c.lineTo(width / 2 - 2, -bandH); c.stroke();
+        c.globalAlpha = 1;
+
+        // button on top
+        c.beginPath(); c.arc(0, -bandH - domeH, width * 0.033, 0, Math.PI * 2);
+        c.fillStyle = _darken(color, 0.22); c.fill();
+
+        // dome highlight
+        c.beginPath();
+        c.ellipse(-width * 0.16, -bandH - domeH * 0.60, width * 0.12, domeH * 0.19, -0.4, 0, Math.PI * 2);
+        c.fillStyle = light; c.globalAlpha = 0.28; c.fill(); c.globalAlpha = 1;
+    }
+
+    // === Shirt depth shadows — drawn under the garment before mesh warp ===
     function drawArmpitShadow(lApt, rApt, sw) {
+        // Estimate shirt extents from landmark geometry
+        const cx   = (lApt.x + rApt.x) / 2;
+        const topY = Math.min(lApt.y, rApt.y) - sw * 0.38;
+        const hemY = Math.max(lApt.y, rApt.y) + sw * 0.82;
+
         ctx.save();
         ctx.globalCompositeOperation = 'multiply';
+
+        // ── Original armpit hollow shadows (fabric tucking into armpit) ──
         ctx.fillStyle = 'rgba(0,0,0,0.18)';
         [lApt, rApt].forEach(apt => {
             ctx.beginPath();
             ctx.ellipse(apt.x, apt.y, sw * 0.12, sw * 0.26, 0, 0, Math.PI * 2);
             ctx.fill();
         });
-        ctx.globalCompositeOperation = 'source-over';
+
+        // ── Left shirt-edge body shadow ───────────────────────────────────
+        // Soft blurred strip — the shirt edge rests on the body and casts
+        // a curved shadow on the flank skin visible beside the garment.
+        ctx.save();
+        ctx.filter = 'blur(9px)';
+        ctx.globalAlpha = 0.42;
+        const lEdge = ctx.createLinearGradient(lApt.x - sw * 0.28, 0, lApt.x + sw * 0.06, 0);
+        lEdge.addColorStop(0, 'rgba(50,50,50,1)');
+        lEdge.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = lEdge;
+        ctx.fillRect(lApt.x - sw * 0.28, topY, sw * 0.34, hemY - topY);
+        ctx.restore();
+
+        // ── Right shirt-edge body shadow ──────────────────────────────────
+        ctx.save();
+        ctx.filter = 'blur(9px)';
+        ctx.globalAlpha = 0.42;
+        const rEdge = ctx.createLinearGradient(rApt.x + sw * 0.28, 0, rApt.x - sw * 0.06, 0);
+        rEdge.addColorStop(0, 'rgba(50,50,50,1)');
+        rEdge.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = rEdge;
+        ctx.fillRect(rApt.x - sw * 0.06, topY, sw * 0.34, hemY - topY);
+        ctx.restore();
+
+        // ── Shirt hem contact shadow ──────────────────────────────────────
+        // Blurred horizontal strip just below hem — the bottom edge of the
+        // fabric is closest to the body surface and casts a harder shadow.
+        ctx.save();
+        ctx.filter = 'blur(11px)';
+        ctx.globalAlpha = 0.40;
+        const hemGrad = ctx.createLinearGradient(0, hemY, 0, hemY + sw * 0.11);
+        hemGrad.addColorStop(0, 'rgba(40,40,40,1)');
+        hemGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = hemGrad;
+        ctx.fillRect(cx - sw * 0.60, hemY - sw * 0.02, sw * 1.20, sw * 0.13);
+        ctx.restore();
+
         ctx.restore();
     }
 
@@ -832,7 +1656,7 @@
         const elbowVis = raw(13).v > 0.65 && raw(14).v > 0.65;
         const kneeVis  = raw(25).v > 0.65 && raw(26).v > 0.65;
 
-        if (!shirtLoaded && !pantsLoaded) return;
+        if (!shirtLoaded && !pantsLoaded && !currentHat) return;
 
         // Torso geometry
         const sCenter = { x: (lShoulder.x + rShoulder.x) / 2, y: (lShoulder.y + rShoulder.y) / 2 };
@@ -859,10 +1683,16 @@
 
         const scaleX = (cx, px, s) => cx + (px - cx) * s;
 
+        // Sample torso region for ambient lighting (runs ~3 Hz — every 10 frames).
+        // Must happen AFTER the video frame is drawn onto the canvas.
+        _sampleLighting(sCenter.x, sCenter.y, shoulderWidth * 0.55, shoulderWidth * 0.75);
+        const _litFilter = `brightness(${_ambientLight.brightness.toFixed(0)}%) contrast(${_ambientLight.contrast.toFixed(0)}%) sepia(${_ambientLight.sepia.toFixed(0)}%)`;
+
         let shirtBottomY = hCenter.y;
 
         // ── SHIRT ────────────────────────────────────────────────────────────
         if (shirtLoaded && torsoVis) {
+            ctx.filter = _litFilter;
             const imgW = shirtOffscreen.width  || 240;
             const imgH = shirtOffscreen.height || 240;
 
@@ -953,10 +1783,12 @@
             }
 
             shirtBottomY = (dst[6][1] + dst[7][1] + dst[8][1]) / 3;
+            ctx.filter = 'none';
         }
 
         // ── PANTS ────────────────────────────────────────────────────────────
         if (pantsLoaded && hipVis) {
+            ctx.filter = _litFilter;
             const imgW = pantsOffscreen.width  || 240;
             const imgH = pantsOffscreen.height || 240;
 
@@ -1021,65 +1853,124 @@
             const kneeBotY  = 0.58 * imgH;   // = calf top
             const calfBotY  = 0.90 * imgH;
 
-            // LEFT THIGH (hip → midThigh) — segment direction follows lHip→lMidThigh.
-            {
-                const seg = buildLegSegment(lHip, lMidThigh, lHipSpan, lHipSpan * 0.94, gapHip, 'L');
-                drawQuad(pantsOffscreen,
-                    [0.28*imgW, thighTopY], [0.46*imgW, thighTopY],
-                    [0.28*imgW, thighBotY], [0.46*imgW, thighBotY],
-                    seg.outerTop, seg.innerTop,
-                    seg.outerBot, seg.innerBot);
-            }
+            if (currentPantsLength === 'short') {
+                // SHORTS — single hip-to-knee segment per leg.
+                // Source UV spans the upper 60% of the shorts SVG (waist → cuff).
+                const sBotY = 0.60 * imgH;
 
-            // LEFT KNEE (midThigh → knee) — independent direction lMidThigh→lKneePt.
-            {
-                const seg = buildLegSegment(lMidThigh, lKneePt, lHipSpan * 0.94, lKneeSpan, gapKnee, 'L');
-                drawQuad(pantsOffscreen,
-                    [0.29*imgW, thighBotY], [0.45*imgW, thighBotY],
-                    [0.29*imgW, kneeBotY],  [0.45*imgW, kneeBotY],
-                    seg.outerTop, seg.innerTop,
-                    seg.outerBot, seg.innerBot);
-            }
+                // LEFT LEG (hip → knee, single segment)
+                {
+                    const seg = buildLegSegment(lHip, lKneePt, lHipSpan, lKneeSpan * 1.05, gapHip, 'L');
+                    drawQuad(pantsOffscreen,
+                        [0.27*imgW, thighTopY], [0.46*imgW, thighTopY],
+                        [0.27*imgW, sBotY],     [0.46*imgW, sBotY],
+                        seg.outerTop, seg.innerTop,
+                        seg.outerBot, seg.innerBot);
+                }
 
-            // LEFT CALF (knee → ankle) — independent direction lKneePt→lBot.
-            {
-                const seg = buildLegSegment(lKneePt, lBot, lKneeSpan, lAnkleSpan, gapAnk, 'L');
-                drawQuad(pantsOffscreen,
-                    [0.30*imgW, kneeBotY], [0.44*imgW, kneeBotY],
-                    [0.30*imgW, calfBotY], [0.44*imgW, calfBotY],
-                    seg.outerTop, seg.innerTop,
-                    seg.outerBot, seg.innerBot);
-            }
+                // RIGHT LEG (hip → knee, single segment)
+                {
+                    const seg = buildLegSegment(rHip, rKneePt, rHipSpan, rKneeSpan * 1.05, gapHip, 'R');
+                    drawQuad(pantsOffscreen,
+                        [0.54*imgW, thighTopY], [0.73*imgW, thighTopY],
+                        [0.54*imgW, sBotY],     [0.73*imgW, sBotY],
+                        seg.innerTop, seg.outerTop,
+                        seg.innerBot, seg.outerBot);
+                }
+            } else {
+                // FULL PANTS — 3 segments per leg (thigh / knee / calf).
 
-            // RIGHT THIGH (hip → midThigh). SVG right-leg src goes inner→outer
-            // (low x = center side), so dst order is inner, outer.
-            {
-                const seg = buildLegSegment(rHip, rMidThigh, rHipSpan, rHipSpan * 0.94, gapHip, 'R');
-                drawQuad(pantsOffscreen,
-                    [0.54*imgW, thighTopY], [0.72*imgW, thighTopY],
-                    [0.54*imgW, thighBotY], [0.72*imgW, thighBotY],
-                    seg.innerTop, seg.outerTop,
-                    seg.innerBot, seg.outerBot);
-            }
+                // LEFT THIGH (hip → midThigh) — segment direction follows lHip→lMidThigh.
+                {
+                    const seg = buildLegSegment(lHip, lMidThigh, lHipSpan, lHipSpan * 0.94, gapHip, 'L');
+                    drawQuad(pantsOffscreen,
+                        [0.28*imgW, thighTopY], [0.46*imgW, thighTopY],
+                        [0.28*imgW, thighBotY], [0.46*imgW, thighBotY],
+                        seg.outerTop, seg.innerTop,
+                        seg.outerBot, seg.innerBot);
+                }
 
-            // RIGHT KNEE (midThigh → knee).
-            {
-                const seg = buildLegSegment(rMidThigh, rKneePt, rHipSpan * 0.94, rKneeSpan, gapKnee, 'R');
-                drawQuad(pantsOffscreen,
-                    [0.55*imgW, thighBotY], [0.71*imgW, thighBotY],
-                    [0.55*imgW, kneeBotY],  [0.71*imgW, kneeBotY],
-                    seg.innerTop, seg.outerTop,
-                    seg.innerBot, seg.outerBot);
-            }
+                // LEFT KNEE (midThigh → knee) — independent direction lMidThigh→lKneePt.
+                {
+                    const seg = buildLegSegment(lMidThigh, lKneePt, lHipSpan * 0.94, lKneeSpan, gapKnee, 'L');
+                    drawQuad(pantsOffscreen,
+                        [0.29*imgW, thighBotY], [0.45*imgW, thighBotY],
+                        [0.29*imgW, kneeBotY],  [0.45*imgW, kneeBotY],
+                        seg.outerTop, seg.innerTop,
+                        seg.outerBot, seg.innerBot);
+                }
 
-            // RIGHT CALF (knee → ankle).
-            {
-                const seg = buildLegSegment(rKneePt, rBot, rKneeSpan, rAnkleSpan, gapAnk, 'R');
-                drawQuad(pantsOffscreen,
-                    [0.56*imgW, kneeBotY], [0.70*imgW, kneeBotY],
-                    [0.56*imgW, calfBotY], [0.70*imgW, calfBotY],
-                    seg.innerTop, seg.outerTop,
-                    seg.innerBot, seg.outerBot);
+                // LEFT CALF (knee → ankle) — independent direction lKneePt→lBot.
+                {
+                    const seg = buildLegSegment(lKneePt, lBot, lKneeSpan, lAnkleSpan, gapAnk, 'L');
+                    drawQuad(pantsOffscreen,
+                        [0.30*imgW, kneeBotY], [0.44*imgW, kneeBotY],
+                        [0.30*imgW, calfBotY], [0.44*imgW, calfBotY],
+                        seg.outerTop, seg.innerTop,
+                        seg.outerBot, seg.innerBot);
+                }
+
+                // RIGHT THIGH (hip → midThigh). SVG right-leg src goes inner→outer.
+                {
+                    const seg = buildLegSegment(rHip, rMidThigh, rHipSpan, rHipSpan * 0.94, gapHip, 'R');
+                    drawQuad(pantsOffscreen,
+                        [0.54*imgW, thighTopY], [0.72*imgW, thighTopY],
+                        [0.54*imgW, thighBotY], [0.72*imgW, thighBotY],
+                        seg.innerTop, seg.outerTop,
+                        seg.innerBot, seg.outerBot);
+                }
+
+                // RIGHT KNEE (midThigh → knee).
+                {
+                    const seg = buildLegSegment(rMidThigh, rKneePt, rHipSpan * 0.94, rKneeSpan, gapKnee, 'R');
+                    drawQuad(pantsOffscreen,
+                        [0.55*imgW, thighBotY], [0.71*imgW, thighBotY],
+                        [0.55*imgW, kneeBotY],  [0.71*imgW, kneeBotY],
+                        seg.innerTop, seg.outerTop,
+                        seg.innerBot, seg.outerBot);
+                }
+
+                // RIGHT CALF (knee → ankle).
+                {
+                    const seg = buildLegSegment(rKneePt, rBot, rKneeSpan, rAnkleSpan, gapAnk, 'R');
+                    drawQuad(pantsOffscreen,
+                        [0.56*imgW, kneeBotY], [0.70*imgW, kneeBotY],
+                        [0.56*imgW, calfBotY], [0.70*imgW, calfBotY],
+                        seg.innerTop, seg.outerTop,
+                        seg.innerBot, seg.outerBot);
+                }
+            }
+            ctx.filter = 'none';
+        }
+
+        // ── HAT ──────────────────────────────────────────────────────────────
+        if (currentHat) {
+            const lEarR = raw(7), rEarR = raw(8), noseR = raw(0);
+            if (lEarR.v > 0.20 || rEarR.v > 0.20) {
+                const lE = applySmooth('hLE', lEarR, 0.40);
+                const rE = applySmooth('hRE', rEarR, 0.40);
+                const ns = applySmooth('hNs', noseR, 0.40);
+
+                const earDist = Math.hypot(rE.x - lE.x, rE.y - lE.y);
+                if (earDist > 8) {
+                    const headCX    = (lE.x + rE.x) / 2;
+                    const headCY    = (lE.y + rE.y) / 2;
+                    const tilt      = Math.atan2(rE.y - lE.y, rE.x - lE.x);
+                    const hatW      = earDist * 1.90;
+                    const hatBotY   = headCY - earDist * 0.12;
+                    const facingDir = (ns.x - headCX) > 0 ? 1 : -1;
+
+                    ctx.save();
+                    ctx.translate(headCX, hatBotY);
+                    ctx.rotate(tilt);
+                    ctx.filter = _litFilter;
+                    if (currentHat.hatStyle === 'beanie') {
+                        _drawBeanie(ctx, hatW, currentHat.color);
+                    } else {
+                        _drawCap(ctx, hatW, currentHat.color, facingDir);
+                    }
+                    ctx.restore();
+                }
             }
         }
     }

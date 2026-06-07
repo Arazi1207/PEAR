@@ -97,33 +97,29 @@
 
         <h3 class="catalog-title">בחר בגד מהקטלוג</h3>
 
-        <div class="selector-row">
-            <div class="selector-row-header">
-                <span class="selector-label">👕 חולצות</span>
+        <div class="upload-bar">
+            <div class="upload-control">
+                <span class="upload-icon">👕</span>
                 <select class="upload-type" id="shirt-upload-type" title="סוג חולצה להעלאה">
                     <option value="short">שרוול קצר</option>
                     <option value="long">שרוול ארוך</option>
                     <option value="sleeveless">גופייה</option>
                 </select>
-                <label class="upload-label" for="shirt-input">+ העלה שלך</label>
+                <label class="upload-label" for="shirt-input">+ העלה</label>
                 <input type="file" id="shirt-input" accept="image/*" hidden>
             </div>
-            <div id="catalog-shirts" class="catalog-grid"></div>
-        </div>
-
-        <div class="selector-row">
-            <div class="selector-row-header">
-                <span class="selector-label">👖 מכנסיים</span>
+            <div class="upload-control">
+                <span class="upload-icon">👖</span>
                 <select class="upload-type" id="pants-upload-type" title="גזרת מכנסיים להעלאה">
                     <option value="slim">צמודה</option>
                     <option value="regular" selected>רגילה</option>
                     <option value="wide">רחבה</option>
                 </select>
-                <label class="upload-label" for="pants-input">+ העלה שלך</label>
+                <label class="upload-label" for="pants-input">+ העלה</label>
                 <input type="file" id="pants-input" accept="image/*" hidden>
             </div>
-            <div id="catalog-pants" class="catalog-grid"></div>
         </div>
+        <div id="catalog-grid-container"></div>
 
         <button id="start-camera" class="btn-continue">הפעל מצלמה למדידה</button>
         <button id="btn-back" style="background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); margin-bottom: 20px;">חזור למחשבון המידות</button>

@@ -420,37 +420,72 @@ input[type="file"] { width: 100%; font-size: 13px; color: var(--text-color); }
 }
 .size-badge.show { display: block; }
 
-/* --- Table --- */
+/* --- Table Container --- */
 .table-container {
     background-color: var(--card-bg);
-    padding: 20px;
-    border-radius: 12px;
+    padding: 24px;
+    border-radius: 16px;
     box-shadow: var(--shadow-soft);
     border: 1px solid var(--border-color);
     width: 100%;
-    max-width: 800px;
+    max-width: 950px;
+    margin: 20px auto;
     box-sizing: border-box;
+    
+    /* משאיר אפשרות גלילה אך מחביא את הפס בדפדפני Firefox ו-Edge */
     overflow-x: auto;
+    scrollbar-width: none; 
+    -ms-overflow-style: none; 
 }
 
+/* מעלים לחלוטין את פס הגלילה בדפדפני כרום, ספארי ואדג' */
+.table-container::-webkit-scrollbar {
+    display: none;
+}
+
+/* --- Table Base --- */
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 15px;
-    font-size: 0.9rem;
+    font-size: 0.95rem;                 /* גודל טקסט קריא ומאוזן */
     text-align: center;
 }
 
-th, td { padding: 10px 12px; border: 1px solid var(--border-color); }
-th { background-color: var(--input-bg); font-weight: 600; color: var(--text-color); }
-tr:nth-child(even) { background-color: #f8f9fa; }
-.highlight-header { background-color: #eef3fc; }
-
-.personal-title {
-    color: var(--primary-color);
-    margin-bottom: 20px;
+/* --- Table Cells --- */
+th, td {
+    padding: 12px 14px;                 /* מרווח פנימי אופטימלי - שלא יהיה מתוח, אך שלא יידבק למסגרת */
+    border: 1px solid var(--border-color); /* מסגרת מעודנת (1.5px נוטה להיראות גס מדי) */
+    vertical-align: middle;
 }
 
+th { 
+    background-color: var(--input-bg); 
+    font-weight: 600; 
+    color: var(--text-color);
+}
+
+/* --- Rows & Interactivity --- */
+tr:nth-child(even) { 
+    background-color: #faf7f2; 
+}
+
+/* אפקט ריחוף עדין שהופך את הטבלה להרבה יותר אינטראקטיבית ונעימה לעין */
+tr:not(:first-child):hover {
+    background-color: #efe8dc; 
+    transition: background-color 0.2s ease;
+}
+
+.highlight-header { 
+    background-color: #efe8dc; 
+}
+
+/* --- Title --- */
+.personal-title {
+    color: var(--primary-color);
+    font-weight: 700;
+    margin-bottom: 24px;
+    text-align: center;                 /* ממרכז גם את הכותרת כדי שתתאים לקו של הטבלה */
+}
 /* ============================================================
    Animations — progress, FAB, vignette, transitions
    ============================================================ */
