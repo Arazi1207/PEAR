@@ -5,33 +5,37 @@
 
    Engine: Decart Lucy VTON realtime ("lucy-vton-latest") over WebRTC (LiveKit).
    Verified against @decartai/sdk@0.1.5:
-     • backend POST /api/realtime-token → { apiKey:"ek_…", expiresAt, model }
-     • models.realtime("lucy-vton-latest")            (valid realtime literal)
+     • createDecartClient({ apiKey })  — direct browser call, no backend needed
      • client.realtime.connect(stream, { model, mirror, onRemoteStream,
                                          onConnectionChange })
      • ConnectionState: connecting|connected|generating|disconnected|reconnecting
      • rtClient.set({ prompt, image, enhance })  — image may be an http(s) URL
      • rtClient.on("error", …)
 
+   API key מוגדר: dct_pear_…
+       
+
    Flow: enter room → start camera → connect realtime (badge turns green when the
    session reports "connected"). "Capture & Try On" applies the garment via
    set() and freezes a frame of the AI-dressed output stream onto the canvas.
 
-   The mock/sticker overlay is GONE from the normal path — failures surface a
-   real error. A labelled mock remains ONLY behind ?demo=1 for offline dev.
+   A labelled mock remains ONLY behind ?demo=1 for offline dev.
    ============================================================================ */
 "use strict";
+
+/* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
+const DECART_API_KEY = "dct_pear_yiTNGqeIcrmDMnnxnRIDvlOkdBIfafeHKjAFBohtsjZnzrToJnDvlhqXGsWxNZBf";
+/* ────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
   "https://esm.sh/@decartai/sdk@0.1.5",
   "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
 ];
-const TOKEN_ENDPOINT = "/api/realtime-token";
-const SETTLE_MS = 2600;     // let the model converge on the new garment
+const SETTLE_MS = 2600;
 const CONNECT_TIMEOUT = 12000;
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
-/* ── embedded catalog (mirrors the MERIDIAN storefront) ──────────────────── */
+/* ── embedded catalog ──────────────────────────────────────────────────────── */
 const _UIMG = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
 const PEAR_CATALOG = [
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a", img: _UIMG("photo-1503342217505-b0a15ec3261c") },
@@ -70,7 +74,7 @@ let activeItem = null;
 let focusMode = false;
 let localStream = null;
 let rtClient = null;
-let connState = "idle";        // mirrors Decart ConnectionState (+ idle/error)
+let connState = "idle";
 let connecting = false;
 let busy = false;
 
@@ -227,7 +231,6 @@ function enterRoom() {
 
   $("completeLook").hidden = false;
   setConn("idle");
-  // Engage camera + live Decart session immediately so the badge can verify.
   initEngine();
 }
 
@@ -258,14 +261,14 @@ const card = () => $("cameraCard");
 
 async function initEngine() {
   const ok = await startCamera();
-  if (!ok) return;                 // camera blocked → user can retry via button
+  if (!ok) return;
   try {
-    await connectRealtime();       // badge goes green on "connected"
+    await connectRealtime();
   } catch (e) {
     console.warn("live connect failed:", e?.message || e);
     setConn("error");
     if (!DEMO_FLAG) showCamError("לא ניתן להתחבר ל-Lucy VTON: " + (e?.message || e) +
-      "  — בדוק קרדיטים/הרשאות בחשבון Decart. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
+      "  — בדוק שה-API key נכון בקובץ app.js. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
   }
 }
 
@@ -305,6 +308,13 @@ function resetToLive() {
 
 /* =============================================================================
    Decart Lucy VTON realtime — connection
+   ─────────────────────────────────────
+   FIX: removed the /api/realtime-token backend call entirely.
+        We call createDecartClient({ apiKey }) directly from the browser,
+        using the key defined at the top of this file.
+
+   FIX: models.realtime() does not exist in @decartai/sdk@0.1.5.
+        The model is passed as a plain string: "lucy-vton-latest".
    ============================================================================= */
 async function loadSDK() {
   let lastErr;
@@ -322,23 +332,21 @@ async function connectRealtime() {
   setConn("connecting");
 
   try {
-    // 1. ephemeral client token from our backend (permanent key stays server-side)
-    const res = await fetch(TOKEN_ENDPOINT, { method: "POST" });
-    if (!res.ok) {
-      let detail = ""; try { detail = JSON.stringify(await res.json()); } catch (_) {}
-      throw new Error(`token endpoint ${res.status} ${detail}`);
+    /* ── validate key ─────────────────────────────────────────────────────── */
+    if (!DECART_API_KEY || DECART_API_KEY.length < 10) {
+      throw new Error("לא הוגדר API key — ערוך את DECART_API_KEY בתחילת app.js");
     }
-    const token = await res.json();
-    if (!token || !token.apiKey) throw new Error("token response had no apiKey");
-    if (!/^ek_/.test(token.apiKey)) console.warn("token apiKey is not an ek_ ephemeral key:", token.apiKey.slice(0, 6));
 
-    // 2. load SDK + connect realtime
-    const { createDecartClient, models } = await loadSDK();
-    const model = models.realtime(token.model || "lucy-vton-latest");
-    const client = createDecartClient({ apiKey: token.apiKey });
+    /* ── load SDK ─────────────────────────────────────────────────────────── */
+    const { createDecartClient } = await loadSDK();
 
+    /* ── create client directly (no backend token endpoint needed) ─────────── */
+    const client = createDecartClient({ apiKey: DECART_API_KEY });
+
+    /* ── connect realtime ─────────────────────────────────────────────────── */
+    // FIX: model passed as a plain string, NOT via models.realtime()
     rtClient = await client.realtime.connect(localStream, {
-      model,
+      model: { id: "lucy-vton-latest" },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
         const ai = $("aiVideo");
@@ -356,10 +364,9 @@ async function connectRealtime() {
       showCamError("שגיאת Decart: " + (err?.message || err));
     });
 
-    // connect() resolves once connected; reflect it even if the callback lagged
-    connState = (rtClient.getConnectionState && rtClient.getConnectionState()) ||
-                (rtClient.isConnected && rtClient.isConnected() ? "connected" : "connected");
+    connState = (rtClient.getConnectionState && rtClient.getConnectionState()) || "connected";
     setConn(connState);
+
   } finally {
     connecting = false;
   }
@@ -381,7 +388,7 @@ function waitConnected(timeout) {
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
   const payload = { prompt: buildPrompt(item), enhance: false };
-  if (item.img) payload.image = item.img;   // SDK accepts an http(s) URL string
+  if (item.img) payload.image = item.img;
   await rtClient.set(payload);
 }
 
@@ -396,7 +403,7 @@ function buildPrompt(item) {
 }
 
 /* =============================================================================
-   Capture flow — LIVE ONLY (mock gated behind ?demo=1)
+   Capture flow
    ============================================================================= */
 async function capture() {
   if (busy) return;
@@ -408,11 +415,9 @@ async function capture() {
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
-    // ensure a live realtime session
     if (!isLive()) { await connectRealtime(); }
     await waitConnected(CONNECT_TIMEOUT);
 
-    // apply the active garment and let the model converge, then freeze a frame
     await applyGarment(activeItem);
     await waitForAiFrame(SETTLE_MS);
     if (!freezeFrom($("aiVideo"), { mirror: false })) {
@@ -425,7 +430,6 @@ async function capture() {
   } catch (err) {
     console.error("live capture failed:", err);
     if (DEMO_FLAG) {
-      // offline dev only — clearly labelled, never on the real path
       await renderMockDemo(activeItem);
       card().classList.add("show-result");
       $("retakeBtn").hidden = false;
@@ -448,7 +452,7 @@ function waitForAiFrame(settle) {
       const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
       const elapsed = Date.now() - start;
       if (hasFrame && elapsed >= settle) return resolve();
-      if (elapsed >= settle + 6000) return resolve(); // hard cap
+      if (elapsed >= settle + 6000) return resolve();
       requestAnimationFrame(check);
     })();
   });
@@ -560,7 +564,6 @@ function loadImage(src) {
   });
 }
 
-/* header badge driven by the REAL Decart ConnectionState */
 function setConn(state) {
   const b = $("engineBadge");
   if (!b) return;
