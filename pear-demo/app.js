@@ -346,7 +346,13 @@ async function connectRealtime() {
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
     rtClient = await client.realtime.connect(localStream, {
-      model: { id: "lucy-vton-latest" },
+      model: {
+        name: "lucy-vton-latest",
+        urlPath: "/v1/stream",
+        fps: { ideal: 30, max: 30 },
+        width: 1088,
+        height: 624,
+      },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
         const ai = $("aiVideo");
