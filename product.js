@@ -30,17 +30,22 @@ function showToast(html) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
 }
 
-/* ── color swatches: base tone + tonal variants from one source color ── */
-function swatchesFor(base) {
-  return [
-    { hex: base,             label: "Signature" },
-    { hex: shade(base, 0.26), label: "Light" },
-    { hex: shade(base, -0.3), label: "Deep" },
-    { hex: shade(base, -0.55), label: "Ink" },
-  ];
+/* ── product-page color display ──────────────────────────────────────────────
+   garmentSVG() (from catalog.js) generates a procedural garment in any hex
+   color. It always shows the correct garment shape (subType) and the exact
+   selected color — same composition every time, zero jarring image swaps.
+   The canonical imageUrl is reserved for the VTON reference payload only. */
+function pdpSvgOf(color) {
+  const wrap = "display:flex;align-items:center;justify-content:center;"
+    + "width:100%;height:100%;background:#f3f4f6;padding:32px;box-sizing:border-box";
+  return `<span style="${wrap}">${garmentSVG({ ...product, color })}</span>`;
 }
 
-/* ── PEAR handoff URL (full redirect → no embed → calculator runs first) ── */
+/* ── PEAR handoff URL ────────────────────────────────────────────────────────
+   Always sends the canonical imageUrl so PEAR receives the correct
+   garment-shape reference regardless of which color variant is active.
+   Color is communicated separately via the `color` query param (and the
+   PEAR text prompt uses colorName() to describe it to the VTON model). */
 function pearUrl(p, color) {
   const params = {
     id: p.id,
@@ -66,12 +71,11 @@ function findProduct() {
 /* ── render ── */
 function render() {
   const grid = $("#pdpGrid");
-  const display = { ...product, color: activeColor };
 
   grid.innerHTML = `
     <section class="pdp__media">
       <span class="pdp__badge"${product.isNew ? "" : " hidden"}>New Arrival</span>
-      <div class="pdp__svg" id="pdpSvg">${garmentImg(display)}</div>
+      <div class="pdp__svg" id="pdpSvg">${pdpSvgOf(activeColor)}</div>
     </section>
 
     <section class="pdp__info">
@@ -126,14 +130,15 @@ function render() {
 
 function renderSwatches() {
   const wrap = $("#swatches");
-  wrap.innerHTML = swatchesFor(product.color).map((s) => `
-    <button class="swatch${s.hex === activeColor ? " is-active" : ""}"
-            style="--c:${s.hex}" data-color="${s.hex}" title="${s.label}"
-            aria-label="${s.label}"></button>`).join("");
+  const variants = product.variants || [];
+  wrap.innerHTML = variants.map((v) => `
+    <button class="swatch${v.color === activeColor ? " is-active" : ""}"
+            style="--c:${v.color}" data-color="${v.color}" title="${v.label}"
+            aria-label="${v.label}"></button>`).join("");
   wrap.querySelectorAll(".swatch").forEach((b) => {
     b.addEventListener("click", () => {
       activeColor = b.dataset.color;
-      $("#pdpSvg").innerHTML = garmentImg({ ...product, color: activeColor });
+      $("#pdpSvg").innerHTML = pdpSvgOf(activeColor);
       wrap.querySelectorAll(".swatch").forEach((x) => x.classList.toggle("is-active", x === b));
     });
   });
@@ -157,6 +162,7 @@ function launchPear() {
     localStorage.setItem(LS_TRYON, JSON.stringify({
       id: product.id, itemType: product.type, subType: product.subType,
       color: activeColor.replace("#", ""), name: product.name, size: activeSize,
+      img: product.imageUrl,
     }));
   } catch (_) {}
   showToast(`Launching <b>PEAR Camera</b> — ${product.name}…`);
@@ -183,7 +189,7 @@ function init() {
 
   product = findProduct();
   if (!product) { renderNotFound(); return; }
-  activeColor = product.color;
+  activeColor = product.variants?.[0]?.color || product.color;
   render();
 }
 

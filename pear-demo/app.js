@@ -45,15 +45,15 @@ const PEAR_CATALOG = [
   { id: 5,  name: "Circuit Tee",       price: 90,  type: "shirt", subType: "short_sleeve", color: "#149c7a", img: _UIMG("photo-1618354691373-d851c5c3a990") },
   { id: 6,  name: "Strata Longsleeve", price: 128, type: "shirt", subType: "long_sleeve",  color: "#2b2b30", img: _UIMG("photo-1593030761757-71fae45fa0e7") },
   { id: 7,  name: "Nimbus Henley",     price: 134, type: "shirt", subType: "long_sleeve",  color: "#8e7bd0", img: _UIMG("photo-1551537482-f2075a1d41f2") },
-  { id: 8,  name: "Echo Longsleeve",   price: 118, type: "shirt", subType: "long_sleeve",  color: "#d8d4cb", img: _UIMG("photo-1593030761757-71fae45fa0e7") },
+  { id: 8,  name: "Echo Longsleeve",   price: 118, type: "shirt", subType: "long_sleeve",  color: "#d8d4cb", img: _UIMG("photo-1529374255404-311a2a4f1fd9") },
   { id: 9,  name: "Glide Slim",        price: 142, type: "pants", subType: "slim",    color: "#2a2d34", img: _UIMG("photo-1542272604-787c3835535d") },
   { id: 10, name: "Mono Slim",         price: 118, type: "pants", subType: "slim",    color: "#6e7681", img: _UIMG("photo-1624378439575-d8705ad7ae80") },
   { id: 11, name: "Vector Regular",    price: 132, type: "pants", subType: "regular", color: "#3b5bdb", img: _UIMG("photo-1602293589930-45aad59ba3ab") },
   { id: 12, name: "Apex Regular",      price: 124, type: "pants", subType: "regular", color: "#8a8f98", img: _UIMG("photo-1473966968600-fa801b869a1a") },
   { id: 13, name: "Drift Wide",        price: 156, type: "pants", subType: "wide",    color: "#1a1a1d", img: _UIMG("photo-1594633312681-425c7b97ccd1") },
   { id: 14, name: "Terra Wide",        price: 148, type: "pants", subType: "wide",    color: "#a8794f", img: _UIMG("photo-1506629082955-511b1aa562c8") },
-  { id: 15, name: "Null Slim",         price: 138, type: "pants", subType: "slim",    color: "#22324f", img: _UIMG("photo-1624378439575-d8705ad7ae80") },
-  { id: 16, name: "Cargo Wide",        price: 162, type: "pants", subType: "wide",    color: "#566b3e", img: _UIMG("photo-1506629082955-511b1aa562c8") },
+  { id: 15, name: "Null Slim",         price: 138, type: "pants", subType: "slim",    color: "#22324f", img: _UIMG("photo-1490114538077-0a7f8cb49891") },
+  { id: 16, name: "Cargo Wide",        price: 162, type: "pants", subType: "wide",    color: "#566b3e", img: _UIMG("photo-1559563458-527698bf5295") },
 ];
 
 const SUBTYPE_LABEL_HE = {
@@ -547,14 +547,112 @@ function highlightCatalog(id) {
     el.classList.toggle("is-active", +el.dataset.pick === id));
 }
 
+/* ── self-contained studio garment SVG ───────────────────────────────────────
+   catalog.js is not loaded in the PEAR demo, so this duplicates the same
+   shape data and rendering logic locally.  Output is always a white-background
+   flat-lay with a CSS drop-shadow — no Unsplash, no model, no background. */
+const _SHIRT_PATHS = {
+  sleeveless:   "M92 50 Q110 64 128 50 L144 62 Q151 92 151 122 L151 236 L69 236 L69 122 Q69 92 76 62 Z",
+  short_sleeve: "M88 50 Q110 66 132 50 L170 68 L188 122 L166 130 L152 106 L152 236 L68 236 L68 106 L54 130 L32 122 L50 68 Z",
+  long_sleeve:  "M88 50 Q110 66 132 50 L170 68 L198 204 L170 212 L152 108 L152 236 L68 236 L68 108 L50 212 L22 204 L50 68 Z",
+};
+const _PANT_PATHS = {
+  slim:    "M66 44 L154 44 L150 238 L124 238 L111 120 L96 238 L70 238 Z",
+  regular: "M62 44 L158 44 L156 238 L120 238 L110 124 L100 238 L64 238 Z",
+  wide:    "M58 44 L162 44 L172 238 L138 238 L112 126 L108 126 L82 238 L48 238 Z",
+};
+
+function _mix(hex, p) {
+  const f = parseInt(hex.slice(1), 16), t = p < 0 ? 0 : 255, a = Math.abs(p);
+  const R = f >> 16, G = (f >> 8) & 0xff, B = f & 0xff;
+  const m = (c) => Math.round((t - c) * a) + c;
+  return "#" + (0x1000000 + m(R) * 0x10000 + m(G) * 0x100 + m(B)).toString(16).slice(1);
+}
+
+function _garmentSVG(item) {
+  const isShirt = item.type === "shirt";
+  const d = isShirt ? _SHIRT_PATHS[item.subType] : _PANT_PATHS[item.subType];
+  if (!d) return `<svg viewBox="0 0 220 260"><rect width="220" height="260" fill="${item.color}"/></svg>`;
+
+  const lite = _mix(item.color,  0.30);
+  const base = item.color;
+  const mid  = _mix(item.color, -0.15);
+  const dark = _mix(item.color, -0.38);
+  const ink  = _mix(item.color, -0.54);
+  const pid  = "t" + item.id;
+
+  let det = "";
+  if (isShirt) {
+    det += `<ellipse cx="110" cy="55" rx="20" ry="7" fill="${mid}" stroke="${ink}" stroke-width="1.5" opacity="0.55"/>`;
+    if (item.subType === "sleeveless") {
+      det += `<path d="M91 52 Q76 62 69 86" stroke="${ink}" stroke-width="1.3" opacity="0.28" fill="none"/>`;
+      det += `<path d="M129 52 Q144 62 151 86" stroke="${ink}" stroke-width="1.3" opacity="0.28" fill="none"/>`;
+    } else {
+      det += `<path d="M88 52 L50 68" stroke="${ink}" stroke-width="1.4" opacity="0.26" fill="none"/>`;
+      det += `<path d="M132 52 L170 68" stroke="${ink}" stroke-width="1.4" opacity="0.26" fill="none"/>`;
+      det += `<path d="M152 108 Q151 120 152 132" stroke="${ink}" stroke-width="1.3" opacity="0.18" fill="none"/>`;
+      det += `<path d="M68 108 Q69 120 68 132" stroke="${ink}" stroke-width="1.3" opacity="0.18" fill="none"/>`;
+    }
+    if (item.subType === "short_sleeve") {
+      det += `<path d="M33 120 Q43 124 55 128" stroke="${ink}" stroke-width="1.8" opacity="0.32" fill="none"/>`;
+      det += `<path d="M166 128 Q178 124 187 120" stroke="${ink}" stroke-width="1.8" opacity="0.32" fill="none"/>`;
+    }
+    if (item.subType === "long_sleeve") {
+      det += `<path d="M192 142 Q189 150 186 158" stroke="${ink}" stroke-width="1.6" opacity="0.20" fill="none"/>`;
+      det += `<path d="M28 142 Q31 150 34 158" stroke="${ink}" stroke-width="1.6" opacity="0.20" fill="none"/>`;
+      det += `<path d="M166 208 L174 204" stroke="${ink}" stroke-width="2.2" opacity="0.38"/>`;
+      det += `<path d="M44 208 L36 204" stroke="${ink}" stroke-width="2.2" opacity="0.38"/>`;
+      det += `<path d="M163 212 L175 207" stroke="${ink}" stroke-width="1.1" opacity="0.22"/>`;
+      det += `<path d="M45 212 L33 207" stroke="${ink}" stroke-width="1.1" opacity="0.22"/>`;
+    }
+    det += `<path d="M110 62 L110 232" stroke="${ink}" stroke-width="0.9" opacity="0.15"/>`;
+    det += `<path d="M72 232 H148" stroke="${ink}" stroke-width="1.6" opacity="0.28"/>`;
+    det += `<path d="M70 118 Q67 158 70 198" stroke="${ink}" stroke-width="3" opacity="0.07" fill="none"/>`;
+    det += `<path d="M150 118 Q153 158 150 198" stroke="${ink}" stroke-width="3" opacity="0.07" fill="none"/>`;
+  } else {
+    const wl = item.subType === "wide" ? 58 : item.subType === "regular" ? 62 : 66;
+    const wr = item.subType === "wide" ? 162 : item.subType === "regular" ? 158 : 154;
+    const fly = item.subType === "wide" ? 128 : 124;
+    const ky  = item.subType === "wide" ? 156 : 152;
+    det += `<path d="M${wl} 44 H${wr}" stroke="${ink}" stroke-width="2.5" opacity="0.38"/>`;
+    det += `<path d="M${wl+1} 58 H${wr-1}" stroke="${ink}" stroke-width="1.3" opacity="0.28"/>`;
+    det += `<rect x="80"  y="44" width="5" height="15" rx="1" fill="${dark}" opacity="0.36"/>`;
+    det += `<rect x="107" y="44" width="6" height="15" rx="1" fill="${dark}" opacity="0.36"/>`;
+    det += `<rect x="135" y="44" width="5" height="15" rx="1" fill="${dark}" opacity="0.36"/>`;
+    det += `<path d="M110 60 L110 ${fly}" stroke="${ink}" stroke-width="1.6" opacity="0.28"/>`;
+    det += `<path d="M73 70 Q69 80 72 93" stroke="${ink}" stroke-width="1.3" opacity="0.22" fill="none"/>`;
+    det += `<path d="M147 70 Q151 80 148 93" stroke="${ink}" stroke-width="1.3" opacity="0.22" fill="none"/>`;
+    det += `<path d="M77 ${ky} Q86 ${ky+4} 96 ${ky}" stroke="${ink}" stroke-width="1.1" opacity="0.18" fill="none"/>`;
+    det += `<path d="M124 ${ky} Q133 ${ky+4} 143 ${ky}" stroke="${ink}" stroke-width="1.1" opacity="0.18" fill="none"/>`;
+    det += `<path d="M70 232 H97" stroke="${ink}" stroke-width="1.7" opacity="0.28"/>`;
+    det += `<path d="M123 232 H150" stroke="${ink}" stroke-width="1.7" opacity="0.28"/>`;
+  }
+
+  return `<svg viewBox="0 0 220 260" role="img" aria-label="${item.name}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="gf${pid}" x1="0.15" y1="0" x2="0.38" y2="1">
+        <stop offset="0%"   stop-color="${lite}"/>
+        <stop offset="45%"  stop-color="${base}"/>
+        <stop offset="100%" stop-color="${dark}"/>
+      </linearGradient>
+      <linearGradient id="hl${pid}" x1="0.05" y1="0" x2="0.9" y2="1">
+        <stop offset="0%"   stop-color="#fff" stop-opacity="0.28"/>
+        <stop offset="50%"  stop-color="#fff" stop-opacity="0.05"/>
+        <stop offset="100%" stop-color="#000" stop-opacity="0.05"/>
+      </linearGradient>
+    </defs>
+    <rect width="220" height="260" fill="#ffffff"/>
+    <g style="filter:drop-shadow(0px 5px 14px rgba(0,0,0,0.13))">
+      <path d="${d}" fill="url(#gf${pid})" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="${d}" fill="url(#hl${pid})"/>
+    </g>
+    ${det}
+  </svg>`;
+}
+
 function garmentThumb(item) {
-  const fallback = `display:flex;align-items:center;justify-content:center;background:${item.color};color:#fff;font:700 12px Inter,sans-serif;text-align:center;padding:6px`;
-  return `<span style="display:block;width:100%;height:100%;position:relative;background:${item.color}">`
-    + `<img src="${item.img}" alt="${item.name}" loading="lazy" decoding="async"`
-    + ` style="width:100%;height:100%;object-fit:cover;display:block"`
-    + ` onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
-    + `<span style="position:absolute;inset:0;${fallback};display:none">${item.name}</span>`
-    + `</span>`;
+  const wrap = "display:block;width:100%;height:100%;overflow:hidden;background:#ffffff";
+  return `<span style="${wrap}">${_garmentSVG(item)}</span>`;
 }
 
 /* =============================================================================
