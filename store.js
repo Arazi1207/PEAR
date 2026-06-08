@@ -42,7 +42,7 @@ function cardHTML(p, i) {
   <article class="card" style="--i:${i}">
     <a class="card__media" href="${href}" aria-label="View ${p.name}">
       <span class="card__badge"${p.isNew ? "" : " hidden"}>New</span>
-      ${garmentSVG(p)}
+      ${garmentImg(p)}
     </a>
     <div class="card__body">
       <span class="card__cat">${p.category} · ${SUBTYPE_LABEL[p.subType]}</span>
@@ -80,7 +80,7 @@ function renderLookbook() {
   const spans = ["tall", "", "wide", "", "", ""]; // first tall, third wide → editorial rhythm
   lookGrid.innerHTML = picks.map((p, i) => `
     <div class="look__tile ${spans[i]}" data-filter="${p.type}">
-      ${garmentSVG(p)}
+      ${garmentImg(p)}
       <div class="look__cap"><b>${p.name}</b><span>${p.category}</span></div>
     </div>`).join("");
 }
@@ -104,7 +104,14 @@ function routeFromHash() {
 
 /* ── PEAR handoff URL builder (focused / isolated mode) ── */
 function pearUrl(p, embed) {
-  const params = { itemType: p.type, subType: p.subType, color: p.color.replace("#", ""), name: p.name };
+  const params = {
+    id: p.id,
+    itemType: p.type,
+    subType: p.subType,
+    color: p.color.replace("#", ""),
+    name: p.name,
+    img: p.imageUrl || "",
+  };
   if (embed) params.embed = "1";
   return `${PEAR_PATH}?${new URLSearchParams(params).toString()}`;
 }
@@ -154,7 +161,7 @@ function recommendFor(p) {
 /* Status bar — isolates and presents the selected garment beside the feed. */
 function renderTryOnStatus(p) {
   statusEl.innerHTML = `
-    <div class="tryon__swatch" style="--c:${p.color}">${garmentSVG(p)}</div>
+    <div class="tryon__swatch" style="--c:${p.color}">${garmentImg(p)}</div>
     <div class="tryon__meta">
       <span class="tryon__eyebrow">Now trying on · פריט נבחר</span>
       <h2 class="tryon__name">${p.name}</h2>
@@ -178,7 +185,7 @@ function renderRecommendations(p) {
   ctlSub.textContent = `${wantHe} · ${wantEn}`;
   ctlTrack.innerHTML = recs.map((r, i) => `
     <article class="ctl__card" style="--i:${i}">
-      <div class="ctl__media">${garmentSVG(r)}</div>
+      <div class="ctl__media">${garmentImg(r)}</div>
       <div class="ctl__body">
         <span class="ctl__cat">${r.category} · ${SUBTYPE_LABEL[r.subType]}</span>
         <h4 class="ctl__name">${r.name}</h4>

@@ -1,0 +1,12 @@
+# dependencies
+node_modules/
+
+# secrets — NEVER commit the real Decart key
+.env
+.env.local
+
+# logs / os
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db

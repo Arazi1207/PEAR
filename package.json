@@ -1,0 +1,19 @@
+{
+  "name": "pear-lucy-vton",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PEAR / MERIDIAN — photorealistic Virtual Try-On powered by Decart Lucy VTON (realtime), fronted by a secure ephemeral-token proxy so the permanent dct_ API key never reaches the browser.",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@decartai/sdk": "^0.1.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

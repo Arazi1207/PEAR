@@ -48,6 +48,7 @@ function pearUrl(p, color) {
     subType: p.subType,
     color: color.replace("#", ""),
     name: p.name,
+    img: p.imageUrl || "",
   };
   return `${PEAR_PATH}?${new URLSearchParams(params).toString()}`;
 }
@@ -70,7 +71,7 @@ function render() {
   grid.innerHTML = `
     <section class="pdp__media">
       <span class="pdp__badge"${product.isNew ? "" : " hidden"}>New Arrival</span>
-      <div class="pdp__svg" id="pdpSvg">${garmentSVG(display)}</div>
+      <div class="pdp__svg" id="pdpSvg">${garmentImg(display)}</div>
     </section>
 
     <section class="pdp__info">
@@ -132,7 +133,7 @@ function renderSwatches() {
   wrap.querySelectorAll(".swatch").forEach((b) => {
     b.addEventListener("click", () => {
       activeColor = b.dataset.color;
-      $("#pdpSvg").innerHTML = garmentSVG({ ...product, color: activeColor });
+      $("#pdpSvg").innerHTML = garmentImg({ ...product, color: activeColor });
       wrap.querySelectorAll(".swatch").forEach((x) => x.classList.toggle("is-active", x === b));
     });
   });
