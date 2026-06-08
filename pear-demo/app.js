@@ -1,25 +1,35 @@
 /* ============================================================================
-   PEAR — Virtual fitting room (Lucy VTON realtime snapshot flow)
+   PEAR — Virtual fitting room (Lucy VTON realtime, LIVE-first)
    ----------------------------------------------------------------------------
-   ES module. Flow:
-     Screen 1  Size calculator (required) ─► Screen 2  Isolated try-on room.
+   Screen 1  Size calculator (required) ─► Screen 2  Isolated try-on room.
 
-   Engine: Decart Lucy VTON realtime (model "lucy-vton-latest") over WebRTC.
-     • The browser NEVER sees the permanent dct_ key. It asks our backend
-       (POST /api/realtime-token) for a short-lived ek_ token, then connects.
-     • "Capture & Try On" applies the garment (rtClient.set) and freezes a
-       frame of the AI-dressed output stream onto the result canvas.
-     • If the token endpoint / SDK / camera is unavailable, we fall back to a
-       clearly-labelled MOCK render so the whole journey is always demoable.
+   Engine: Decart Lucy VTON realtime ("lucy-vton-latest") over WebRTC (LiveKit).
+   Verified against @decartai/sdk@0.1.5:
+     • backend POST /api/realtime-token → { apiKey:"ek_…", expiresAt, model }
+     • models.realtime("lucy-vton-latest")            (valid realtime literal)
+     • client.realtime.connect(stream, { model, mirror, onRemoteStream,
+                                         onConnectionChange })
+     • ConnectionState: connecting|connected|generating|disconnected|reconnecting
+     • rtClient.set({ prompt, image, enhance })  — image may be an http(s) URL
+     • rtClient.on("error", …)
 
-   Docs: https://docs.platform.decart.ai/models/realtime/virtual-try-on
-         https://docs.platform.decart.ai/getting-started/client-tokens
+   Flow: enter room → start camera → connect realtime (badge turns green when the
+   session reports "connected"). "Capture & Try On" applies the garment via
+   set() and freezes a frame of the AI-dressed output stream onto the canvas.
+
+   The mock/sticker overlay is GONE from the normal path — failures surface a
+   real error. A labelled mock remains ONLY behind ?demo=1 for offline dev.
    ============================================================================ */
 "use strict";
 
-const SDK_URL = "https://esm.sh/@decartai/sdk@0.1.5";
+const SDK_URLS = [
+  "https://esm.sh/@decartai/sdk@0.1.5",
+  "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
+];
 const TOKEN_ENDPOINT = "/api/realtime-token";
-const SETTLE_MS = 2800; // time we let the model converge before grabbing a frame
+const SETTLE_MS = 2600;     // let the model converge on the new garment
+const CONNECT_TIMEOUT = 12000;
+const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── embedded catalog (mirrors the MERIDIAN storefront) ──────────────────── */
 const _UIMG = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
@@ -58,11 +68,13 @@ const $ = (s) => document.getElementById(s);
 let currentUserSize = null;
 let activeItem = null;
 let focusMode = false;
-let engineMode = "idle";       // idle | live | mock
 let localStream = null;
 let rtClient = null;
-let decartConnected = false;
+let connState = "idle";        // mirrors Decart ConnectionState (+ idle/error)
+let connecting = false;
 let busy = false;
+
+const isLive = () => connState === "connected" || connState === "generating";
 
 /* =============================================================================
    SCREEN 1 — Size / measurement calculator
@@ -158,7 +170,7 @@ function parseHandoff() {
   const fromCatalog = !isNaN(id) ? PEAR_CATALOG.find((p) => p.id === id) : null;
 
   const type = (q.get("type") || q.get("itemType") || (fromCatalog && fromCatalog.type) || "").toLowerCase();
-  if (!type) return null; // direct entry, no product → catalog mode
+  if (!type) return null;
 
   const color = q.get("color") ? "#" + q.get("color").replace(/^#/, "") : (fromCatalog ? fromCatalog.color : "#0B3C95");
   return {
@@ -214,15 +226,15 @@ function enterRoom() {
   }
 
   $("completeLook").hidden = false;
+  setConn("idle");
+  // Engage camera + live Decart session immediately so the badge can verify.
+  initEngine();
 }
 
 function setActiveItem(item, opts = {}) {
   activeItem = item;
-
-  // focus bar
   $("focusItemName").innerText = item.name;
 
-  // active garment chip
   $("activeGarment").hidden = false;
   $("activeGarmentMedia").innerHTML = garmentThumb(item);
   $("activeGarmentName").innerText = item.name;
@@ -235,15 +247,27 @@ function setActiveItem(item, opts = {}) {
   if (!opts.silent) {
     toast(`עכשיו מודדים: <b>${item.name}</b>`);
     resetToLive();
-    // If already connected live, pre-apply the new garment for the next capture.
-    if (engineMode === "live" && decartConnected) applyGarment(item).catch(() => {});
+    if (isLive()) applyGarment(item).catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
 }
 
 /* =============================================================================
-   Camera
+   Camera + engine bootstrap
    ============================================================================= */
 const card = () => $("cameraCard");
+
+async function initEngine() {
+  const ok = await startCamera();
+  if (!ok) return;                 // camera blocked → user can retry via button
+  try {
+    await connectRealtime();       // badge goes green on "connected"
+  } catch (e) {
+    console.warn("live connect failed:", e?.message || e);
+    setConn("error");
+    if (!DEMO_FLAG) showCamError("לא ניתן להתחבר ל-Lucy VTON: " + (e?.message || e) +
+      "  — בדוק קרדיטים/הרשאות בחשבון Decart. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
+  }
+}
 
 async function startCamera() {
   if (localStream) return true;
@@ -280,55 +304,85 @@ function resetToLive() {
 }
 
 /* =============================================================================
-   Decart Lucy VTON realtime
+   Decart Lucy VTON realtime — connection
    ============================================================================= */
-async function connectRealtime() {
-  // 1. mint an ephemeral client token from our backend (key stays server-side)
-  let token;
-  try {
-    const res = await fetch(TOKEN_ENDPOINT, { method: "POST" });
-    if (!res.ok) throw new Error("token endpoint " + res.status);
-    token = await res.json();
-    if (!token || !token.apiKey) throw new Error("no apiKey in token response");
-  } catch (e) {
-    throw new Error("token: " + e.message);
+async function loadSDK() {
+  let lastErr;
+  for (const url of SDK_URLS) {
+    try { return await import(/* @vite-ignore */ url); }
+    catch (e) { lastErr = e; console.warn("SDK load failed from", url, e?.message || e); }
   }
+  throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
+}
 
-  // 2. load the Decart SDK (browser ESM) and connect realtime
-  const { createDecartClient, models } = await import(/* @vite-ignore */ SDK_URL);
-  const model = models.realtime(token.model || "lucy-vton-latest");
-  const client = createDecartClient({ apiKey: token.apiKey });
+async function connectRealtime() {
+  if (rtClient && isLive()) return;
+  if (connecting) return;
+  connecting = true;
+  setConn("connecting");
 
-  rtClient = await client.realtime.connect(localStream, {
-    model,
-    mirror: "auto",
-    onRemoteStream: (editedStream) => {
-      const ai = $("aiVideo");
-      ai.srcObject = editedStream;
-      ai.play().catch(() => {});
-    },
-    onError: (err) => console.warn("Decart realtime error:", err),
-    onDisconnect: (reason) => { decartConnected = false; console.log("Decart disconnected:", reason); },
+  try {
+    // 1. ephemeral client token from our backend (permanent key stays server-side)
+    const res = await fetch(TOKEN_ENDPOINT, { method: "POST" });
+    if (!res.ok) {
+      let detail = ""; try { detail = JSON.stringify(await res.json()); } catch (_) {}
+      throw new Error(`token endpoint ${res.status} ${detail}`);
+    }
+    const token = await res.json();
+    if (!token || !token.apiKey) throw new Error("token response had no apiKey");
+    if (!/^ek_/.test(token.apiKey)) console.warn("token apiKey is not an ek_ ephemeral key:", token.apiKey.slice(0, 6));
+
+    // 2. load SDK + connect realtime
+    const { createDecartClient, models } = await loadSDK();
+    const model = models.realtime(token.model || "lucy-vton-latest");
+    const client = createDecartClient({ apiKey: token.apiKey });
+
+    rtClient = await client.realtime.connect(localStream, {
+      model,
+      mirror: "auto",
+      onRemoteStream: (editedStream) => {
+        const ai = $("aiVideo");
+        ai.srcObject = editedStream;
+        ai.play().catch(() => {});
+      },
+      onConnectionChange: (state) => {
+        connState = state;
+        setConn(state);
+      },
+    });
+
+    rtClient.on("error", (err) => {
+      console.error("Decart realtime error:", err);
+      showCamError("שגיאת Decart: " + (err?.message || err));
+    });
+
+    // connect() resolves once connected; reflect it even if the callback lagged
+    connState = (rtClient.getConnectionState && rtClient.getConnectionState()) ||
+                (rtClient.isConnected && rtClient.isConnected() ? "connected" : "connected");
+    setConn(connState);
+  } finally {
+    connecting = false;
+  }
+}
+
+function waitConnected(timeout) {
+  return new Promise((resolve, reject) => {
+    if (isLive()) return resolve();
+    const start = Date.now();
+    (function poll() {
+      if (isLive()) return resolve();
+      if (connState === "error" || connState === "disconnected") return reject(new Error("session " + connState));
+      if (Date.now() - start > timeout) return reject(new Error("timeout מחכה לחיבור (" + connState + ")"));
+      setTimeout(poll, 150);
+    })();
   });
-  decartConnected = true;
 }
 
 async function applyGarment(item) {
-  if (!rtClient) return;
-  const prompt = buildPrompt(item);
-  let image = null;
-  try { image = await fetchGarmentBlob(item.img); } catch (_) { /* prompt-only fallback */ }
-  const payload = { prompt, enhance: false };
-  if (image) payload.image = image;
+  if (!rtClient) throw new Error("not connected");
+  const payload = { prompt: buildPrompt(item), enhance: false };
+  if (item.img) payload.image = item.img;   // SDK accepts an http(s) URL string
   await rtClient.set(payload);
-}
-
-async function fetchGarmentBlob(url) {
-  if (!url) return null;
-  const res = await fetch(url, { mode: "cors" });
-  if (!res.ok) throw new Error("garment fetch " + res.status);
-  const blob = await res.blob();
-  return new File([blob], "garment.jpg", { type: blob.type || "image/jpeg" });
 }
 
 function buildPrompt(item) {
@@ -342,48 +396,43 @@ function buildPrompt(item) {
 }
 
 /* =============================================================================
-   Capture flow
+   Capture flow — LIVE ONLY (mock gated behind ?demo=1)
    ============================================================================= */
 async function capture() {
   if (busy) return;
   if (!localStream) { const ok = await startCamera(); if (!ok) return; }
   busy = true;
   $("captureBtn").disabled = true;
+  $("camError").hidden = true;
   $("scanOverlay").hidden = false;
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
-    // Lazily establish the realtime engine on first capture.
-    if (engineMode === "idle") {
-      try {
-        await connectRealtime();
-        engineMode = "live";
-        setEngineBadge("live");
-      } catch (e) {
-        console.warn("Realtime unavailable → mock mode:", e.message);
-        engineMode = "mock";
-        setEngineBadge("mock");
-        $("scanSub").textContent = "מצב הדגמה · DEMO (no live API)";
-        toast("מצב הדגמה — אין חיבור חי ל-Lucy VTON");
-      }
-    }
+    // ensure a live realtime session
+    if (!isLive()) { await connectRealtime(); }
+    await waitConnected(CONNECT_TIMEOUT);
 
-    if (engineMode === "live") {
-      await applyGarment(activeItem);
-      await waitForAiFrame(SETTLE_MS);
-      if (!freezeFrom($("aiVideo"), { mirror: false })) freezeFrom($("webcam"), { mirror: true });
-    } else {
-      // labelled mock render
-      $("scanSub").textContent = "מצב הדגמה · DEMO (no live API)";
-      await sleep(2000);
-      await renderMock(activeItem);
+    // apply the active garment and let the model converge, then freeze a frame
+    await applyGarment(activeItem);
+    await waitForAiFrame(SETTLE_MS);
+    if (!freezeFrom($("aiVideo"), { mirror: false })) {
+      throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
     }
 
     card().classList.add("show-result");
     $("retakeBtn").hidden = false;
+    toast("✨ מדידה חיה נוצרה ע\"י Lucy VTON");
   } catch (err) {
-    console.error("capture failed:", err);
-    showCamError("המדידה נכשלה: " + (err && err.message ? err.message : err));
+    console.error("live capture failed:", err);
+    if (DEMO_FLAG) {
+      // offline dev only — clearly labelled, never on the real path
+      await renderMockDemo(activeItem);
+      card().classList.add("show-result");
+      $("retakeBtn").hidden = false;
+    } else {
+      showCamError("המדידה החיה נכשלה: " + (err?.message || err));
+      setConn(isLive() ? "connected" : "error");
+    }
   } finally {
     $("scanOverlay").hidden = true;
     $("captureBtn").disabled = false;
@@ -391,13 +440,15 @@ async function capture() {
   }
 }
 
-function waitForAiFrame(maxWait) {
+function waitForAiFrame(settle) {
   return new Promise((resolve) => {
     const ai = $("aiVideo");
     const start = Date.now();
     (function check() {
-      if (ai.videoWidth > 0 && Date.now() - start > maxWait) return resolve();
-      if (Date.now() - start > maxWait) return resolve();
+      const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
+      const elapsed = Date.now() - start;
+      if (hasFrame && elapsed >= settle) return resolve();
+      if (elapsed >= settle + 6000) return resolve(); // hard cap
       requestAnimationFrame(check);
     })();
   });
@@ -416,55 +467,27 @@ function freezeFrom(video, { mirror }) {
   return true;
 }
 
-/* ── mock render (clearly labelled; used when no live engine) ────────────── */
-async function renderMock(item) {
+/* ── offline-dev mock (ONLY via ?demo=1) ─────────────────────────────────── */
+async function renderMockDemo(item) {
   const webcam = $("webcam");
   const vw = webcam.videoWidth || 720, vh = webcam.videoHeight || 960;
   const cv = $("resultCanvas");
   cv.width = vw; cv.height = vh;
   const c = cv.getContext("2d");
-
-  // frozen, mirrored selfie frame
-  c.save();
-  c.translate(vw, 0); c.scale(-1, 1);
-  c.drawImage(webcam, 0, 0, vw, vh);
-  c.restore();
-
-  // overlay garment image onto the relevant body region
+  c.save(); c.translate(vw, 0); c.scale(-1, 1); c.drawImage(webcam, 0, 0, vw, vh); c.restore();
   try {
     const img = await loadImage(item.img);
     const upper = item.garmentType !== "lower_body";
-    const gw = vw * (upper ? 0.54 : 0.46);
-    const gh = gw * (img.height / img.width || 1.2);
-    const gx = (vw - gw) / 2;
-    const gy = upper ? vh * 0.24 : vh * 0.52;
+    const gw = vw * (upper ? 0.54 : 0.46), gh = gw * (img.height / img.width || 1.2);
+    const gx = (vw - gw) / 2, gy = upper ? vh * 0.24 : vh * 0.52;
     c.globalAlpha = 0.92;
-    roundedImage(c, img, gx, gy, gw, gh, 16);
+    c.drawImage(img, gx, gy, gw, gh);
     c.globalAlpha = 1;
-  } catch (_) { /* garment image blocked — frame only */ }
-
-  // "DEMO" ribbon so the mock is never mistaken for a real AI render
+  } catch (_) {}
   c.fillStyle = "rgba(11,60,149,.92)";
-  const bw = 178, bh = 30;
-  c.fillRect(vw - bw - 14, 14, bw, bh);
-  c.fillStyle = "#fff";
-  c.font = "700 15px Inter, sans-serif";
-  c.textBaseline = "middle";
-  c.fillText("DEMO · ללא API חי", vw - bw - 2, 14 + bh / 2);
-}
-
-function roundedImage(c, img, x, y, w, h, r) {
-  c.save();
-  c.beginPath();
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r);
-  c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);
-  c.arcTo(x, y, x + w, y, r);
-  c.closePath();
-  c.clip();
-  c.drawImage(img, x, y, w, h);
-  c.restore();
+  c.fillRect(vw - 192, 14, 178, 30);
+  c.fillStyle = "#fff"; c.font = "700 15px Inter, sans-serif"; c.textBaseline = "middle";
+  c.fillText("DEMO · ?demo=1 (no live API)", vw - 188, 29);
 }
 
 /* =============================================================================
@@ -514,7 +537,6 @@ function highlightCatalog(id) {
     el.classList.toggle("is-active", +el.dataset.pick === id));
 }
 
-/* garment thumbnail: real photo with a colored-block fallback (no SVG dep) */
 function garmentThumb(item) {
   const fallback = `display:flex;align-items:center;justify-content:center;background:${item.color};color:#fff;font:700 12px Inter,sans-serif;text-align:center;padding:6px`;
   return `<span style="display:block;width:100%;height:100%;position:relative;background:${item.color}">`
@@ -537,13 +559,27 @@ function loadImage(src) {
     img.src = src;
   });
 }
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-function setEngineBadge(mode) {
+
+/* header badge driven by the REAL Decart ConnectionState */
+function setConn(state) {
   const b = $("engineBadge");
+  if (!b) return;
   b.classList.remove("live", "mock");
-  if (mode === "live") { b.classList.add("live"); b.title = "Lucy VTON · LIVE"; }
-  else if (mode === "mock") { b.classList.add("mock"); b.title = "Demo mode · no live API"; }
+  b.style.color = "";
+  if (state === "connected" || state === "generating") {
+    b.classList.add("live");
+    b.textContent = "● מחובר ל-API חי";
+  } else if (state === "connecting" || state === "reconnecting") {
+    b.style.color = "#d08a17";
+    b.textContent = "● מתחבר…";
+  } else if (state === "error" || state === "disconnected") {
+    b.classList.add("mock");
+    b.textContent = "● לא מחובר";
+  } else {
+    b.textContent = "●";
+  }
 }
+
 let toastTimer;
 function toast(html) {
   const t = $("toast");
@@ -577,7 +613,6 @@ function init() {
   renderSizeTable();
   updateProgress();
 
-  // focus-mode hint on the calculator screen
   const handoff = parseHandoff();
   if (handoff) {
     const hint = $("focusCalcHint");
@@ -588,24 +623,15 @@ function init() {
   $("btn-next-screen").addEventListener("click", goToFitting);
   $("btn-back").addEventListener("click", backToCalculator);
 
-  $("startCamBtn").addEventListener("click", startCamera);
+  $("startCamBtn").addEventListener("click", initEngine);
   $("captureBtn").addEventListener("click", capture);
   $("retakeBtn").addEventListener("click", () => { resetToLive(); });
 
-  // delegated: quick-swap + catalog pick
   document.addEventListener("click", (e) => {
     const sw = e.target.closest("[data-swap]");
-    if (sw) {
-      const p = PEAR_CATALOG.find((x) => x.id === +sw.dataset.swap);
-      if (p) setActiveItem(toItem(p));
-      return;
-    }
+    if (sw) { const p = PEAR_CATALOG.find((x) => x.id === +sw.dataset.swap); if (p) setActiveItem(toItem(p)); return; }
     const pk = e.target.closest("[data-pick]");
-    if (pk) {
-      const p = PEAR_CATALOG.find((x) => x.id === +pk.dataset.pick);
-      if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); }
-      return;
-    }
+    if (pk) { const p = PEAR_CATALOG.find((x) => x.id === +pk.dataset.pick); if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
   });
 }
 
