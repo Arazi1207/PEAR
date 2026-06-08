@@ -223,6 +223,31 @@ app.all("/api/*", (req, res) => {
 /* ── Static hosting ──────────────────────────────────────────────────────── */
 app.use(express.static(__dirname, { extensions: ["html"] }));
 
+/* ── Wildcard fallback — maps any path to the correct on-disk file ────────
+   express.static handles the common case; this catches anything it misses
+   (e.g. /pear-demo/ when running inside the Vercel Lambda bundle).
+   Resolution order:
+     1. Try the exact path as a file (handles /style.css, /catalog.js, etc.)
+     2. Append index.html for directory-style paths  (/pear-demo/ → pear-demo/index.html)
+     3. Fall back to root index.html for anything else (SPA-style final safety net)
+   ──────────────────────────────────────────────────────────────────────── */
+app.get("*", (req, res) => {
+  const rel = req.path.endsWith("/") ? `${req.path}index.html` : req.path;
+  const target = path.join(__dirname, rel);
+  res.sendFile(target, (err) => {
+    if (!err) return;
+    // Directory index fallback: /pear-demo (no slash) → pear-demo/index.html
+    const dirIndex = path.join(__dirname, req.path, "index.html");
+    res.sendFile(dirIndex, (e) => {
+      if (!e) return;
+      // Final fallback: serve root index.html
+      res.sendFile(path.join(__dirname, "index.html"), (e2) => {
+        if (e2) res.status(404).json({ error: "not_found", path: req.path });
+      });
+    });
+  });
+});
+
 /* ── Start (local only — Vercel manages its own listener) ────────────────── */
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {

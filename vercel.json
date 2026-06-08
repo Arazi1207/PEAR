@@ -3,12 +3,27 @@
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "index.html",
+          "product.html",
+          "style.css",
+          "catalog.js",
+          "store.js",
+          "product.js",
+          "pear-demo/**"
+        ]
+      }
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/(.*)",
       "dest": "/server.js"
     }
   ]
