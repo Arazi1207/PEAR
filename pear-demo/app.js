@@ -444,33 +444,39 @@ async function capture() {
 
   try {
     // ── Step 1: freeze a single frame from the live webcam into an offscreen canvas.
-    // This is the ONLY frame that will ever be sent to Decart — no live streaming.
     const webcam = $("webcam");
     const snapCanvas = document.createElement("canvas");
     snapCanvas.width  = webcam.videoWidth  || 720;
     snapCanvas.height = webcam.videoHeight || 960;
     snapCanvas.getContext("2d").drawImage(webcam, 0, 0);
 
-    // ── Step 2: wrap the snapshot in a static MediaStream (0 fps = no autonomous
-    // frame emissions after the initial draw) and store it so killSession() can
-    // stop its tracks to force-close the WebRTC connection from our side.
+    // ── Step 2: wrap the snapshot in a 0-fps MediaStream. Do NOT call
+    // requestFrame() yet — the WebRTC encoder is not open until after connect,
+    // so any frame emitted now is discarded and Decart never receives it.
     snapshotStream = snapCanvas.captureStream(0);
-
-    // captureStream(0) never emits frames on its own — the WebRTC encoder only
-    // gets data when requestFrame() is called explicitly.  Without this call,
-    // Decart receives a video track with zero frames, produces no output, and
-    // freezeFrom() always returns false ("no output frame" error).
     const snapTrack = snapshotStream.getVideoTracks()[0];
-    if (snapTrack?.requestFrame) snapTrack.requestFrame();
 
-    // ── Step 3: open the Decart session with the snapshot stream, NOT localStream.
+    // ── Step 3: open the Decart session with the snapshot stream.
     // Billing starts here and must end the moment we have the result.
     await connectRealtime(snapshotStream);
     await waitConnected(CONNECT_TIMEOUT);
 
-    // ── Step 4: send garment payload immediately after connection is ready.
+    // ── Step 4: send garment payload, then start pushing frames.
+    // requestFrame() is called here — after the WebRTC pipe is open and the
+    // garment prompt is set — so Decart actually receives the snapshot and has
+    // a prompt to work with. Repeated at 200 ms so the realtime model keeps
+    // getting input until it produces an output frame.
     await applyGarment(activeItem);
-    await waitForAiFrame(SETTLE_MS);
+    const frameTimer = setInterval(() => {
+      if (snapTrack?.requestFrame) snapTrack.requestFrame();
+    }, 200);
+    if (snapTrack?.requestFrame) snapTrack.requestFrame();
+
+    try {
+      await waitForAiFrame(SETTLE_MS);
+    } finally {
+      clearInterval(frameTimer);
+    }
 
     if (!freezeFrom($("aiVideo"), { mirror: false })) {
       throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
