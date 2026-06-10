@@ -351,11 +351,15 @@ async function connectRealtime(stream) {
       },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
+        const tracks = editedStream?.getVideoTracks() ?? [];
+        console.log("[diag] onRemoteStream fired — video tracks:", tracks.length,
+          tracks[0] ? `(${tracks[0].readyState}, enabled:${tracks[0].enabled})` : "(none)");
         const ai = $("aiVideo");
         ai.srcObject = editedStream;
-        ai.play().catch(() => {});
+        ai.play().catch((e) => console.warn("[diag] ai.play() rejected:", e?.message || e));
       },
       onConnectionChange: (state) => {
+        console.log("[diag] connectionChange →", state);
         connState = state;
         setConn(state);
       },
@@ -467,6 +471,9 @@ async function capture() {
     // a prompt to work with. Repeated at 200 ms so the realtime model keeps
     // getting input until it produces an output frame.
     await applyGarment(activeItem);
+    console.log("[diag] garment applied — prompt:", buildPrompt(activeItem));
+    console.log("[diag] requestFrame supported:", !!snapTrack?.requestFrame);
+
     const frameTimer = setInterval(() => {
       if (snapTrack?.requestFrame) snapTrack.requestFrame();
     }, 200);
@@ -478,7 +485,11 @@ async function capture() {
       clearInterval(frameTimer);
     }
 
-    if (!freezeFrom($("aiVideo"), { mirror: false })) {
+    const ai = $("aiVideo");
+    console.log("[diag] aiVideo state after wait — videoWidth:", ai.videoWidth,
+      "readyState:", ai.readyState, "srcObject:", ai.srcObject ? "set" : "null");
+
+    if (!freezeFrom(ai, { mirror: false })) {
       throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
     }
 
@@ -512,9 +523,14 @@ function waitForAiFrame(settle) {
   return new Promise((resolve) => {
     const ai = $("aiVideo");
     const start = Date.now();
+    let lastLog = 0;
     (function check() {
       const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
       const elapsed = Date.now() - start;
+      if (elapsed - lastLog > 1000) {
+        console.log(`[diag] waitForAiFrame ${elapsed}ms — videoWidth:${ai.videoWidth} readyState:${ai.readyState} hasFrame:${hasFrame}`);
+        lastLog = elapsed;
+      }
       if (hasFrame && elapsed >= settle) return resolve();
       if (elapsed >= settle + 6000) return resolve();
       requestAnimationFrame(check);
