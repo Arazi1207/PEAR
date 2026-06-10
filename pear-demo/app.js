@@ -29,7 +29,7 @@
    createDecartClient is instantiated fresh on every capture(), so no stale
    SDK instance or WebRTC signaling state survives a key swap here.
    ──────────────────────────────────────────────────────────────────────────── */
-const DECART_API_KEY = "dct_last-one_hUguLSbPTBFnJLPAHiWlVvEEtmKRfadrWXMaVqfMvupUHsnFoxmZKbiDEiyVyGrC";
+const DECART_API_KEY = "dct_pear_yiTNGqeIcrmDMnnxnRIDvlOkdBIfafeHKjAFBohtsjZnzrToJnDvlhqXGsWxNZBf";
 /* ────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
