@@ -5,15 +5,14 @@
 
    Engine: Decart Lucy VTON realtime ("lucy-vton-latest") over WebRTC (LiveKit).
    Verified against @decartai/sdk@0.1.5:
-     • createDecartClient({ apiKey })  — direct browser call, no backend needed
+     • createDecartClient({ apiKey })  — apiKey is a short-lived ek_ token minted
+       by the backend (/api/realtime-token); the permanent dct_ key never reaches
+       the browser.
      • client.realtime.connect(stream, { model, mirror, onRemoteStream,
                                          onConnectionChange })
      • ConnectionState: connecting|connected|generating|disconnected|reconnecting
      • rtClient.set({ prompt, image, enhance })  — image may be an http(s) URL
      • rtClient.on("error", …)
-
-   API key מוגדר: dct_pear_…
-       
 
    Flow: enter room → start camera → connect realtime (badge turns green when the
    session reports "connected"). "Capture & Try On" applies the garment via
@@ -23,9 +22,10 @@
    ============================================================================ */
 "use strict";
 
-/* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
-const DECART_API_KEY = "dct_pear_yiTNGqeIcrmDMnnxnRIDvlOkdBIfafeHKjAFBohtsjZnzrToJnDvlhqXGsWxNZBf";
-/* ────────────────────────────────────────────────────────────────────────── */
+/* ── Backend token endpoint — mints short-lived ek_ client tokens ─────────────
+   The permanent dct_ key lives in server.js / .env ONLY. The browser fetches an
+   ephemeral ek_ token from here and uses it to open the realtime session. */
+const TOKEN_ENDPOINT = "/api/realtime-token";
 
 const SDK_URLS = [
   "https://esm.sh/@decartai/sdk@0.1.5",
@@ -258,19 +258,6 @@ function setActiveItem(item, opts = {}) {
    ============================================================================= */
 const card = () => $("cameraCard");
 
-async function initEngine() {
-  const ok = await startCamera();
-  if (!ok) return;
-  try {
-    await connectRealtime();
-  } catch (e) {
-    console.warn("live connect failed:", e?.message || e);
-    setConn("error");
-    if (!DEMO_FLAG) showCamError("לא ניתן להתחבר ל-Lucy VTON: " + (e?.message || e) +
-      "  — בדוק שה-API key נכון בקובץ app.js. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
-  }
-}
-
 async function startCamera() {
   if (localStream) return true;
   try {
@@ -324,6 +311,28 @@ async function loadSDK() {
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
 }
 
+// Mint a short-lived ek_ client token from the backend. The permanent dct_ key
+// never reaches the browser — server.js holds it and scopes the token to VTON.
+async function fetchClientToken() {
+  let resp;
+  try {
+    resp = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    throw new Error("לא ניתן להגיע לשרת הטוקנים (" + TOKEN_ENDPOINT +
+      "). ודא ש-server.js רץ ושהדף מוגש מ-http://localhost:3000/pear-demo/. " +
+      (e?.message || e));
+  }
+  let data = {};
+  try { data = await resp.json(); } catch (_) {}
+  if (!resp.ok || !data.apiKey) {
+    throw new Error(data.message || ("מינוט טוקן נכשל (HTTP " + resp.status + ")"));
+  }
+  return data.apiKey;
+}
+
 async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
@@ -340,16 +349,14 @@ async function connectRealtime() {
   setConn("connecting");
 
   try {
-    /* ── validate key ─────────────────────────────────────────────────────── */
-    if (!DECART_API_KEY || DECART_API_KEY.length < 10) {
-      throw new Error("לא הוגדר API key — ערוך את DECART_API_KEY בתחילת app.js");
-    }
+    /* ── mint a short-lived ek_ token from the backend ────────────────────── */
+    const ephemeralKey = await fetchClientToken();
 
     /* ── load SDK ─────────────────────────────────────────────────────────── */
     const { createDecartClient } = await loadSDK();
 
-    /* ── create client directly (no backend token endpoint needed) ─────────── */
-    const client = createDecartClient({ apiKey: DECART_API_KEY });
+    /* ── create client with the ephemeral token (permanent key stays server-side) */
+    const client = createDecartClient({ apiKey: ephemeralKey });
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
