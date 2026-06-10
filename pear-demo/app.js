@@ -440,7 +440,7 @@ async function capture() {
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
-    if (!isLive()) { await connectRealtime(); }
+    await connectRealtime();
     await waitConnected(CONNECT_TIMEOUT);
 
     await applyGarment(activeItem);
@@ -449,10 +449,15 @@ async function capture() {
       throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
     }
 
+    // Result is on canvas — kill the session immediately, zero idle time.
+    teardown();
+
     card().classList.add("show-result");
     $("retakeBtn").hidden = false;
     toast("✨ מדידה חיה נוצרה ע\"י Lucy VTON");
   } catch (err) {
+    // Close any partial session on failure so it doesn't keep billing.
+    teardown();
     console.error("live capture failed:", err);
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
@@ -460,7 +465,7 @@ async function capture() {
       $("retakeBtn").hidden = false;
     } else {
       showCamError("המדידה החיה נכשלה: " + (err?.message || err));
-      setConn(isLive() ? "connected" : "error");
+      setConn("error");
     }
   } finally {
     $("scanOverlay").hidden = true;
@@ -749,7 +754,7 @@ function init() {
   $("btn-next-screen").addEventListener("click", goToFitting);
   $("btn-back").addEventListener("click", backToCalculator);
 
-  $("startCamBtn").addEventListener("click", initEngine);
+  $("startCamBtn").addEventListener("click", () => startCamera());
   $("captureBtn").addEventListener("click", capture);
   $("retakeBtn").addEventListener("click", () => { resetToLive(); });
 
