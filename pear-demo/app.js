@@ -464,6 +464,13 @@ async function capture() {
     // stop its tracks to force-close the WebRTC connection from our side.
     snapshotStream = snapCanvas.captureStream(0);
 
+    // captureStream(0) never emits frames on its own — the WebRTC encoder only
+    // gets data when requestFrame() is called explicitly.  Without this call,
+    // Decart receives a video track with zero frames, produces no output, and
+    // freezeFrom() always returns false ("no output frame" error).
+    const snapTrack = snapshotStream.getVideoTracks()[0];
+    if (snapTrack?.requestFrame) snapTrack.requestFrame();
+
     // ── Step 3: open the Decart session with the snapshot stream, NOT localStream.
     // Billing starts here and must end the moment we have the result.
     await connectRealtime(snapshotStream);
