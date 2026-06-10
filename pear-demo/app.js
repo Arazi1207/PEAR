@@ -23,12 +23,7 @@
    ============================================================================ */
 "use strict";
 
-/* ── KEY ROTATION — the ONLY line to change when switching Decart accounts ──
-   1. Paste new key from platform.decart.ai → API Keys on the line below.
-   2. Mirror the same value in the project-root .env as DECART_API_KEY.
-   createDecartClient is instantiated fresh on every capture(), so no stale
-   SDK instance or WebRTC signaling state survives a key swap here.
-   ──────────────────────────────────────────────────────────────────────────── */
+/* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
 const DECART_API_KEY = "dct_pear_yiTNGqeIcrmDMnnxnRIDvlOkdBIfafeHKjAFBohtsjZnzrToJnDvlhqXGsWxNZBf";
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -82,7 +77,6 @@ let rtClient = null;
 let connState = "idle";
 let connecting = false;
 let busy = false;
-let snapshotStream = null; // single-frame MediaStream built from a canvas snapshot, passed to Decart
 
 const isLive = () => connState === "connected" || connState === "generating";
 
@@ -264,6 +258,19 @@ function setActiveItem(item, opts = {}) {
    ============================================================================= */
 const card = () => $("cameraCard");
 
+async function initEngine() {
+  const ok = await startCamera();
+  if (!ok) return;
+  try {
+    await connectRealtime();
+  } catch (e) {
+    console.warn("live connect failed:", e?.message || e);
+    setConn("error");
+    if (!DEMO_FLAG) showCamError("לא ניתן להתחבר ל-Lucy VTON: " + (e?.message || e) +
+      "  — בדוק שה-API key נכון בקובץ app.js. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
+  }
+}
+
 async function startCamera() {
   if (localStream) return true;
   try {
@@ -317,13 +324,17 @@ async function loadSDK() {
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
 }
 
-// stream: the MediaStream to pipe into Decart (always a snapshot MediaStream, never localStream).
-async function connectRealtime(stream) {
+async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
 
-  // Kill any stale session before opening a new one.
-  if (rtClient) killSession();
+  // Bug 3 fix: explicitly close any stale/dropped session before opening a new one
+  // so the old server-side WebRTC session is terminated and stops billing immediately.
+  if (rtClient) {
+    try { rtClient.disconnect(); } catch (_) {}
+    rtClient = null;
+    connState = "idle";
+  }
 
   connecting = true;
   setConn("connecting");
@@ -340,8 +351,9 @@ async function connectRealtime(stream) {
     /* ── create client directly (no backend token endpoint needed) ─────────── */
     const client = createDecartClient({ apiKey: DECART_API_KEY });
 
-    /* ── connect using the caller-supplied snapshot stream ────────────────── */
-    rtClient = await client.realtime.connect(stream, {
+    /* ── connect realtime ─────────────────────────────────────────────────── */
+    // FIX: model passed as a plain string, NOT via models.realtime()
+    rtClient = await client.realtime.connect(localStream, {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
@@ -351,15 +363,11 @@ async function connectRealtime(stream) {
       },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
-        const tracks = editedStream?.getVideoTracks() ?? [];
-        console.log("[diag] onRemoteStream fired — video tracks:", tracks.length,
-          tracks[0] ? `(${tracks[0].readyState}, enabled:${tracks[0].enabled})` : "(none)");
         const ai = $("aiVideo");
         ai.srcObject = editedStream;
-        ai.play().catch((e) => console.warn("[diag] ai.play() rejected:", e?.message || e));
+        ai.play().catch(() => {});
       },
       onConnectionChange: (state) => {
-        console.log("[diag] connectionChange →", state);
         connState = state;
         setConn(state);
       },
@@ -378,23 +386,11 @@ async function connectRealtime(stream) {
   }
 }
 
-// Force-kill the Decart session by stopping the snapshot stream tracks.
-// Because rtClient.disconnect() does not exist in @decartai/sdk@0.1.5, stopping the
-// MediaStream tracks that were handed to Decart severs the WebRTC peer connection from
-// our side, which causes the server to detect a closed connection and end billing.
-// Also tries every plausible SDK teardown name so the code stays correct if a future
-// SDK version does expose a close method.
-function killSession() {
-  if (snapshotStream) {
-    snapshotStream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} });
-    snapshotStream = null;
-  }
-  const ai = $("aiVideo");
-  if (ai) ai.srcObject = null;
+// Bug 1 fix: single teardown that kills the server-side Decart session immediately.
+// Called on beforeunload, pagehide, and visibilitychange → hidden.
+function teardown() {
   if (rtClient) {
     try { rtClient.disconnect(); } catch (_) {}
-    try { rtClient.close();      } catch (_) {}
-    try { rtClient.stop();       } catch (_) {}
     rtClient = null;
   }
   connState = "idle";
@@ -407,9 +403,6 @@ function waitConnected(timeout) {
     const start = Date.now();
     (function poll() {
       if (isLive()) return resolve();
-      // Reject immediately if the session was killed externally (e.g. visibilitychange)
-      // so the capture() promise chain doesn't hang for the full CONNECT_TIMEOUT.
-      if (!rtClient) return reject(new Error("session killed"));
       if (connState === "error" || connState === "disconnected") return reject(new Error("session " + connState));
       if (Date.now() - start > timeout) return reject(new Error("timeout מחכה לחיבור (" + connState + ")"));
       setTimeout(poll, 150);
@@ -447,62 +440,24 @@ async function capture() {
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
-    // ── Step 1: freeze a single frame from the live webcam into an offscreen canvas.
-    const webcam = $("webcam");
-    const snapCanvas = document.createElement("canvas");
-    snapCanvas.width  = webcam.videoWidth  || 720;
-    snapCanvas.height = webcam.videoHeight || 960;
-    snapCanvas.getContext("2d").drawImage(webcam, 0, 0);
-
-    // ── Step 2: wrap the snapshot in a 0-fps MediaStream. Do NOT call
-    // requestFrame() yet — the WebRTC encoder is not open until after connect,
-    // so any frame emitted now is discarded and Decart never receives it.
-    snapshotStream = snapCanvas.captureStream(0);
-    const snapTrack = snapshotStream.getVideoTracks()[0];
-
-    // ── Step 3: open the Decart session with the snapshot stream.
-    // Billing starts here and must end the moment we have the result.
-    await connectRealtime(snapshotStream);
+    await connectRealtime();
     await waitConnected(CONNECT_TIMEOUT);
 
-    // ── Step 4: send garment payload, then start pushing frames.
-    // requestFrame() is called here — after the WebRTC pipe is open and the
-    // garment prompt is set — so Decart actually receives the snapshot and has
-    // a prompt to work with. Repeated at 200 ms so the realtime model keeps
-    // getting input until it produces an output frame.
     await applyGarment(activeItem);
-    console.log("[diag] garment applied — prompt:", buildPrompt(activeItem));
-    console.log("[diag] requestFrame supported:", !!snapTrack?.requestFrame);
-
-    const frameTimer = setInterval(() => {
-      if (snapTrack?.requestFrame) snapTrack.requestFrame();
-    }, 200);
-    if (snapTrack?.requestFrame) snapTrack.requestFrame();
-
-    try {
-      await waitForAiFrame(SETTLE_MS);
-    } finally {
-      clearInterval(frameTimer);
-    }
-
-    const ai = $("aiVideo");
-    console.log("[diag] aiVideo state after wait — videoWidth:", ai.videoWidth,
-      "readyState:", ai.readyState, "srcObject:", ai.srcObject ? "set" : "null");
-
-    if (!freezeFrom(ai, { mirror: false })) {
+    await waitForAiFrame(SETTLE_MS);
+    if (!freezeFrom($("aiVideo"), { mirror: false })) {
       throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
     }
 
-    // ── Step 5: result is on canvas — kill the session this exact millisecond.
-    // Stopping snapshotStream tracks severs the WebRTC media pipe and forces the
-    // Decart server to detect a closed peer connection, ending billing immediately.
-    killSession();
+    // Result is on canvas — kill the session immediately, zero idle time.
+    teardown();
 
     card().classList.add("show-result");
     $("retakeBtn").hidden = false;
     toast("✨ מדידה חיה נוצרה ע\"י Lucy VTON");
   } catch (err) {
-    killSession(); // also terminates any partial session on failure
+    // Close any partial session on failure so it doesn't keep billing.
+    teardown();
     console.error("live capture failed:", err);
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
@@ -523,14 +478,9 @@ function waitForAiFrame(settle) {
   return new Promise((resolve) => {
     const ai = $("aiVideo");
     const start = Date.now();
-    let lastLog = 0;
     (function check() {
       const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
       const elapsed = Date.now() - start;
-      if (elapsed - lastLog > 1000) {
-        console.log(`[diag] waitForAiFrame ${elapsed}ms — videoWidth:${ai.videoWidth} readyState:${ai.readyState} hasFrame:${hasFrame}`);
-        lastLog = elapsed;
-      }
       if (hasFrame && elapsed >= settle) return resolve();
       if (elapsed >= settle + 6000) return resolve();
       requestAnimationFrame(check);
@@ -817,10 +767,10 @@ function init() {
 
   // Bug 1 fix: terminate the Decart WebRTC session when the user leaves the page
   // so the server-side session closes immediately instead of billing until TTL expiry.
-  window.addEventListener("beforeunload", killSession);
-  window.addEventListener("pagehide", killSession);
+  window.addEventListener("beforeunload", teardown);
+  window.addEventListener("pagehide", teardown);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") killSession();
+    if (document.visibilityState === "hidden") teardown();
   });
 }
 
