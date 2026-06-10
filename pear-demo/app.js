@@ -24,7 +24,7 @@
 "use strict";
 
 /* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
-const DECART_API_KEY = "dct_pear_yiTNGqeIcrmDMnnxnRIDvlOkdBIfafeHKjAFBohtsjZnzrToJnDvlhqXGsWxNZBf";
+const DECART_API_KEY = "dct_pearnewapi_nCLklaEhNatXfxldAEXpMJVyTrMIOUJUAWPwvvsGzhGGIiluOOVwPWxIKDSEBGsv";
 /* ────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
@@ -77,6 +77,7 @@ let rtClient = null;
 let connState = "idle";
 let connecting = false;
 let busy = false;
+let snapshotStream = null; // single-frame MediaStream built from a canvas snapshot, passed to Decart
 
 const isLive = () => connState === "connected" || connState === "generating";
 
@@ -324,17 +325,13 @@ async function loadSDK() {
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
 }
 
-async function connectRealtime() {
+// stream: the MediaStream to pipe into Decart (always a snapshot MediaStream, never localStream).
+async function connectRealtime(stream) {
   if (rtClient && isLive()) return;
   if (connecting) return;
 
-  // Bug 3 fix: explicitly close any stale/dropped session before opening a new one
-  // so the old server-side WebRTC session is terminated and stops billing immediately.
-  if (rtClient) {
-    try { rtClient.disconnect(); } catch (_) {}
-    rtClient = null;
-    connState = "idle";
-  }
+  // Kill any stale session before opening a new one.
+  if (rtClient) killSession();
 
   connecting = true;
   setConn("connecting");
@@ -351,9 +348,8 @@ async function connectRealtime() {
     /* ── create client directly (no backend token endpoint needed) ─────────── */
     const client = createDecartClient({ apiKey: DECART_API_KEY });
 
-    /* ── connect realtime ─────────────────────────────────────────────────── */
-    // FIX: model passed as a plain string, NOT via models.realtime()
-    rtClient = await client.realtime.connect(localStream, {
+    /* ── connect using the caller-supplied snapshot stream ────────────────── */
+    rtClient = await client.realtime.connect(stream, {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
@@ -386,11 +382,23 @@ async function connectRealtime() {
   }
 }
 
-// Bug 1 fix: single teardown that kills the server-side Decart session immediately.
-// Called on beforeunload, pagehide, and visibilitychange → hidden.
-function teardown() {
+// Force-kill the Decart session by stopping the snapshot stream tracks.
+// Because rtClient.disconnect() does not exist in @decartai/sdk@0.1.5, stopping the
+// MediaStream tracks that were handed to Decart severs the WebRTC peer connection from
+// our side, which causes the server to detect a closed connection and end billing.
+// Also tries every plausible SDK teardown name so the code stays correct if a future
+// SDK version does expose a close method.
+function killSession() {
+  if (snapshotStream) {
+    snapshotStream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} });
+    snapshotStream = null;
+  }
+  const ai = $("aiVideo");
+  if (ai) ai.srcObject = null;
   if (rtClient) {
     try { rtClient.disconnect(); } catch (_) {}
+    try { rtClient.close();      } catch (_) {}
+    try { rtClient.stop();       } catch (_) {}
     rtClient = null;
   }
   connState = "idle";
@@ -403,6 +411,9 @@ function waitConnected(timeout) {
     const start = Date.now();
     (function poll() {
       if (isLive()) return resolve();
+      // Reject immediately if the session was killed externally (e.g. visibilitychange)
+      // so the capture() promise chain doesn't hang for the full CONNECT_TIMEOUT.
+      if (!rtClient) return reject(new Error("session killed"));
       if (connState === "error" || connState === "disconnected") return reject(new Error("session " + connState));
       if (Date.now() - start > timeout) return reject(new Error("timeout מחכה לחיבור (" + connState + ")"));
       setTimeout(poll, 150);
@@ -440,24 +451,42 @@ async function capture() {
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
-    await connectRealtime();
+    // ── Step 1: freeze a single frame from the live webcam into an offscreen canvas.
+    // This is the ONLY frame that will ever be sent to Decart — no live streaming.
+    const webcam = $("webcam");
+    const snapCanvas = document.createElement("canvas");
+    snapCanvas.width  = webcam.videoWidth  || 720;
+    snapCanvas.height = webcam.videoHeight || 960;
+    snapCanvas.getContext("2d").drawImage(webcam, 0, 0);
+
+    // ── Step 2: wrap the snapshot in a static MediaStream (0 fps = no autonomous
+    // frame emissions after the initial draw) and store it so killSession() can
+    // stop its tracks to force-close the WebRTC connection from our side.
+    snapshotStream = snapCanvas.captureStream(0);
+
+    // ── Step 3: open the Decart session with the snapshot stream, NOT localStream.
+    // Billing starts here and must end the moment we have the result.
+    await connectRealtime(snapshotStream);
     await waitConnected(CONNECT_TIMEOUT);
 
+    // ── Step 4: send garment payload immediately after connection is ready.
     await applyGarment(activeItem);
     await waitForAiFrame(SETTLE_MS);
+
     if (!freezeFrom($("aiVideo"), { mirror: false })) {
       throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
     }
 
-    // Result is on canvas — kill the session immediately, zero idle time.
-    teardown();
+    // ── Step 5: result is on canvas — kill the session this exact millisecond.
+    // Stopping snapshotStream tracks severs the WebRTC media pipe and forces the
+    // Decart server to detect a closed peer connection, ending billing immediately.
+    killSession();
 
     card().classList.add("show-result");
     $("retakeBtn").hidden = false;
     toast("✨ מדידה חיה נוצרה ע\"י Lucy VTON");
   } catch (err) {
-    // Close any partial session on failure so it doesn't keep billing.
-    teardown();
+    killSession(); // also terminates any partial session on failure
     console.error("live capture failed:", err);
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
@@ -767,10 +796,10 @@ function init() {
 
   // Bug 1 fix: terminate the Decart WebRTC session when the user leaves the page
   // so the server-side session closes immediately instead of billing until TTL expiry.
-  window.addEventListener("beforeunload", teardown);
-  window.addEventListener("pagehide", teardown);
+  window.addEventListener("beforeunload", killSession);
+  window.addEventListener("pagehide", killSession);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") teardown();
+    if (document.visibilityState === "hidden") killSession();
   });
 }
 
