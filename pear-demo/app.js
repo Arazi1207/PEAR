@@ -231,7 +231,6 @@ function enterRoom() {
 
   $("completeLook").hidden = false;
   setConn("idle");
-  initEngine();
 }
 
 function setActiveItem(item, opts = {}) {
@@ -328,6 +327,15 @@ async function loadSDK() {
 async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
+
+  // Bug 3 fix: explicitly close any stale/dropped session before opening a new one
+  // so the old server-side WebRTC session is terminated and stops billing immediately.
+  if (rtClient) {
+    try { rtClient.disconnect(); } catch (_) {}
+    rtClient = null;
+    connState = "idle";
+  }
+
   connecting = true;
   setConn("connecting");
 
@@ -376,6 +384,17 @@ async function connectRealtime() {
   } finally {
     connecting = false;
   }
+}
+
+// Bug 1 fix: single teardown that kills the server-side Decart session immediately.
+// Called on beforeunload, pagehide, and visibilitychange → hidden.
+function teardown() {
+  if (rtClient) {
+    try { rtClient.disconnect(); } catch (_) {}
+    rtClient = null;
+  }
+  connState = "idle";
+  setConn("idle");
 }
 
 function waitConnected(timeout) {
@@ -739,6 +758,14 @@ function init() {
     if (sw) { const p = PEAR_CATALOG.find((x) => x.id === +sw.dataset.swap); if (p) setActiveItem(toItem(p)); return; }
     const pk = e.target.closest("[data-pick]");
     if (pk) { const p = PEAR_CATALOG.find((x) => x.id === +pk.dataset.pick); if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
+  });
+
+  // Bug 1 fix: terminate the Decart WebRTC session when the user leaves the page
+  // so the server-side session closes immediately instead of billing until TTL expiry.
+  window.addEventListener("beforeunload", teardown);
+  window.addEventListener("pagehide", teardown);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") teardown();
   });
 }
 
