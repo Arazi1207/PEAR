@@ -23,7 +23,12 @@
    ============================================================================ */
 "use strict";
 
-/* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
+/* ── KEY ROTATION — the ONLY line to change when switching Decart accounts ──
+   1. Paste new key from platform.decart.ai → API Keys on the line below.
+   2. Mirror the same value in the project-root .env as DECART_API_KEY.
+   createDecartClient is instantiated fresh on every capture(), so no stale
+   SDK instance or WebRTC signaling state survives a key swap here.
+   ──────────────────────────────────────────────────────────────────────────── */
 const DECART_API_KEY = "dct_last-one_hUguLSbPTBFnJLPAHiWlVvEEtmKRfadrWXMaVqfMvupUHsnFoxmZKbiDEiyVyGrC";
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -258,19 +263,6 @@ function setActiveItem(item, opts = {}) {
    Camera + engine bootstrap
    ============================================================================= */
 const card = () => $("cameraCard");
-
-async function initEngine() {
-  const ok = await startCamera();
-  if (!ok) return;
-  try {
-    await connectRealtime();
-  } catch (e) {
-    console.warn("live connect failed:", e?.message || e);
-    setConn("error");
-    if (!DEMO_FLAG) showCamError("לא ניתן להתחבר ל-Lucy VTON: " + (e?.message || e) +
-      "  — בדוק שה-API key נכון בקובץ app.js. (להדגמה לא מקוונת: הוסף ?demo=1 לכתובת)");
-  }
-}
 
 async function startCamera() {
   if (localStream) return true;
