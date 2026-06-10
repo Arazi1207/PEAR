@@ -24,7 +24,7 @@
 "use strict";
 
 /* ── ⚠️  PUT YOUR DECART API KEY HERE ─────────────────────────────────────── */
-const DECART_API_KEY = "onedct_pearnewapi_nCLklaEhNatXfxldAEXpMJVyTrMIOUJUAWPwvvsGzhGGIiluOOVwPWxIKDSEBGsv";
+const DECART_API_KEY = "dct_last-one_hUguLSbPTBFnJLPAHiWlVvEEtmKRfadrWXMaVqfMvupUHsnFoxmZKbiDEiyVyGrC";
 /* ────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
