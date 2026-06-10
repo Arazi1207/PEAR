@@ -57,7 +57,7 @@ app.use("/api", (req, res, next) => {
 
 /* ── SDK client (holds the permanent key — never sent to the browser) ─────── */
 let decart = null;
-if (API_KEY && /^dct_/.test(API_KEY)) {
+if (API_KEY && /^(?:one)?dct_/.test(API_KEY)) {
   try {
     decart = createDecartClient({ apiKey: API_KEY });
     console.log(`✓ Decart SDK client initialised (key from ${KEY_SOURCE}).`);
@@ -66,7 +66,7 @@ if (API_KEY && /^dct_/.test(API_KEY)) {
   }
 } else {
   console.warn(
-    "⚠ No valid Decart key (expected dct_… in DECART_API_KEY or DESCARTES_API_KEY).\n" +
+    "⚠ No valid Decart key (expected dct_… or onedct_… in DECART_API_KEY or DESCARTES_API_KEY).\n" +
     "  /api/realtime-token will return 503."
   );
 }
