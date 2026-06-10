@@ -22,10 +22,10 @@
    ============================================================================ */
 "use strict";
 
-/* ── Backend token endpoint — mints short-lived ek_ client tokens ─────────────
-   The permanent dct_ key lives in server.js / .env ONLY. The browser fetches an
-   ephemeral ek_ token from here and uses it to open the realtime session. */
-const TOKEN_ENDPOINT = "/api/realtime-token";
+/* ── KEY ROTATION — paste the new key here to switch Decart accounts instantly ─
+   This is the ONLY line to change. No server restart needed.                    */
+const DECART_API_KEY = "dct_pearwww_kgYAhEHnigFyxfYgUQheruVeTgklnJySLGHKDFiSBwWlqHmsYipOLVRESbqBFJHR";
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
   "https://esm.sh/@decartai/sdk@0.1.5",
@@ -311,28 +311,6 @@ async function loadSDK() {
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
 }
 
-// Mint a short-lived ek_ client token from the backend. The permanent dct_ key
-// never reaches the browser — server.js holds it and scopes the token to VTON.
-async function fetchClientToken() {
-  let resp;
-  try {
-    resp = await fetch(TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    throw new Error("לא ניתן להגיע לשרת הטוקנים (" + TOKEN_ENDPOINT +
-      "). ודא ש-server.js רץ ושהדף מוגש מ-http://localhost:3000/pear-demo/. " +
-      (e?.message || e));
-  }
-  let data = {};
-  try { data = await resp.json(); } catch (_) {}
-  if (!resp.ok || !data.apiKey) {
-    throw new Error(data.message || ("מינוט טוקן נכשל (HTTP " + resp.status + ")"));
-  }
-  return data.apiKey;
-}
-
 async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
@@ -349,14 +327,11 @@ async function connectRealtime() {
   setConn("connecting");
 
   try {
-    /* ── mint a short-lived ek_ token from the backend ────────────────────── */
-    const ephemeralKey = await fetchClientToken();
-
     /* ── load SDK ─────────────────────────────────────────────────────────── */
     const { createDecartClient } = await loadSDK();
 
-    /* ── create client with the ephemeral token (permanent key stays server-side) */
-    const client = createDecartClient({ apiKey: ephemeralKey });
+    /* ── create client directly with the API key ──────────────────────────── */
+    const client = createDecartClient({ apiKey: DECART_API_KEY });
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
