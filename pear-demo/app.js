@@ -101,10 +101,17 @@ let realtimeInput = null;
 /* Feature 1 — live countdown timer interval handle (top-left of the camera). */
 let liveCountdownTimer = null;
 
-/* Feature 2 — MediaRecorder capture of the incoming AI-edited stream. */
+/* Feature 2 — MediaRecorder capture of the REMOTE Lucy-VTON output.
+   We do NOT record the raw remote WebRTC track directly (Chromium often encodes
+   a remote track as a black frame) nor the local camera. Instead we mirror the
+   on-screen remote frames (#aiVideo) onto a canvas and record canvas.captureStream
+   — guaranteeing real, encoded pixels in the downloaded clip. Video-only. */
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordedUrl = null;
+let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
+let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
+let recordingActive = false; // guards the paint loop + single-start per session
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -516,9 +523,8 @@ async function connectRealtime() {
         aiVideo.style.display = "block";   // make sure it's visible
         aiVideo.style.transform = "none";  // edited feed is already correctly oriented
         aiVideo.play().catch(() => {});
-        // Feature 2 — capture this live AI-edited feed so the user can download
-        // their 5-second fitting clip once the session ends.
-        startRecording(editedStream);
+        // NOTE: recording is NOT started here — it is armed in goLive() at the exact
+        // go-live instant so its duration matches the strict 5s window (see Feature 2).
       },
       onConnectionChange: (state) => {
         if (gen !== sessionGen) return;    // stale callback from a torn-down session
@@ -675,6 +681,7 @@ async function goLive() {
     clearTimeout(liveTimer);
     liveTimer = setTimeout(autoStopAndFreeze, LIVE_DURATION_MS);
     startLiveCountdown();              // Feature 1 — visual 5→1 countdown, top-left
+    startRecording();                 // Feature 2 — record the remote VTON output now
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("go-live failed:", err);
@@ -703,6 +710,7 @@ function autoStopAndFreeze() {
   clearTimeout(liveTimer);
   liveTimer = null;
   stopLiveCountdown();                 // Feature 1 — hide the countdown badge
+  stopRecording();                     // Feature 2 — force-stop the clip at EXACTLY 5s
   const frozen = freezeFrom($("aiVideo"), { mirror: false });
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
@@ -814,35 +822,84 @@ function stopLiveCountdown() {
    5s window closes. On flush we build a Blob → object URL and reveal a clean
    "Download Video" button. Everything is torn down/revoked on the next session.
    ============================================================================= */
+/* vp8 first: it is the most broadly-supported, WebRTC-friendly codec and reliably
+   encodes the canvas VIDEO track into the .webm chunks (this is the black-screen
+   fix — a missing/unsupported codec is what left the file with no real video). */
 function pickRecorderMime() {
   if (typeof MediaRecorder === "undefined") return null;
-  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+  const candidates = ["video/webm;codecs=vp8", "video/webm", "video/webm;codecs=vp9", "video/mp4"];
   for (const t of candidates) {
     try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (_) {}
   }
   return null;
 }
 
-/** Begin capturing the live edited stream. Idempotent within one session. */
-function startRecording(stream) {
-  if (mediaRecorder || typeof MediaRecorder === "undefined" || !stream) return;
+/**
+ * Start recording the REMOTE Lucy-VTON output shown in #aiVideo (NOT the local
+ * camera). We continuously paint the remote frames onto an off-DOM canvas and
+ * record canvas.captureStream(), which guarantees real encoded pixels — recording
+ * a raw remote WebRTC track directly produces a black video in Chromium. The clip
+ * is video-only and is force-stopped by stopRecording() at exactly LIVE_DURATION_MS.
+ * Idempotent within a session.
+ */
+function startRecording() {
+  if (recordingActive || mediaRecorder || typeof MediaRecorder === "undefined") return;
+  const video = $("aiVideo");
+  if (!video) return;
+
+  recordingActive = true;
   recordedChunks = [];
+
+  // Off-DOM canvas mirroring the remote VTON frames. Seed a sane size so the
+  // captureStream track is valid immediately (real frames overwrite it at once).
+  recordCanvas = document.createElement("canvas");
+  recordCanvas.width  = video.videoWidth  || 1088;
+  recordCanvas.height = video.videoHeight || 624;
+  const ctx = recordCanvas.getContext("2d", { alpha: false });
+
+  const paint = () => {
+    if (!recordingActive) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (w && h) {
+      if (recordCanvas.width !== w || recordCanvas.height !== h) {
+        recordCanvas.width = w; recordCanvas.height = h;
+      }
+      try { ctx.drawImage(video, 0, 0, w, h); } catch (_) {}
+    }
+    recordRaf = requestAnimationFrame(paint);
+  };
+  paint();
+
+  const captured = recordCanvas.captureStream(30);   // 30 fps, video-only
   try {
     const mime = pickRecorderMime();
-    mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    mediaRecorder = new MediaRecorder(captured, mime ? { mimeType: mime } : undefined);
   } catch (e) {
     console.warn("MediaRecorder unavailable:", e?.message || e);
-    mediaRecorder = null;
+    stopPaintLoop();
     return;
   }
   mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
-  mediaRecorder.onstop = finalizeRecording;        // fires after stop() flushes the buffer
-  try { mediaRecorder.start(); }                    // collect into one blob; flushed on stop()
-  catch (e) { console.warn("recorder start failed:", e?.message || e); mediaRecorder = null; }
+  mediaRecorder.onstop = finalizeRecording;          // fires after stop() flushes the buffer
+  // 200ms timeslice → proper WebM cluster timecodes, so the clip reports its TRUE
+  // (~5s) duration instead of the broken/inflated length a single-blob start() gives.
+  try { mediaRecorder.start(200); }
+  catch (e) { console.warn("recorder start failed:", e?.message || e); stopPaintLoop(); mediaRecorder = null; }
 }
 
-/** Stop the recorder (if running). onstop → finalizeRecording builds the clip. */
+/** Halt the canvas paint loop (does not touch the recorder). */
+function stopPaintLoop() {
+  recordingActive = false;
+  if (recordRaf) { cancelAnimationFrame(recordRaf); recordRaf = 0; }
+  recordCanvas = null;
+}
+
+/**
+ * Force-stop the recorder. Called at EXACTLY LIVE_DURATION_MS (autoStopAndFreeze)
+ * and again by teardown — idempotent. onstop → finalizeRecording builds the clip.
+ */
 function stopRecording() {
+  stopPaintLoop();
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     try { mediaRecorder.stop(); } catch (_) {}
   }
@@ -892,6 +949,7 @@ function downloadRecording() {
 
 /** Drop the current clip + hide the button (called when a new session starts). */
 function clearRecording() {
+  stopPaintLoop();                     // ensure no stale paint loop leaks into the next session
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
   recordedChunks = [];
   const btn = $("downloadBtn");
