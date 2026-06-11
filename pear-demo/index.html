@@ -14,7 +14,7 @@
 <body>
 
 <!-- ════════════════════════════════════════════════════════════════════
-     SCREEN 1 — Size / body-measurement calculator (REQUIRED FIRST SdddTEP)
+     SCREEN 1 — Size / body-measurement calculator (REQUIRED FIRST STEP)
      ════════════════════════════════════════════════════════════════════ -->
 <div id="screen-calculator" class="screen active">
     <div class="step-progress">
@@ -43,19 +43,22 @@
                 <input type="number" id="weight" min="30" max="250" placeholder="לדוגמה: 68">
             </div>
 
-            <div class="section-divider"><span>נתונים אופציונליים</span></div>
+            <!-- Optional fields stay hidden until BOTH mandatory fields are valid (Task 6) -->
+            <div class="optional-fields" id="optionalFields" hidden>
+                <div class="section-divider"><span>נתונים אופציונליים · לדיוק מרבי</span></div>
 
-            <div class="form-group">
-                <label for="chest">היקף חזה (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
-                <input type="number" id="chest" min="50" max="150" placeholder="לדוגמה: 94">
-            </div>
-            <div class="form-group">
-                <label for="waist">היקף מותניים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
-                <input type="number" id="waist" min="40" max="150" placeholder="לדוגמה: 80">
-            </div>
-            <div class="form-group">
-                <label for="legs">אורך רגליים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
-                <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
+                <div class="form-group">
+                    <label for="chest">היקף חזה (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="chest" min="50" max="150" placeholder="לדוגמה: 94">
+                </div>
+                <div class="form-group">
+                    <label for="waist">היקף מותניים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="waist" min="40" max="150" placeholder="לדוגמה: 80">
+                </div>
+                <div class="form-group">
+                    <label for="legs">אורך רגליים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
+                </div>
             </div>
         </form>
 
@@ -65,30 +68,6 @@
         </div>
 
         <button id="btn-next-screen" class="btn-primary" disabled>המשך לחדר המדידה הוירטואלי →</button>
-    </div>
-
-    <div class="table-container">
-        <h3>טבלת המידות של המערכת (זארה)</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th rowspan="2">מידה</th>
-                    <th colspan="2">גובה (ס"מ)</th>
-                    <th colspan="2">משקל (ק"ג)</th>
-                    <th colspan="2" class="highlight-header">חזה (ס"מ)</th>
-                    <th colspan="2" class="highlight-header">מותניים (ס"מ)</th>
-                    <th colspan="2" class="highlight-header">רגליים (ס"מ)</th>
-                </tr>
-                <tr>
-                    <th>מינ׳</th><th>מקס׳</th>
-                    <th>מינ׳</th><th>מקס׳</th>
-                    <th class="highlight-header">מינ׳</th><th class="highlight-header">מקס׳</th>
-                    <th class="highlight-header">מינ׳</th><th class="highlight-header">מקס׳</th>
-                    <th class="highlight-header">מינ׳</th><th class="highlight-header">מקס׳</th>
-                </tr>
-            </thead>
-            <tbody id="sizeTableBody"></tbody>
-        </table>
     </div>
 </div>
 

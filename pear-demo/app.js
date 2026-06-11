@@ -33,7 +33,6 @@ const SDK_URLS = [
   "https://esm.sh/@decartai/sdk@0.1.5",
   "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
 ];
-const SETTLE_MS = 2600;
 const CONNECT_TIMEOUT = 12000;
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
@@ -94,23 +93,30 @@ const ZARA_SIZE_CHART = [
   { size: "XL", minHeight: 184, maxHeight: 195, minWeight: 85, maxWeight: 100, minChest: 110, maxChest: 118, minWaist: 96, maxWaist: 106, minLegs: 106, maxLegs: 112 },
 ];
 
-function renderSizeTable() {
-  const tbody = $("sizeTableBody");
-  if (!tbody) return;
-  tbody.innerHTML = ZARA_SIZE_CHART.map((r) => `
-    <tr>
-      <td><strong>${r.size}</strong></td>
-      <td>${r.minHeight}</td><td>${r.maxHeight}</td>
-      <td>${r.minWeight}</td><td>${r.maxWeight}</td>
-      <td>${r.minChest}</td><td>${r.maxChest}</td>
-      <td>${r.minWaist}</td><td>${r.maxWaist}</td>
-      <td>${r.minLegs}</td><td>${r.maxLegs}</td>
-    </tr>`).join("");
+/* Task 6 — conditional input flow: the optional fields stay hidden until BOTH
+   mandatory fields (height + weight) hold sane, in-range values. */
+function setOptionalVisible(show) {
+  const box = $("optionalFields");
+  if (!box) return;
+  if (show === !box.hidden) return;           // no-op if already in desired state
+  box.hidden = !show;
+  if (!show) {
+    // collapsing → clear any optional values so a stale entry can't skew the result
+    ["chest", "waist", "legs"].forEach((id) => { if ($(id)) $(id).value = ""; });
+  } else {
+    box.classList.add("reveal");
+  }
 }
 
 function calculateSize() {
   const num = (id) => ($(id).value ? parseFloat($(id).value) : null);
   const height = num("height"), weight = num("weight");
+
+  // Reveal optional fields only once both mandatory values are present and sane.
+  const mandatoryReady = !!height && !!weight &&
+    height >= 130 && height <= 240 && weight >= 35 && weight <= 220;
+  setOptionalVisible(mandatoryReady);
+
   const chest = num("chest"), waist = num("waist"), legs = num("legs");
 
   const resultBox = $("resultBox"), sizeResult = $("sizeResult"), resultLabel = $("resultLabel");
@@ -167,6 +173,25 @@ function updateProgress() {
   const fill = $("progressFill"), label = $("progressPercent");
   if (fill) fill.style.width = pct + "%";
   if (label) label.innerText = pct + "%";
+}
+
+/* Task 5 — Enter on any measurement input: if a size is ready, proceed straight to
+   the virtual fitting room; otherwise advance focus to the next field so the user
+   can keep filling the form naturally with the keyboard. */
+function onMeasurementKeydown(e) {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  calculateSize();
+
+  const nextBtn = $("btn-next-screen");
+  if (nextBtn && !nextBtn.disabled) { goToFitting(); return; }
+
+  const inputs = [...document.querySelectorAll("#sizeForm input")]
+    .filter((el) => el.offsetParent !== null);   // visible (non-hidden) inputs only
+  const idx = inputs.indexOf(e.target);
+  const next = inputs.slice(idx + 1).find((el) => !el.value) || inputs[idx + 1];
+  if (next) next.focus();
+  else e.target.blur();
 }
 
 /* =============================================================================
@@ -340,6 +365,24 @@ async function mintEphemeralToken() {
   return data.apiKey;
 }
 
+/* ── Task 2: graceful pre-use connectivity check ──────────────────────────────
+   Lucy VTON is realtime/online-only. Before the user initiates a live fitting we
+   confirm the network path to our own server is up (a fast, same-origin probe of
+   /api/health). This turns a cryptic mid-connect SDK/WebRTC failure into a calm,
+   actionable message. It does NOT touch the proxy, token, or 5s teardown logic.   */
+async function ensureOnline() {
+  if (!navigator.onLine) return false;          // browser already knows it's offline
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const resp = await fetch("/api/health", { method: "GET", cache: "no-store", signal: ctrl.signal });
+    clearTimeout(timer);
+    return resp.ok;
+  } catch (_) {
+    return false;                               // unreachable / timed out → treat as offline
+  }
+}
+
 async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
@@ -465,6 +508,18 @@ function onLiveToggle() {
    Switching items mid-window reuses this same session via rtClient.set().        */
 async function goLive() {
   if (busy || isLive()) return;
+
+  // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
+  $("captureBtn").disabled = true;
+  const online = await ensureOnline();
+  if (!online) {
+    showCamError("נראה שאין חיבור אינטרנט יציב כרגע. בדוק את הרשת ונסה שוב — המדידה החיה מתבצעת בזמן אמת ודורשת חיבור.");
+    toast("אין חיבור אינטרנט — בדוק את הרשת ונסה שוב");
+    $("captureBtn").disabled = !localStream;
+    return;
+  }
+  $("camError").hidden = true;
+
   if (!localStream) { const ok = await startCamera(); if (!ok) return; }
   busy = true;
   $("captureBtn").disabled = true;
@@ -548,20 +603,6 @@ function setLiveControls(live) {
   if (icon)  icon.textContent  = live ? "⏹" : "📸";
   if (label) label.textContent = live ? "עצור מדידה חיה" : "התחל מדידה חיה";
   if (en)    en.textContent    = live ? "Stop" : "Go Live";
-}
-
-function waitForAiFrame(settle) {
-  return new Promise((resolve) => {
-    const ai = $("aiVideo");
-    const start = Date.now();
-    (function check() {
-      const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
-      const elapsed = Date.now() - start;
-      if (hasFrame && elapsed >= settle) return resolve();
-      if (elapsed >= settle + 6000) return resolve();
-      requestAnimationFrame(check);
-    })();
-  });
 }
 
 function freezeFrom(video, { mirror }) {
@@ -817,7 +858,6 @@ function colorName(hex) {
    wiring
    ============================================================================= */
 function init() {
-  renderSizeTable();
   updateProgress();
 
   const handoff = parseHandoff();
@@ -826,7 +866,10 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-  document.querySelectorAll("#sizeForm input").forEach((i) => i.addEventListener("input", calculateSize));
+  document.querySelectorAll("#sizeForm input").forEach((i) => {
+    i.addEventListener("input", calculateSize);
+    i.addEventListener("keydown", onMeasurementKeydown);   // Task 5 — Enter to proceed
+  });
   $("btn-next-screen").addEventListener("click", goToFitting);
   $("btn-back").addEventListener("click", backToCalculator);
 
