@@ -22,9 +22,11 @@
    ============================================================================ */
 "use strict";
 
-/* ── KEY ROTATION — paste the new key here to switch Decart accounts instantly ─
-   This is the ONLY line to change. No server restart needed.                    */
-const DECART_API_KEY = "dct_pearwww_kgYAhEHnigFyxfYgUQheruVeTgklnJySLGHKDFiSBwWlqHmsYipOLVRESbqBFJHR";
+/* ── TOKEN SOURCE — the browser NEVER holds the permanent dct_ key ─────────────
+   The secure backend proxy (server.js) mints a short-lived, scoped, origin-locked
+   ek_ token on demand. We fetch it the instant the user goes live — see
+   connectRealtime() / mintEphemeralToken().                                       */
+const TOKEN_ENDPOINT = "/api/realtime-token";
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 const SDK_URLS = [
@@ -295,12 +297,12 @@ function resetToLive() {
 /* =============================================================================
    Decart Lucy VTON realtime — connection
    ─────────────────────────────────────
-   FIX: removed the /api/realtime-token backend call entirely.
-        We call createDecartClient({ apiKey }) directly from the browser,
-        using the key defined at the top of this file.
+   SECURITY: the browser never holds the permanent dct_ key. At the moment the
+        user goes live we fetch a short-lived, scoped ek_ token from the secure
+        proxy (/api/realtime-token) and hand THAT to createDecartClient().
 
-   FIX: models.realtime() does not exist in @decartai/sdk@0.1.5.
-        The model is passed as a plain string: "lucy-vton-latest".
+   NOTE: models.realtime() does not exist in @decartai/sdk@0.1.5 — the model is
+        passed as the plain object below (name "lucy-vton-latest" + stream opts).
    ============================================================================= */
 async function loadSDK() {
   let lastErr;
@@ -309,6 +311,31 @@ async function loadSDK() {
     catch (e) { lastErr = e; console.warn("SDK load failed from", url, e?.message || e); }
   }
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
+}
+
+/* ── Mint a short-lived ek_ token from the secure proxy ───────────────────────
+   Called ONLY at go-live (never on page load), so no token is minted/wasted
+   while the user is just browsing. Returns the ek_ string or throws.            */
+async function mintEphemeralToken() {
+  let resp;
+  try {
+    resp = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    throw new Error("לא ניתן להגיע לשרת הטוקנים (" + (e?.message || e) + ")");
+  }
+
+  let data = {};
+  try { data = await resp.json(); } catch (_) {}
+
+  if (!resp.ok || data.error) {
+    const detail = data.message || data.error || `HTTP ${resp.status}`;
+    throw new Error("מינטינג טוקן נכשל: " + detail);
+  }
+  if (!data.apiKey) throw new Error("השרת לא החזיר טוקן ek_ תקין.");
+  return data.apiKey;
 }
 
 async function connectRealtime() {
@@ -330,8 +357,12 @@ async function connectRealtime() {
     /* ── load SDK ─────────────────────────────────────────────────────────── */
     const { createDecartClient } = await loadSDK();
 
-    /* ── create client directly with the API key ──────────────────────────── */
-    const client = createDecartClient({ apiKey: DECART_API_KEY });
+    /* ── mint a short-lived ek_ token from the secure proxy (only now, never on
+          page load) — the permanent dct_ key stays server-side ─────────────── */
+    const ekToken = await mintEphemeralToken();
+
+    /* ── create client with the ephemeral token ───────────────────────────── */
+    const client = createDecartClient({ apiKey: ekToken });
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
@@ -412,8 +443,17 @@ function buildPrompt(item) {
 /* =============================================================================
    Capture flow
    ============================================================================= */
-async function capture() {
-  if (busy) return;
+/* One button toggles the live session: Go Live ⇄ Stop. */
+function onLiveToggle() {
+  if (isLive()) stopLive();
+  else goLive();
+}
+
+/* goLive — open ONE realtime session and leave the AI-edited stream running and
+   visible. The garment warps/tracks the user dynamically; swapping items reuses
+   this same session via rtClient.set() (see setActiveItem → applyGarment).       */
+async function goLive() {
+  if (busy || isLive()) return;
   if (!localStream) { const ok = await startCamera(); if (!ok) return; }
   busy = true;
   $("captureBtn").disabled = true;
@@ -426,21 +466,16 @@ async function capture() {
     await waitConnected(CONNECT_TIMEOUT);
 
     await applyGarment(activeItem);
-    await waitForAiFrame(SETTLE_MS);
-    if (!freezeFrom($("aiVideo"), { mirror: false })) {
-      throw new Error("לא התקבל פריים פלט מהמודל (אין וידאו ערוך).");
-    }
+    await waitForAiFrame(SETTLE_MS);   // wait for the first edited frame so we don't flash raw cam
 
-    // Result is on canvas — kill the session immediately, zero idle time.
-    teardown();
-
-    card().classList.add("show-result");
-    $("retakeBtn").hidden = false;
-    toast("✨ מדידה חיה נוצרה ע\"י Lucy VTON");
+    // Keep the edited stream LIVE and visible — no freeze, no teardown.
+    card().classList.add("show-live");
+    setLiveControls(true);
+    toast("✨ מדידה חיה פעילה — הבגד עוקב אחריך בזמן אמת");
   } catch (err) {
-    // Close any partial session on failure so it doesn't keep billing.
-    teardown();
-    console.error("live capture failed:", err);
+    // Close any partial session on failure so it never keeps billing.
+    stopLive();
+    console.error("go-live failed:", err);
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
       card().classList.add("show-result");
@@ -451,9 +486,32 @@ async function capture() {
     }
   } finally {
     $("scanOverlay").hidden = true;
-    $("captureBtn").disabled = false;
     busy = false;
+    if (!isLive()) $("captureBtn").disabled = false;
   }
+}
+
+/* stopLive — hard-stop: disconnect() ends the WebRTC session immediately so
+   billing stops the instant the user clicks Stop. Safe to call repeatedly.       */
+function stopLive() {
+  teardown();                       // rtClient.disconnect() → billing stops now
+  card().classList.remove("show-live");
+  setLiveControls(false);
+  $("captureBtn").disabled = !localStream;
+}
+
+/* Swap the single capture button between "Go Live" and "Stop" states. */
+function setLiveControls(live) {
+  const btn = $("captureBtn");
+  if (!btn) return;
+  const icon  = btn.querySelector(".btn-capture__icon");
+  const label = btn.querySelector(".btn-capture__label");
+  const en    = btn.querySelector(".btn-capture__en");
+  btn.classList.toggle("is-live", live);
+  btn.disabled = false;
+  if (icon)  icon.textContent  = live ? "⏹" : "📸";
+  if (label) label.textContent = live ? "עצור מדידה חיה" : "התחל מדידה חיה";
+  if (en)    en.textContent    = live ? "Stop" : "Go Live";
 }
 
 function waitForAiFrame(settle) {
@@ -737,7 +795,7 @@ function init() {
   $("btn-back").addEventListener("click", backToCalculator);
 
   $("startCamBtn").addEventListener("click", () => startCamera());
-  $("captureBtn").addEventListener("click", capture);
+  $("captureBtn").addEventListener("click", onLiveToggle);
   $("retakeBtn").addEventListener("click", () => { resetToLive(); });
 
   document.addEventListener("click", (e) => {
@@ -747,12 +805,14 @@ function init() {
     if (pk) { const p = PEAR_CATALOG.find((x) => x.id === +pk.dataset.pick); if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
   });
 
-  // Bug 1 fix: terminate the Decart WebRTC session when the user leaves the page
-  // so the server-side session closes immediately instead of billing until TTL expiry.
+  // Terminate the Decart WebRTC session the moment the user leaves or hides the
+  // page so billing stops immediately instead of running until TTL expiry.
+  // beforeunload/pagehide: page is dying → bare teardown (disconnect) is enough.
+  // visibilitychange→hidden: page may return → stopLive() also resets the UI.
   window.addEventListener("beforeunload", teardown);
   window.addEventListener("pagehide", teardown);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") teardown();
+    if (document.visibilityState === "hidden") stopLive();
   });
 }
 
