@@ -79,6 +79,8 @@ let rtClient = null;
 let connState = "idle";
 let connecting = false;
 let busy = false;
+let liveTimer = null;
+const LIVE_DURATION_MS = 5000;   // STRICT live window per capture — caps token consumption
 
 const isLive = () => connState === "connected" || connState === "generating";
 
@@ -376,9 +378,13 @@ async function connectRealtime() {
       },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
-        const ai = $("aiVideo");
-        ai.srcObject = editedStream;
-        ai.play().catch(() => {});
+        // Official pattern: map the live edited WebRTC stream straight to the
+        // video element so the garment warps/tracks the user in realtime.
+        const aiVideo = document.querySelector("#aiVideo");
+        aiVideo.srcObject = editedStream;
+        aiVideo.style.display = "block";   // make sure it's visible
+        aiVideo.style.transform = "none";  // edited feed is already correctly oriented
+        aiVideo.play().catch(() => {});
       },
       onConnectionChange: (state) => {
         connState = state;
@@ -406,6 +412,10 @@ function teardown() {
     try { rtClient.disconnect(); } catch (_) {}
     rtClient = null;
   }
+  // Hide the now-dead edited stream so the CSS state classes govern the view again
+  // (otherwise the inline display:block from onRemoteStream would freeze it on top).
+  const ai = $("aiVideo");
+  if (ai) ai.style.display = "none";
   connState = "idle";
   setConn("idle");
 }
@@ -449,9 +459,10 @@ function onLiveToggle() {
   else goLive();
 }
 
-/* goLive — open ONE realtime session and leave the AI-edited stream running and
-   visible. The garment warps/tracks the user dynamically; swapping items reuses
-   this same session via rtClient.set() (see setActiveItem → applyGarment).       */
+/* goLive — open ONE realtime session, apply the garment, and stream the live
+   AI-edited video so the garment warps/tracks the user dynamically. A STRICT
+   5-second timer then auto-disconnects so no tokens are spent beyond the window.
+   Switching items mid-window reuses this same session via rtClient.set().        */
 async function goLive() {
   if (busy || isLive()) return;
   if (!localStream) { const ok = await startCamera(); if (!ok) return; }
@@ -462,19 +473,24 @@ async function goLive() {
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
+    // 1) mint ek_ token + open the WebRTC session (billing starts here)
     await connectRealtime();
     await waitConnected(CONNECT_TIMEOUT);
 
-    await applyGarment(activeItem);
-    await waitForAiFrame(SETTLE_MS);   // wait for the first edited frame so we don't flash raw cam
+    // 2) apply the garment immediately on the live stream
+    await applyGarment(activeItem);    // rtClient.set({ prompt, image, enhance:false })
 
-    // Keep the edited stream LIVE and visible — no freeze, no teardown.
+    // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
+    $("scanOverlay").hidden = true;
     card().classList.add("show-live");
     setLiveControls(true);
-    toast("✨ מדידה חיה פעילה — הבגד עוקב אחריך בזמן אמת");
+    toast("✨ מדידה חיה — 5 שניות");
+
+    // 4) STRICT 5s lifecycle: auto-teardown the instant the window elapses
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(autoStopAndFreeze, LIVE_DURATION_MS);
   } catch (err) {
-    // Close any partial session on failure so it never keeps billing.
-    stopLive();
+    stopLive();                        // close any partial session — no idle billing
     console.error("go-live failed:", err);
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
@@ -491,10 +507,30 @@ async function goLive() {
   }
 }
 
-/* stopLive — hard-stop: disconnect() ends the WebRTC session immediately so
-   billing stops the instant the user clicks Stop. Safe to call repeatedly.       */
+/* autoStopAndFreeze — fires exactly LIVE_DURATION_MS after the garment is applied.
+   Freezes the final live frame so the result persists, then hard-stops the
+   session (disconnect) so zero extra tokens are consumed.                         */
+function autoStopAndFreeze() {
+  clearTimeout(liveTimer);
+  liveTimer = null;
+  const frozen = freezeFrom($("aiVideo"), { mirror: false });
+  teardown();                          // rtClient.disconnect() → billing stops now
+  card().classList.remove("show-live");
+  if (frozen) {
+    card().classList.add("show-result");
+    $("retakeBtn").hidden = false;
+  }
+  setLiveControls(false);
+  $("captureBtn").disabled = !localStream;
+  toast("✨ הוקפאה לאחר 5 שניות — נחסכו טוקנים");
+}
+
+/* stopLive — manual/early hard-stop (Stop button, tab hidden). Cancels the 5s
+   timer and disconnects immediately so billing stops the instant it's called.    */
 function stopLive() {
-  teardown();                       // rtClient.disconnect() → billing stops now
+  clearTimeout(liveTimer);
+  liveTimer = null;
+  teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
   setLiveControls(false);
   $("captureBtn").disabled = !localStream;
