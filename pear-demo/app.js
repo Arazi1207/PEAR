@@ -22,22 +22,26 @@
    ============================================================================ */
 "use strict";
 
-/* ── TOKEN SOURCE — the browser NEVER holds the permanent dct_ key ─────────────
-   The secure backend proxy (server.js) mints a short-lived, scoped, origin-locked
-   ek_ token on demand. We fetch it the instant the user goes live — see
-   connectRealtime() / mintEphemeralToken().                                       */
-const TOKEN_ENDPOINT = "/api/realtime-token";
-/* ─────────────────────────────────────────────────────────────────────────── */
+/* ── configuration (Task 8/9) ─────────────────────────────────────────────────
+   All timings and endpoints come from config.js — the single source of truth.
+   The browser NEVER holds the permanent dct_ key: the secure proxy (server.js)
+   mints a short-lived, scoped, origin-locked ek_ token on demand via
+   TOKEN_ENDPOINT, fetched the instant the user goes live (see mintEphemeralToken).
+   We destructure the derived constants so existing call sites read naturally.   */
+import { CONFIG } from "./config.js";
+const {
+  LIVE_DURATION_MS,        // STRICT 5s live window — value owned by config.js
+  CONNECT_TIMEOUT_MS,
+  HEALTH_PROBE_TIMEOUT_MS,
+  TOAST_DURATION_MS,
+  TOKEN_ENDPOINT,
+  HEALTH_ENDPOINT,
+  SDK_URLS,
+} = CONFIG;
 
-const SDK_URLS = [
-  "https://esm.sh/@decartai/sdk@0.1.5",
-  "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
-];
-const CONNECT_TIMEOUT = 12000;
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
-const _UIMG = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
 const PEAR_CATALOG = [
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
   { id: 2,  name: "Vapor Sleeveless",  price: 72,  type: "shirt", subType: "sleeveless",   color: "#b8c0cc", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
@@ -79,8 +83,9 @@ let connState = "idle";
 let connecting = false;
 let busy = false;
 let liveTimer = null;
-const LIVE_DURATION_MS = 5000;   // STRICT live window per capture — caps token consumption
+/* LIVE_DURATION_MS (the strict 5s window) is imported from config.js above. */
 
+/** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
 
 /* =============================================================================
@@ -108,6 +113,13 @@ function setOptionalVisible(show) {
   }
 }
 
+/**
+ * Recompute the recommended size from the form inputs (Zara chart, penalty-scored).
+ * Drives the result box, the "continue" button enabled-state, and — via
+ * setOptionalVisible — the conditional reveal of the optional measurement fields.
+ * Re-run on every input event. Pure UI/state; no network.
+ * @returns {void}
+ */
 function calculateSize() {
   const num = (id) => ($(id).value ? parseFloat($(id).value) : null);
   const height = num("height"), weight = num("weight");
@@ -287,25 +299,44 @@ function setActiveItem(item, opts = {}) {
    ============================================================================= */
 const card = () => $("cameraCard");
 
+/* Task 10 — re-entrancy guard: getUserMedia is async, so two quick callers
+   (e.g. the "enable camera" button AND Go Live) could each open a separate
+   camera stream before localStream is assigned. We cache the in-flight promise
+   so concurrent callers share ONE permission prompt and ONE MediaStream. */
+let cameraStartPromise = null;
+
+/**
+ * Open the front camera exactly once and bind it to the #webcam element.
+ * Idempotent and re-entrancy-safe: concurrent/repeat calls reuse the same
+ * stream (or the same pending request) instead of prompting twice.
+ * @returns {Promise<boolean>} true once the camera is live, false on failure/denial.
+ */
 async function startCamera() {
   if (localStream) return true;
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } },
-      audio: false,
-    });
-    const v = $("webcam");
-    v.srcObject = localStream;
-    await v.play().catch(() => {});
-    card().classList.add("live");
-    $("camError").hidden = true;
-    $("captureBtn").disabled = false;
-    return true;
-  } catch (err) {
-    showCamError("לא ניתן לגשת למצלמה: " + (err && err.message ? err.message : err) +
-      " — ודא הרשאת מצלמה ושהאתר מוגש מ-localhost/https.");
-    return false;
-  }
+  if (cameraStartPromise) return cameraStartPromise;   // a request is already in flight
+
+  cameraStartPromise = (async () => {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } },
+        audio: false,
+      });
+      const v = $("webcam");
+      v.srcObject = localStream;
+      await v.play().catch(() => {});
+      card().classList.add("live");
+      $("camError").hidden = true;
+      $("captureBtn").disabled = false;
+      return true;
+    } catch (err) {
+      showCamError("לא ניתן לגשת למצלמה: " + (err && err.message ? err.message : err) +
+        " — ודא הרשאת מצלמה ושהאתר מוגש מ-localhost/https.");
+      return false;
+    }
+  })();
+
+  try { return await cameraStartPromise; }
+  finally { cameraStartPromise = null; }
 }
 
 function showCamError(msg) {
@@ -340,9 +371,13 @@ async function loadSDK() {
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
 }
 
-/* ── Mint a short-lived ek_ token from the secure proxy ───────────────────────
-   Called ONLY at go-live (never on page load), so no token is minted/wasted
-   while the user is just browsing. Returns the ek_ string or throws.            */
+/**
+ * Mint a short-lived ek_ token from the secure proxy (TOKEN_ENDPOINT).
+ * Called ONLY at go-live (never on page load) so no token is minted/wasted while
+ * the user is just browsing. The permanent dct_ key stays server-side.
+ * @returns {Promise<string>} the ephemeral ek_ token string.
+ * @throws {Error} if the proxy is unreachable or returns no valid token.
+ */
 async function mintEphemeralToken() {
   let resp;
   try {
@@ -365,17 +400,21 @@ async function mintEphemeralToken() {
   return data.apiKey;
 }
 
-/* ── Task 2: graceful pre-use connectivity check ──────────────────────────────
-   Lucy VTON is realtime/online-only. Before the user initiates a live fitting we
-   confirm the network path to our own server is up (a fast, same-origin probe of
-   /api/health). This turns a cryptic mid-connect SDK/WebRTC failure into a calm,
-   actionable message. It does NOT touch the proxy, token, or 5s teardown logic.   */
+/**
+ * Task 2 — graceful pre-use connectivity check.
+ * Lucy VTON is realtime/online-only. Before the user initiates a live fitting we
+ * confirm the network path to our own server is up (a fast, same-origin probe of
+ * HEALTH_ENDPOINT, bounded by HEALTH_PROBE_TIMEOUT_MS). This turns a cryptic
+ * mid-connect SDK/WebRTC failure into a calm, actionable message. It does NOT
+ * touch the proxy, token, or 5s teardown logic.
+ * @returns {Promise<boolean>} true if the server is reachable, false if offline/timed-out.
+ */
 async function ensureOnline() {
   if (!navigator.onLine) return false;          // browser already knows it's offline
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    const resp = await fetch("/api/health", { method: "GET", cache: "no-store", signal: ctrl.signal });
+    const timer = setTimeout(() => ctrl.abort(), HEALTH_PROBE_TIMEOUT_MS);
+    const resp = await fetch(HEALTH_ENDPOINT, { method: "GET", cache: "no-store", signal: ctrl.signal });
     clearTimeout(timer);
     return resp.ok;
   } catch (_) {
@@ -383,6 +422,13 @@ async function ensureOnline() {
   }
 }
 
+/**
+ * Mint an ephemeral ek_ token and open ONE Decart Lucy VTON realtime session
+ * over WebRTC. Any stale/dropped client is disconnected first so no orphaned
+ * server-side session keeps billing. SECURITY: the permanent dct_ key never
+ * reaches the browser — only the short-lived ek_ token from the proxy does.
+ * @returns {Promise<void>}
+ */
 async function connectRealtime() {
   if (rtClient && isLive()) return;
   if (connecting) return;
@@ -448,8 +494,12 @@ async function connectRealtime() {
   }
 }
 
-// Bug 1 fix: single teardown that kills the server-side Decart session immediately.
-// Called on beforeunload, pagehide, and visibilitychange → hidden.
+/**
+ * Single teardown that kills the server-side Decart session immediately so
+ * billing stops at once (rather than running until token TTL expiry). Called by
+ * autoStopAndFreeze/stopLive and on beforeunload, pagehide, and visibilitychange.
+ * @returns {void}
+ */
 function teardown() {
   if (rtClient) {
     try { rtClient.disconnect(); } catch (_) {}
@@ -502,35 +552,41 @@ function onLiveToggle() {
   else goLive();
 }
 
-/* goLive — open ONE realtime session, apply the garment, and stream the live
-   AI-edited video so the garment warps/tracks the user dynamically. A STRICT
-   5-second timer then auto-disconnects so no tokens are spent beyond the window.
-   Switching items mid-window reuses this same session via rtClient.set().        */
+/**
+ * Open ONE realtime session, apply the active garment, and stream the live
+ * AI-edited video so the garment warps/tracks the user dynamically. A STRICT
+ * 5-second timer (LIVE_DURATION_MS) then auto-disconnects so no tokens are spent
+ * beyond the window. Switching items mid-window reuses this session via set().
+ *
+ * Re-entrancy (Task 10): `busy` is claimed BEFORE the first await (the pre-use
+ * connectivity probe and the camera prompt), so rapid double-clicks cannot open
+ * two concurrent capture flows / billable sessions. The finally clause is the
+ * single release point for `busy` and the capture button.
+ * @returns {Promise<void>}
+ */
 async function goLive() {
   if (busy || isLive()) return;
-
-  // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
-  $("captureBtn").disabled = true;
-  const online = await ensureOnline();
-  if (!online) {
-    showCamError("נראה שאין חיבור אינטרנט יציב כרגע. בדוק את הרשת ונסה שוב — המדידה החיה מתבצעת בזמן אמת ודורשת חיבור.");
-    toast("אין חיבור אינטרנט — בדוק את הרשת ונסה שוב");
-    $("captureBtn").disabled = !localStream;
-    return;
-  }
-  $("camError").hidden = true;
-
-  if (!localStream) { const ok = await startCamera(); if (!ok) return; }
-  busy = true;
+  busy = true;                         // Task 10 — claim the flow before ANY await
   $("captureBtn").disabled = true;
   $("camError").hidden = true;
-  $("scanOverlay").hidden = false;
-  $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
+    // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
+    const online = await ensureOnline();
+    if (!online) {
+      showCamError("נראה שאין חיבור אינטרנט יציב כרגע. בדוק את הרשת ונסה שוב — המדידה החיה מתבצעת בזמן אמת ודורשת חיבור.");
+      toast("אין חיבור אינטרנט — בדוק את הרשת ונסה שוב");
+      return;                          // finally releases busy + re-enables the button
+    }
+
+    if (!localStream) { const ok = await startCamera(); if (!ok) return; }
+
+    $("scanOverlay").hidden = false;
+    $("scanSub").textContent = "Lucy VTON · photorealistic render";
+
     // 1) mint ek_ token + open the WebRTC session (billing starts here)
     await connectRealtime();
-    await waitConnected(CONNECT_TIMEOUT);
+    await waitConnected(CONNECT_TIMEOUT_MS);
 
     // 2) apply the garment immediately on the live stream
     await applyGarment(activeItem);    // rtClient.set({ prompt, image, enhance:false })
@@ -558,13 +614,16 @@ async function goLive() {
   } finally {
     $("scanOverlay").hidden = true;
     busy = false;
-    if (!isLive()) $("captureBtn").disabled = false;
+    if (!isLive()) $("captureBtn").disabled = !localStream;
   }
 }
 
-/* autoStopAndFreeze — fires exactly LIVE_DURATION_MS after the garment is applied.
-   Freezes the final live frame so the result persists, then hard-stops the
-   session (disconnect) so zero extra tokens are consumed.                         */
+/**
+ * Fires exactly LIVE_DURATION_MS (5s) after the garment is applied. Freezes the
+ * final live frame so the result persists, then hard-stops the session via
+ * teardown() so zero extra tokens are consumed. This is the strict 5s lifecycle.
+ * @returns {void}
+ */
 function autoStopAndFreeze() {
   clearTimeout(liveTimer);
   liveTimer = null;
@@ -580,8 +639,11 @@ function autoStopAndFreeze() {
   toast("✨ הוקפאה לאחר 5 שניות — נחסכו טוקנים");
 }
 
-/* stopLive — manual/early hard-stop (Stop button, tab hidden). Cancels the 5s
-   timer and disconnects immediately so billing stops the instant it's called.    */
+/**
+ * Manual/early hard-stop (Stop button or tab hidden). Cancels the 5s timer and
+ * disconnects immediately so billing stops the instant it's called.
+ * @returns {void}
+ */
 function stopLive() {
   clearTimeout(liveTimer);
   liveTimer = null;
@@ -829,11 +891,15 @@ function setConn(state) {
 }
 
 let toastTimer;
+/**
+ * Show a transient toast message (auto-dismissed after TOAST_DURATION_MS).
+ * @param {string} html Inner HTML for the toast (simple markup like <b> allowed).
+ */
 function toast(html) {
   const t = $("toast");
   t.innerHTML = html; t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => t.classList.remove("show"), TOAST_DURATION_MS);
 }
 
 const COLOR_NAMES = [
@@ -857,6 +923,12 @@ function colorName(hex) {
 /* =============================================================================
    wiring
    ============================================================================= */
+/**
+ * Bootstrap: wire form inputs (live recalc + Enter-to-proceed), navigation
+ * buttons, catalog/swap delegation, and the page-lifecycle teardown listeners
+ * that stop billing the moment the user leaves or hides the tab.
+ * @returns {void}
+ */
 function init() {
   updateProgress();
 
