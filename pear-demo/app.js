@@ -85,6 +85,27 @@ let busy = false;
 let liveTimer = null;
 /* LIVE_DURATION_MS (the strict 5s window) is imported from config.js above. */
 
+/* Bug 3 — consecutive-session state.
+   `sessionGen` is a monotonic generation counter bumped on every connect and
+   every teardown. The realtime SDK fires callbacks (onConnectionChange /
+   onRemoteStream) asynchronously, so a torn-down client can still emit a late
+   "disconnected" that would poison the NEXT session's connState. Each set of
+   callbacks captures the generation it was born in and no-ops once it's stale —
+   this is what lets the room be re-entered infinitely without a page refresh.
+   `realtimeInput` holds the per-session CLONE of the camera tracks handed to the
+   SDK, so when the SDK stops ITS tracks on disconnect our persistent preview
+   stream (localStream) survives for the next try-on. */
+let sessionGen = 0;
+let realtimeInput = null;
+
+/* Feature 1 — live countdown timer interval handle (top-left of the camera). */
+let liveCountdownTimer = null;
+
+/* Feature 2 — MediaRecorder capture of the incoming AI-edited stream. */
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordedUrl = null;
+
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
 
@@ -438,9 +459,20 @@ async function connectRealtime() {
   if (rtClient) {
     try { rtClient.disconnect(); } catch (_) {}
     rtClient = null;
-    connState = "idle";
+  }
+  // Free the previous session's cloned camera tracks (if any) so they don't leak.
+  if (realtimeInput) {
+    try { realtimeInput.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    realtimeInput = null;
   }
 
+  // Bug 3 fix: claim a fresh generation. Callbacks below capture `gen` and bail
+  // out the moment a teardown/new-connect bumps sessionGen — so a late callback
+  // from a previous client can never stomp this session's state. We also reset
+  // connState to "connecting" here so waitConnected() can't observe a stale
+  // terminal value ("disconnected") left behind by the prior session.
+  const gen = ++sessionGen;
+  connState = "connecting";
   connecting = true;
   setConn("connecting");
 
@@ -452,12 +484,21 @@ async function connectRealtime() {
           page load) — the permanent dct_ key stays server-side ─────────────── */
     const ekToken = await mintEphemeralToken();
 
+    // A teardown may have fired while we were awaiting the SDK/token — abort.
+    if (gen !== sessionGen) return;
+
     /* ── create client with the ephemeral token ───────────────────────────── */
     const client = createDecartClient({ apiKey: ekToken });
 
+    /* Bug 3 fix: hand the SDK a CLONE of the camera tracks. The realtime SDK
+       (LiveKit under the hood) stops the tracks it publishes when the session
+       disconnects; cloning means it stops its OWN copies, leaving localStream
+       (our persistent preview) alive and reusable for the next try-on. */
+    realtimeInput = new MediaStream(localStream.getTracks().map((t) => t.clone()));
+
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
-    rtClient = await client.realtime.connect(localStream, {
+    rtClient = await client.realtime.connect(realtimeInput, {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
@@ -467,6 +508,7 @@ async function connectRealtime() {
       },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
+        if (gen !== sessionGen) return;    // stale callback from a torn-down session
         // Official pattern: map the live edited WebRTC stream straight to the
         // video element so the garment warps/tracks the user in realtime.
         const aiVideo = document.querySelector("#aiVideo");
@@ -474,12 +516,23 @@ async function connectRealtime() {
         aiVideo.style.display = "block";   // make sure it's visible
         aiVideo.style.transform = "none";  // edited feed is already correctly oriented
         aiVideo.play().catch(() => {});
+        // Feature 2 — capture this live AI-edited feed so the user can download
+        // their 5-second fitting clip once the session ends.
+        startRecording(editedStream);
       },
       onConnectionChange: (state) => {
+        if (gen !== sessionGen) return;    // stale callback from a torn-down session
         connState = state;
         setConn(state);
       },
     });
+
+    // If a teardown landed during connect(), immediately close this orphan.
+    if (gen !== sessionGen) {
+      try { rtClient.disconnect(); } catch (_) {}
+      rtClient = null;
+      return;
+    }
 
     rtClient.on("error", (err) => {
       console.error("Decart realtime error:", err);
@@ -501,15 +554,35 @@ async function connectRealtime() {
  * @returns {void}
  */
 function teardown() {
+  // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
+  // client we're about to disconnect become no-ops (see connectRealtime).
+  sessionGen++;
+
+  // Feature 2 — flush the recorder while the edited tracks are still live, so the
+  // download clip is finalized before disconnect ends the stream.
+  stopRecording();
+
   if (rtClient) {
     try { rtClient.disconnect(); } catch (_) {}
     rtClient = null;
   }
-  // Hide the now-dead edited stream so the CSS state classes govern the view again
-  // (otherwise the inline display:block from onRemoteStream would freeze it on top).
+
+  // Bug 3 fix: stop this session's cloned camera tracks (the WebRTC sender side).
+  // localStream — the real camera/preview — is intentionally left running.
+  if (realtimeInput) {
+    try { realtimeInput.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    realtimeInput = null;
+  }
+
+  // Hide AND detach the now-dead edited stream so the CSS state classes govern the
+  // view again (otherwise the inline display:block from onRemoteStream would freeze
+  // it on top, and a stale srcObject would block the next session's first frame).
   const ai = $("aiVideo");
-  if (ai) ai.style.display = "none";
+  if (ai) { ai.style.display = "none"; ai.srcObject = null; }
+
+  // Bug 3 fix: clear every guard so the next try-on starts from a pristine state.
   connState = "idle";
+  connecting = false;
   setConn("idle");
 }
 
@@ -569,6 +642,7 @@ async function goLive() {
   busy = true;                         // Task 10 — claim the flow before ANY await
   $("captureBtn").disabled = true;
   $("camError").hidden = true;
+  clearRecording();                    // Feature 2 — drop any previous clip + button
 
   try {
     // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
@@ -600,6 +674,7 @@ async function goLive() {
     // 4) STRICT 5s lifecycle: auto-teardown the instant the window elapses
     clearTimeout(liveTimer);
     liveTimer = setTimeout(autoStopAndFreeze, LIVE_DURATION_MS);
+    startLiveCountdown();              // Feature 1 — visual 5→1 countdown, top-left
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("go-live failed:", err);
@@ -627,6 +702,7 @@ async function goLive() {
 function autoStopAndFreeze() {
   clearTimeout(liveTimer);
   liveTimer = null;
+  stopLiveCountdown();                 // Feature 1 — hide the countdown badge
   const frozen = freezeFrom($("aiVideo"), { mirror: false });
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
@@ -647,6 +723,7 @@ function autoStopAndFreeze() {
 function stopLive() {
   clearTimeout(liveTimer);
   liveTimer = null;
+  stopLiveCountdown();                 // Feature 1 — hide the countdown badge
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
   setLiveControls(false);
@@ -678,6 +755,147 @@ function freezeFrom(video, { mirror }) {
   c.drawImage(video, 0, 0, vw, vh);
   c.restore();
   return true;
+}
+
+/* =============================================================================
+   Feature 1 — Live countdown timer (top-left of the camera container)
+   ─────────────────────────────────────────────────────────────────────────
+   A lightweight badge injected into #cameraCard that counts the remaining live
+   seconds down (5 → 1) so the user knows exactly when the strict LIVE_DURATION_MS
+   window will end. Purely visual — the authoritative teardown is still the
+   setTimeout(autoStopAndFreeze, LIVE_DURATION_MS) in goLive. We derive the digit
+   from a wall-clock deadline so it stays in sync with that timer.
+   ============================================================================= */
+function ensureTimerEl() {
+  let el = $("liveTimer");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "liveTimer";
+    el.className = "live-timer";
+    el.hidden = true;
+    el.setAttribute("aria-live", "polite");
+    card().appendChild(el);
+  }
+  return el;
+}
+
+function startLiveCountdown() {
+  const el = ensureTimerEl();
+  const total = Math.ceil(LIVE_DURATION_MS / 1000);   // derived from config — stays in sync
+  const deadline = Date.now() + LIVE_DURATION_MS;
+  el.hidden = false;
+  el.classList.add("show");
+
+  const tick = () => {
+    const remMs = Math.max(0, deadline - Date.now());
+    const secs = Math.min(total, Math.ceil(remMs / 1000));
+    el.textContent = String(secs);
+    el.classList.toggle("is-urgent", secs <= 2);       // turn red in the final stretch
+    if (remMs <= 0) stopLiveCountdown();
+  };
+  tick();
+  clearInterval(liveCountdownTimer);
+  liveCountdownTimer = setInterval(tick, 200);
+}
+
+function stopLiveCountdown() {
+  clearInterval(liveCountdownTimer);
+  liveCountdownTimer = null;
+  const el = $("liveTimer");
+  if (el) { el.classList.remove("show", "is-urgent"); el.hidden = true; }
+}
+
+/* =============================================================================
+   Feature 2 — Download the 5-second fitting clip (MediaRecorder)
+   ─────────────────────────────────────────────────────────────────────────
+   We record the INCOMING AI-edited WebRTC stream (the dressed output the user
+   actually wants), not the raw webcam. Recording starts when the first edited
+   frame arrives (onRemoteStream) and is flushed by teardown() the instant the
+   5s window closes. On flush we build a Blob → object URL and reveal a clean
+   "Download Video" button. Everything is torn down/revoked on the next session.
+   ============================================================================= */
+function pickRecorderMime() {
+  if (typeof MediaRecorder === "undefined") return null;
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+  for (const t of candidates) {
+    try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (_) {}
+  }
+  return null;
+}
+
+/** Begin capturing the live edited stream. Idempotent within one session. */
+function startRecording(stream) {
+  if (mediaRecorder || typeof MediaRecorder === "undefined" || !stream) return;
+  recordedChunks = [];
+  try {
+    const mime = pickRecorderMime();
+    mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch (e) {
+    console.warn("MediaRecorder unavailable:", e?.message || e);
+    mediaRecorder = null;
+    return;
+  }
+  mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = finalizeRecording;        // fires after stop() flushes the buffer
+  try { mediaRecorder.start(); }                    // collect into one blob; flushed on stop()
+  catch (e) { console.warn("recorder start failed:", e?.message || e); mediaRecorder = null; }
+}
+
+/** Stop the recorder (if running). onstop → finalizeRecording builds the clip. */
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try { mediaRecorder.stop(); } catch (_) {}
+  }
+  mediaRecorder = null;
+}
+
+/** Build the downloadable clip from the buffered chunks and reveal the button. */
+function finalizeRecording() {
+  if (!recordedChunks.length) return;
+  const type = recordedChunks[0].type || "video/webm";
+  const blob = new Blob(recordedChunks, { type });
+  recordedChunks = [];
+  if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
+  recordedUrl = URL.createObjectURL(blob);
+  showDownloadButton();
+}
+
+/** Inject (once) and reveal the "Download Video" button beside the controls. */
+function showDownloadButton() {
+  let btn = $("downloadBtn");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "downloadBtn";
+    btn.className = "btn-download";
+    btn.type = "button";
+    btn.innerHTML = '<span class="btn-download__icon">⬇</span>' +
+      '<span>הורד וידאו</span><span class="btn-download__en">Download Video</span>';
+    btn.addEventListener("click", downloadRecording);
+    const controls = document.querySelector(".cam-controls");
+    (controls || card()).appendChild(btn);
+  }
+  btn.hidden = false;
+}
+
+/** Trigger a local save of the recorded clip. */
+function downloadRecording() {
+  if (!recordedUrl) return;
+  const ext = recordedUrl.indexOf("mp4") > -1 ? "mp4" : "webm";   // best-effort label
+  const name = (activeItem && activeItem.name ? activeItem.name : "session").replace(/\s+/g, "-");
+  const a = document.createElement("a");
+  a.href = recordedUrl;
+  a.download = `pear-fitting-${name}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Drop the current clip + hide the button (called when a new session starts). */
+function clearRecording() {
+  if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
+  recordedChunks = [];
+  const btn = $("downloadBtn");
+  if (btn) btn.hidden = true;
 }
 
 /* ── offline-dev mock (ONLY via ?demo=1) ─────────────────────────────────── */

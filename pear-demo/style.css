@@ -437,3 +437,39 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
   .personal-title { font-size: 1.25rem; }
   .container h2 { font-size: 1.6rem; }
 }
+
+/* ── Feature 1 — live countdown timer (top-left of the camera card) ───────────
+   RTL note: the LIVE pill uses inset-inline-start, so it renders top-RIGHT here;
+   the countdown takes the physical top-left and never collides with it. */
+.live-timer {
+  position: absolute; top: 12px; left: 12px; z-index: 7;
+  min-width: 38px; height: 38px; padding: 0 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(12,19,34,.62); backdrop-filter: blur(6px);
+  border: 2px solid rgba(255,255,255,.82); border-radius: 999px;
+  color: #fff; font-family: "Urbanist", sans-serif; font-weight: 800;
+  font-size: 1.18rem; line-height: 1; font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgba(0,0,0,.28);
+  opacity: 0; transform: scale(.7); transition: opacity .2s, transform .2s;
+}
+.live-timer.show { opacity: 1; transform: scale(1); }
+.live-timer[hidden] { display: none; }
+/* final stretch (≤2s): turn red and pulse once per second */
+.live-timer.is-urgent {
+  border-color: #ff6b6b; color: #ffe3e3;
+  background: rgba(120,20,20,.6); animation: timerPulse 1s ease-in-out infinite;
+}
+@keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.16); } }
+
+/* ── Feature 2 — "Download Video" button (sits in .cam-controls) ──────────── */
+.btn-download {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px 22px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--bg-soft); color: var(--ink); cursor: pointer; font-weight: 800;
+  font-family: "Urbanist", sans-serif; font-size: 1rem;
+  transition: border-color .15s, box-shadow .2s, transform .12s, background .2s;
+}
+.btn-download:hover { border-color: var(--blue-300); background: #fff; transform: translateY(-1px); box-shadow: var(--shadow); }
+.btn-download__icon { font-size: 1.15rem; }
+.btn-download__en { font-size: .74rem; opacity: .7; letter-spacing: .04em; }
+.btn-download[hidden] { display: none; }
