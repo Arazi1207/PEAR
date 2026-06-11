@@ -22,21 +22,22 @@
    ============================================================================ */
 "use strict";
 
-/* ── Backend token endpoint — mints short-lived ek_ client tokens ─────────────
-   The permanent dct_ key lives in server.js / .env ONLY. The browser fetches an
-   ephemeral ek_ token from here and uses it to open the realtime session. */
-const TOKEN_ENDPOINT = "/api/realtime-token";
+import {
+  SDK_URLS,
+  MEASUREMENT_TIME_LIMIT_SEC,
+  FRAME_MAX_EXTRA_WAIT_SEC,
+  CONNECT_TIMEOUT_SEC,
+  TOAST_DURATION_MS,
+} from "./config.js";
 
-const SDK_URLS = [
-  "https://esm.sh/@decartai/sdk@0.1.5",
-  "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
-];
-const SETTLE_MS = 2600;
-const CONNECT_TIMEOUT = 12000;
+/* Derived timing constants in milliseconds — adjust via config.js, not here */
+const SETTLE_MS               = MEASUREMENT_TIME_LIMIT_SEC * 1000;
+const FRAME_MAX_EXTRA_WAIT_MS = FRAME_MAX_EXTRA_WAIT_SEC * 1000;
+const CONNECT_TIMEOUT_MS      = CONNECT_TIMEOUT_SEC * 1000;
+
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
-const _UIMG = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
 const PEAR_CATALOG = [
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
   { id: 2,  name: "Vapor Sleeveless",  price: 72,  type: "shirt", subType: "sleeveless",   color: "#b8c0cc", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
@@ -295,12 +296,11 @@ function resetToLive() {
 /* =============================================================================
    Decart Lucy VTON realtime — connection
    ─────────────────────────────────────
-   FIX: removed the /api/realtime-token backend call entirely.
-        We call createDecartClient({ apiKey }) directly from the browser,
-        using the key defined at the top of this file.
+   The browser fetches a short-lived ek_… token from /api/realtime-token.
+   The permanent dct_… key lives in server .env and never reaches the browser.
 
-   FIX: models.realtime() does not exist in @decartai/sdk@0.1.5.
-        The model is passed as a plain string: "lucy-vton-latest".
+   Note: model is passed as a plain object (not via models.realtime()) per
+   @decartai/sdk@0.1.5.
    ============================================================================= */
 async function loadSDK() {
   let lastErr;
@@ -309,28 +309,6 @@ async function loadSDK() {
     catch (e) { lastErr = e; console.warn("SDK load failed from", url, e?.message || e); }
   }
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
-}
-
-// Mint a short-lived ek_ client token from the backend. The permanent dct_ key
-// never reaches the browser — server.js holds it and scopes the token to VTON.
-async function fetchClientToken() {
-  let resp;
-  try {
-    resp = await fetch(TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    throw new Error("לא ניתן להגיע לשרת הטוקנים (" + TOKEN_ENDPOINT +
-      "). ודא ש-server.js רץ ושהדף מוגש מ-http://localhost:3000/pear-demo/. " +
-      (e?.message || e));
-  }
-  let data = {};
-  try { data = await resp.json(); } catch (_) {}
-  if (!resp.ok || !data.apiKey) {
-    throw new Error(data.message || ("מינוט טוקן נכשל (HTTP " + resp.status + ")"));
-  }
-  return data.apiKey;
 }
 
 async function connectRealtime() {
@@ -349,17 +327,21 @@ async function connectRealtime() {
   setConn("connecting");
 
   try {
-    /* ── mint a short-lived ek_ token from the backend ────────────────────── */
-    const ephemeralKey = await fetchClientToken();
-
     /* ── load SDK ─────────────────────────────────────────────────────────── */
     const { createDecartClient } = await loadSDK();
 
-    /* ── create client with the ephemeral token (permanent key stays server-side) */
+    /* ── fetch short-lived token; permanent key stays server-side ────────── */
+    const tokenResp = await fetch("/api/realtime-token");
+    if (!tokenResp.ok) {
+      const body = await tokenResp.json().catch(() => ({}));
+      throw new Error("Token fetch failed " + tokenResp.status + (body.message ? ": " + body.message : ""));
+    }
+    const { apiKey: ephemeralKey } = await tokenResp.json();
+    if (!ephemeralKey) throw new Error("Server returned no apiKey");
+
     const client = createDecartClient({ apiKey: ephemeralKey });
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
-    // FIX: model passed as a plain string, NOT via models.realtime()
     rtClient = await client.realtime.connect(localStream, {
       model: {
         name: "lucy-vton-latest",
@@ -439,16 +421,20 @@ function buildPrompt(item) {
    ============================================================================= */
 async function capture() {
   if (busy) return;
-  if (!localStream) { const ok = await startCamera(); if (!ok) return; }
+  // Guard set before any await to prevent re-entrancy from rapid double-clicks.
   busy = true;
   $("captureBtn").disabled = true;
   $("camError").hidden = true;
+  if (!localStream) {
+    const ok = await startCamera();
+    if (!ok) { busy = false; $("captureBtn").disabled = false; return; }
+  }
   $("scanOverlay").hidden = false;
   $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
   try {
     await connectRealtime();
-    await waitConnected(CONNECT_TIMEOUT);
+    await waitConnected(CONNECT_TIMEOUT_MS);
 
     await applyGarment(activeItem);
     await waitForAiFrame(SETTLE_MS);
@@ -489,7 +475,7 @@ function waitForAiFrame(settle) {
       const hasFrame = ai.videoWidth > 0 && ai.readyState >= 2;
       const elapsed = Date.now() - start;
       if (hasFrame && elapsed >= settle) return resolve();
-      if (elapsed >= settle + 6000) return resolve();
+      if (elapsed >= settle + FRAME_MAX_EXTRA_WAIT_MS) return resolve();
       requestAnimationFrame(check);
     })();
   });
@@ -723,7 +709,7 @@ function toast(html) {
   const t = $("toast");
   t.innerHTML = html; t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => t.classList.remove("show"), TOAST_DURATION_MS);
 }
 
 const COLOR_NAMES = [
