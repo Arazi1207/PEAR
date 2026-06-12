@@ -284,8 +284,8 @@ const ZARA_SIZE_CHART = [
   { size: "XL", minHeight: 184, maxHeight: 195, minWeight: 85, maxWeight: 100, minChest: 110, maxChest: 118, minWaist: 96, maxWaist: 106, minLegs: 106, maxLegs: 112 },
 ];
 
-/* Ordered size scale used for relative-fit comparison in the override selector. */
-const SIZE_SCALE = ["S", "M", "L", "XL", "XXL"];
+/* Ordered size scale — full range used by the override selector and delta math. */
+const SIZE_SCALE = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
 
 /* Task 6 — conditional input flow: the optional fields stay hidden until BOTH
    mandatory fields (height + weight) hold sane, in-range values. */
@@ -590,8 +590,8 @@ async function startCamera() {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width: { ideal: 1920, max: 3840 },
-          height: { ideal: 1080, max: 2160 },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30, max: 60 },
         },
         audio: false,
@@ -859,62 +859,98 @@ function waitConnected(timeout) {
 
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
-  const payload = { prompt: buildPrompt(item), enhance: false };
+  const payload = { prompt: buildPrompt(item), enhance: true };
   if (item.img) payload.image = item.img;
   await rtClient.set(payload);
 }
 
 /**
- * Reads the size-calculator inputs collected in Screen 1 and returns a
- * structured anatomical-constraint clause ready to be appended to any VTON
- * prompt. Falls back to a generic high-fidelity draping instruction when the
- * user skipped the calculator or filled only the mandatory fields.
+ * Reads the Screen 1 physical inputs and returns a forceful anatomical anchor
+ * sentence. This pins the AI's body model to real measurements so it cannot
+ * hallucinate a generic body shape.
+ * @returns {string}
  */
-function buildBodyProfileString() {
+function getAnatomicalAnchor() {
   const num = (id) => { const el = $(id); return el && el.value ? parseFloat(el.value) : null; };
   const height = num("height"), weight = num("weight");
   const chest  = num("chest"),  waist  = num("waist"),  legs = num("legs");
-  const size   = currentUserSize;
 
-  const parts = [];
-  if (height) parts.push(`an exact height of ${height}cm`);
-  if (weight) parts.push(`weight of ${weight}kg`);
-  if (chest)  parts.push(`chest circumference of ${chest}cm`);
-  if (waist)  parts.push(`waist of ${waist}cm`);
-  if (legs)   parts.push(`inseam of ${legs}cm`);
-  if (size)   parts.push(`matching size ${size}`);
-
-  if (parts.length >= 2) {
-    return `, tailored precisely to a photorealistic body model with ${parts.join(", ")}. The fabric must warp, drape, and wrinkle realistically according to these exact anatomical proportions, ensuring zero generic guessing, high-fidelity texture fit, and flawless physical alignment`;
+  if (!height && !weight) {
+    return "Fit the garment to a realistic human body with accurate anatomical proportions and photorealistic fabric physics.";
   }
-  return ", with photorealistic fabric drape, high-fidelity texture mapping, and true-to-life anatomical fit — no generic guessing, maximum physical fidelity";
+
+  let sentence = "The person has ";
+  if (height && weight) sentence += `an exact height of ${height}cm and weighs ${weight}kg`;
+  else if (height)      sentence += `an exact height of ${height}cm`;
+  else                  sentence += `a weight of ${weight}kg`;
+  sentence += ".";
+
+  const details = [];
+  if (chest) details.push(`chest ${chest}cm`);
+  if (waist) details.push(`waist ${waist}cm`);
+  if (legs)  details.push(`inseam ${legs}cm`);
+  if (details.length) sentence += ` Exact body measurements: ${details.join(", ")}.`;
+
+  sentence += " Fit the garment strictly to these specific anatomical proportions — zero generic guessing, maximum physical fidelity.";
+  return sentence;
 }
 
 /**
- * Returns a fit-modifier clause based on how the user's size override compares to
- * their calculated recommendation. Empty string when no override or sizes match.
+ * Return the signed delta between activeTryOnSize and currentUserSize in the
+ * SIZE_SCALE ladder. Positive = user chose larger; negative = user chose smaller.
+ * Returns 0 when either size is absent or not in the scale.
+ * @returns {number}
  */
-function buildFitModifier() {
-  if (!currentUserSize || !activeTryOnSize) return "";
+function getSizeDelta() {
+  if (!currentUserSize || !activeTryOnSize) return 0;
   const baseIdx = SIZE_SCALE.indexOf(currentUserSize);
   const pickIdx = SIZE_SCALE.indexOf(activeTryOnSize);
-  if (baseIdx === -1 || pickIdx === -1 || pickIdx === baseIdx) return "";
-  if (pickIdx < baseIdx) {
-    return ", tight fit, skin-tight, snug compression fit, slightly short hem, fabric pulling tightly against the body proportions";
-  }
-  return ", oversized look, loose baggy fit, relaxed drop-shoulder draping, extra length, spacious fabric wrinkles";
+  if (baseIdx === -1 || pickIdx === -1) return 0;
+  return pickIdx - baseIdx;
 }
+
+/**
+ * Translate a numeric size delta into a highly descriptive, textile-specific fit
+ * modifier. The language is intentionally dense so the VTON engine has minimal
+ * room for interpretation.
+ * @param {number} delta    — getSizeDelta() result (negative = smaller, positive = larger)
+ * @param {string} garmentType — "upper_body" | "lower_body"
+ * @returns {string}
+ */
+function getFitModifier(delta, garmentType) {
+  if (garmentType === "upper_body") {
+    if (delta <= -2) return "extremely restrictive tight fit, fabric stretched aggressively across the chest, painfully short hem, sleeves pulling up";
+    if (delta === -1) return "slim and snug athletic fit, tightly tailored contour hugging the torso";
+    if (delta === 0)  return "perfectly tailored true-to-size fit, flawless natural drape with no excess fabric";
+    if (delta === 1)  return "relaxed fit, slightly loose drape, comfortable room across the shoulders and chest";
+    /* delta >= 2 */  return "exaggerated oversized baggy fit, heavily dropped shoulders, excessive fabric bunching at the waist, ultra-long hem";
+  }
+  /* lower_body */
+  if (delta <= -2) return "skin-tight compression fit, severely cropped above the ankles, fabric pulling tight at the thighs and knees";
+  if (delta === -1) return "slim and snug tailored fit, tightly fitted through the thighs and tapered at the calves";
+  if (delta === 0)  return "perfectly tailored true-to-size fit, clean break at the ankle with no pooling";
+  if (delta === 1)  return "relaxed wide fit, comfortable room through the thighs, natural break at the ankle";
+  /* delta >= 2 */  return "very loose baggy fit, extreme wide leg, fabric heavily pooling and dragging over the shoes, low crotch drop";
+}
+
+/* Appended to every VTON prompt to lock the engine into photorealistic output.
+   Kept as a module constant so changing it in one place affects all call sites. */
+const QUALITY_SUFFIX = ", photorealistic real-world fabric texture, visible seams and stitching, micro-detailed weave, natural environmental lighting matching the user's room, cinematic shading, ultra-realistic physical garment appearance";
 
 function buildPrompt(item) {
   const colorWord = colorName(item.color);
-  const sub = SUBTYPE_PROMPT[item.subType] || "";
-  const bodyProfile = buildBodyProfileString();
-  const fitMod = buildFitModifier();
+  const sub    = SUBTYPE_PROMPT[item.subType] || "";
+  const anchor = getAnatomicalAnchor();
+  const delta  = getSizeDelta();
+  const fitMod = getFitModifier(delta, item.garmentType);
+
   if (item.garmentType === "lower_body") {
-    return `Substitute the current bottoms with ${colorWord} ${sub} trousers, realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`.replace(/\s+/g, " ").trim();
+    return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.`
+      .replace(/\s+/g, " ").trim();
   }
   const noun = SHIRT_NOUN[item.subType] || "top";
-  return `Substitute the current top with a ${colorWord} ${sub} ${noun}, realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`.replace(/\s+/g, " ").trim();
+  return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.`
+    .replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -954,7 +990,7 @@ async function applyLook(top, bottom) {
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
-    enhance: false,
+    enhance: true,
     image: images[0],                 // SDK single-image reference (the top)
     images,                           // both verified URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
@@ -969,7 +1005,7 @@ async function applyLook(top, bottom) {
     // A stricter SDK build could reject the enriched shape — retry with the minimal
     // documented contract so a full look never breaks the live session.
     console.warn("look payload rejected, retrying minimal:", e?.message || e);
-    await rtClient.set({ prompt, image: images[0], enhance: false });
+    await rtClient.set({ prompt, image: images[0], enhance: true });
   }
 }
 
@@ -980,19 +1016,25 @@ async function applyLook(top, bottom) {
  */
 function buildLookPrompt(top, bottom) {
   const tColor = colorName(top.color), tSub = SUBTYPE_PROMPT[top.subType] || "";
-  const tNoun = SHIRT_NOUN[top.subType] || "top";
+  const tNoun  = SHIRT_NOUN[top.subType] || "top";
   const bColor = colorName(bottom.color), bSub = SUBTYPE_PROMPT[bottom.subType] || "";
-  const bodyProfile = buildBodyProfileString();
-  const fitMod = buildFitModifier();
-  return `Dress the person in one complete outfit in a single pass: replace the top with a ${tColor} ${tSub} ${tNoun} and at the same time replace the bottoms with ${bColor} ${bSub} trousers. Render both garments together with realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`
-    .replace(/\s+/g, " ").trim();
+  const anchor = getAnatomicalAnchor();
+  const delta  = getSizeDelta();
+  const topFit = getFitModifier(delta, top.garmentType);
+  const botFit = getFitModifier(delta, bottom.garmentType);
+  return (
+    `Dress the person in one complete outfit in a single pass: ` +
+    `replace the top with a ${tColor} ${tSub} ${tNoun} rendered as a ${topFit}, ` +
+    `and at the same time replace the bottoms with ${bColor} ${bSub} trousers rendered as a ${botFit}. ` +
+    `${anchor} Render both garments together in a single photorealistic pass${QUALITY_SUFFIX}.`
+  ).replace(/\s+/g, " ").trim();
 }
 
 /* =============================================================================
    Size Override Selector — Screen 2 (Try-On room)
    ─────────────────────────────────────────────────────────────────────────
-   A glassmorphism button row (S / M / L / XL / XXL) injected below the active-
-   garment chip. The button matching currentUserSize is highlighted by default.
+   A glassmorphism button row (XS / S / M / L / XL / XXL / 3XL) injected below
+   the active-garment chip. The button matching currentUserSize is highlighted by default.
    Selecting a different size sets activeTryOnSize, which buildFitModifier() then
    uses to append tight-fit or oversized descriptors to the VTON prompt. If a
    WebRTC session is already live, applyActive() is called immediately so the
