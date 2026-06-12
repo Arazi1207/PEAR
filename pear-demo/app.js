@@ -40,6 +40,7 @@ const {
   PLAYOUT_DELAY_HINT,
   PREFER_LOW_LATENCY_CODEC,
   CODEC_PREFERENCE,
+  VIDEO_TARGET_BITRATE_KBPS,
 } = CONFIG;
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
@@ -224,6 +225,7 @@ let liveCountdownTimer = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordedUrl = null;
+let replayUrl = null;        // "Watch Again": same blob-backed URL, cached for unlimited local replay (no network/billing)
 let recordedBlob = null;     // the finalized clip Blob — kept so we can build a File for the share sheet
 let recorderMime = null;     // the container/codec MediaRecorder actually negotiated (mp4 vs webm)
 let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
@@ -1207,11 +1209,28 @@ function finalizeRecording() {
   recordedBlob = blob;
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
   recordedUrl = URL.createObjectURL(blob);
+  replayUrl = recordedUrl;             // cache the SAME blob-backed URL for local "Watch Again"
   showDownloadButton();
+  showWatchAgainButton();              // sits right beside Download once the 5s session ends
 }
 
-/** Inject (once) and reveal the "Download Video" button beside the controls. */
+/** Lazily create the side-by-side (flex-row) action row that holds Download +
+ *  Watch-Again, so both capsules sit next to each other under the capture button. */
+function resultActionsRow() {
+  let row = $("resultActions");
+  if (!row) {
+    row = document.createElement("div");
+    row.id = "resultActions";
+    row.className = "result-actions";
+    const controls = document.querySelector(".cam-controls");
+    (controls || card()).appendChild(row);
+  }
+  return row;
+}
+
+/** Inject (once) and reveal the "Download Video" button inside the action row. */
 function showDownloadButton() {
+  const row = resultActionsRow();
   let btn = $("downloadBtn");
   if (!btn) {
     btn = document.createElement("button");
@@ -1221,10 +1240,48 @@ function showDownloadButton() {
     btn.innerHTML = '<span class="btn-download__icon">⬇</span>' +
       '<span>הורד וידאו</span><span class="btn-download__en">Download Video</span>';
     btn.addEventListener("click", downloadRecording);
-    const controls = document.querySelector(".cam-controls");
-    (controls || card()).appendChild(btn);
+    row.appendChild(btn);
   }
   btn.hidden = false;
+  row.classList.add("show");
+}
+
+/** Inject (once) and reveal the "צפה שוב / Watch Again" button beside Download.
+ *  Replay is 100% local (cached blob URL) — never a network request or a new
+ *  billable AI session. */
+function showWatchAgainButton() {
+  if (!replayUrl) return;
+  const row = resultActionsRow();
+  let btn = $("watchAgainBtn");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "watchAgainBtn";
+    btn.className = "btn-watch";
+    btn.type = "button";
+    btn.innerHTML = '<span class="btn-watch__icon">↺</span>' +
+      '<span>צפה שוב</span><span class="btn-watch__en">Watch Again</span>';
+    btn.addEventListener("click", watchAgain);
+    row.appendChild(btn);
+  }
+  btn.hidden = false;
+  row.classList.add("show");
+}
+
+/** Replay the cached 5-second clip locally on #aiVideo — as many times as the
+ *  user likes, with zero network/billing. Lifts the clip above the frozen result
+ *  canvas for the duration of playback, then restores the frozen frame on end. */
+function watchAgain() {
+  if (!replayUrl) return;
+  const ai = $("aiVideo");
+  if (!ai) return;
+  ai.srcObject = null;                 // detach the now-dead realtime stream
+  if (ai.src !== replayUrl) ai.src = replayUrl;   // point at the cached local blob
+  ai.muted = true;                     // stay within autoplay policy
+  ai.loop = false;
+  ai.onended = () => card().classList.remove("replaying");   // restore the frozen masterpiece
+  card().classList.add("replaying");   // raise #aiVideo above #resultCanvas
+  try { ai.currentTime = 0; } catch (_) {}
+  ai.play().catch(() => {});
 }
 
 /**
@@ -1287,11 +1344,22 @@ async function downloadRecording() {
 function clearRecording() {
   stopPaintLoop();                     // ensure no stale paint loop leaks into the next session
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
+  replayUrl = null;                    // same underlying URL as recordedUrl — already revoked above
   recordedChunks = [];
   recordedBlob = null;
   recorderMime = null;
-  const btn = $("downloadBtn");
-  if (btn) btn.hidden = true;
+
+  // Detach the cached replay clip from #aiVideo and restore the frozen-result
+  // layering, so the UI returns to a clean live-prep state for the next try-on.
+  const ai = $("aiVideo");
+  if (ai) { ai.onended = null; ai.removeAttribute("src"); try { ai.load(); } catch (_) {} }
+  card().classList.remove("replaying");
+
+  // Hide the side-by-side Download / Watch-Again row.
+  const row = $("resultActions");
+  if (row) row.classList.remove("show");
+  const dl = $("downloadBtn"); if (dl) dl.hidden = true;
+  const wa = $("watchAgainBtn"); if (wa) wa.hidden = true;
 }
 
 /* ── offline-dev mock (ONLY via ?demo=1) ─────────────────────────────────── */
