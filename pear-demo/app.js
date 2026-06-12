@@ -41,16 +41,24 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
+/* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
+   (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
+       frequently reject WebM; (2) the save path — iOS Safari ignores <a download>,
+       so on mobile we hand the clip to the native share sheet ("Save Video" → gallery).
+   iPadOS reports its platform as "Mac", so a touch-capable Mac counts as mobile too. */
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+  (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
+
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
 const PEAR_CATALOG = [
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
-  { id: 2,  name: "Vapor Sleeveless",  price: 72,  type: "shirt", subType: "sleeveless",   color: "#b8c0cc", img: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg" },
+  { id: 2,  name: "Vapor Sleeveless",  price: 72,  type: "shirt", subType: "sleeveless",   color: "#b8c0cc", img: "https://burst.shopifycdn.com/photos/grey-t-shirt.jpg" },
   { id: 3,  name: "Ion Crew Tee",      price: 96,  type: "shirt", subType: "short_sleeve", color: "#c2452f", img: "https://burst.shopifycdn.com/photos/red-t-shirt.jpg" },
   { id: 4,  name: "Pulse Tee",         price: 84,  type: "shirt", subType: "short_sleeve", color: "#1f6feb", img: "https://burst.shopifycdn.com/photos/cobalt-blue-t-shirt.jpg" },
   { id: 5,  name: "Circuit Tee",       price: 90,  type: "shirt", subType: "short_sleeve", color: "#149c7a", img: "https://burst.shopifycdn.com/photos/teal-t-shirt.jpg" },
   { id: 6,  name: "Strata Longsleeve", price: 128, type: "shirt", subType: "long_sleeve",  color: "#2b2b30", img: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024" },
   { id: 7,  name: "Nimbus Henley",     price: 134, type: "shirt", subType: "long_sleeve",  color: "#8e7bd0", img: "https://cdn.shopify.com/s/files/1/0831/9103/products/DK_LS_Henley_Dark_Purple-Final-Web.jpg?v=1665703111" },
-  { id: 8,  name: "Echo Longsleeve",   price: 118, type: "shirt", subType: "long_sleeve",  color: "#d8d4cb", img: "https://img.freepik.com/premium-photo/beige-long-sleeve-shirt-isolated-white-background_1166140-13287.jpg" },
+  { id: 8,  name: "Echo Longsleeve",   price: 118, type: "shirt", subType: "long_sleeve",  color: "#d8d4cb", img: "https://img.magnific.com/premium-photo/beige-long-sleeve-shirt-isolated-white-background_1166140-13287.jpg" },
   { id: 9,  name: "Glide Slim",        price: 142, type: "pants", subType: "slim",    color: "#2a2d34", img: "https://cdn.suitsupply.com/image/upload/b_rgb:efefef,bo_500px_solid_rgb:efefef,c_pad,w_2600/b_rgb:efefef,c_pad,dpr_1,w_850,h_1176,f_auto,q_auto,fl_progressive/products/Trousers/default/B6905_28.jpg" },
   { id: 10, name: "Mono Slim",         price: 118, type: "pants", subType: "slim",    color: "#6e7681", img: "https://cdn.suitsupply.com/image/upload/b_rgb:efefef,bo_500px_solid_rgb:efefef,c_pad,w_2600/b_rgb:efefef,c_pad,dpr_1,w_850,h_1176,f_auto,q_auto,fl_progressive/products/Trousers/default/B6906_28.jpg" },
   { id: 11, name: "Vector Regular",    price: 132, type: "pants", subType: "regular", color: "#3b5bdb", img: "https://image.hm.com/assets/hm/54/71/5471b01a9ccf7562c74cf7d8f0102228465f30b5.jpg?imwidth=2160" },
@@ -77,6 +85,14 @@ const $ = (s) => document.getElementById(s);
 let currentUserSize = null;
 let activeItem = null;
 let focusMode = false;
+
+/* "Complete the Look" (Total Look) — both halves of the outfit are tracked
+   independently so that changing ONLY the shirt or ONLY the pants later still
+   updates the full look. `completeLookMode` flips the goLive payload from a
+   single garment to BOTH garments packaged into one realtime set() call. */
+let selectedTop = null;       // last-selected upper_body garment (the shirt slot)
+let selectedBottom = null;    // last-selected lower_body garment (the pants slot)
+let completeLookMode = false; // when true, goLive overlays the shirt AND pants at once
 let localStream = null;
 let rtClient = null;
 let connState = "idle";
@@ -109,6 +125,8 @@ let liveCountdownTimer = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordedUrl = null;
+let recordedBlob = null;     // the finalized clip Blob — kept so we can build a File for the share sheet
+let recorderMime = null;     // the container/codec MediaRecorder actually negotiated (mp4 vs webm)
 let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
 let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
 let recordingActive = false; // guards the paint loop + single-start per session
@@ -304,6 +322,13 @@ function enterRoom() {
 
 function setActiveItem(item, opts = {}) {
   activeItem = item;
+
+  // Keep the per-half look slots in sync so the full-look payload always reflects
+  // the most recently chosen shirt and pants — this is what lets the user change
+  // the shirt OR the pants individually and have "Complete the Look" follow along.
+  if (item.garmentType === "lower_body") selectedBottom = item;
+  else selectedTop = item;
+
   $("focusItemName").innerText = item.name;
 
   $("activeGarment").hidden = false;
@@ -318,8 +343,37 @@ function setActiveItem(item, opts = {}) {
   if (!opts.silent) {
     toast(`עכשיו מודדים: <b>${item.name}</b>`);
     resetToLive();
-    if (isLive()) applyGarment(item).catch((e) => console.warn("pre-apply garment:", e?.message || e));
+    // applyActive() re-applies the FULL look when completeLookMode is on (so a mid-
+    // session shirt/pants swap restyles the whole outfit), else just this garment.
+    if (isLive()) applyActive().catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
+}
+
+/* =============================================================================
+   "Complete the Look" (Total Look) — full-outfit selection + payload
+   ─────────────────────────────────────────────────────────────────────────
+   completeTheLook() is fired from a recommendation card: it slots the chosen
+   complementary piece in beside the currently active garment, flips on
+   completeLookMode, and (if a session is already live) restyles the whole outfit
+   in place. The strict 5s window, countdown, recording and reset logic are all
+   untouched — this only changes WHICH garments the existing goLive flow applies.
+   ============================================================================= */
+function completeTheLook(piece) {
+  // Slot the chosen complement in (top OR bottom) and refresh the active chip +
+  // recommendations. silent:true so we control the toast/apply ourselves below.
+  setActiveItem(piece, { silent: true });
+  completeLookMode = true;
+  $("completeLook").classList.add("is-complete");
+  resetToLive();
+
+  if (selectedTop && selectedBottom) {
+    toast(`לוק מלא: <b>${selectedTop.name}</b> + <b>${selectedBottom.name}</b>`);
+  } else {
+    toast(`נבחר להשלמת הלוק: <b>${piece.name}</b>`);
+  }
+
+  // If we're mid-session, restyle the live feed with BOTH garments immediately.
+  if (isLive()) applyActive().catch((e) => console.warn("apply look:", e?.message || e));
 }
 
 /* =============================================================================
@@ -822,12 +876,20 @@ function stopLiveCountdown() {
    5s window closes. On flush we build a Blob → object URL and reveal a clean
    "Download Video" button. Everything is torn down/revoked on the next session.
    ============================================================================= */
-/* vp8 first: it is the most broadly-supported, WebRTC-friendly codec and reliably
-   encodes the canvas VIDEO track into the .webm chunks (this is the black-screen
-   fix — a missing/unsupported codec is what left the file with no real video). */
+/* Codec selection is platform-aware (mobile download fix):
+   • MOBILE — try H.264 MP4 first. iOS Photos / Android galleries natively save MP4,
+     and the MP4 container carries a correct duration header, which kills the
+     "broken 14-second clip" bug WebM exhibits (WebM from MediaRecorder ships no
+     top-level duration, so phone players show a bogus/black length).
+   • DESKTOP — keep the proven VP8/WebM path (Chrome/Firefox encode the canvas track
+     into .webm most reliably; a missing/unsupported codec is what left the file
+     black). MP4 stays as a tail fallback either way.
+   Every candidate is feature-tested via isTypeSupported before use. */
 function pickRecorderMime() {
   if (typeof MediaRecorder === "undefined") return null;
-  const candidates = ["video/webm;codecs=vp8", "video/webm", "video/webm;codecs=vp9", "video/mp4"];
+  const mp4  = ["video/mp4;codecs=h264", "video/mp4;codecs=avc1.42E01E", "video/mp4"];
+  const webm = ["video/webm;codecs=vp8", "video/webm", "video/webm;codecs=vp9"];
+  const candidates = IS_MOBILE ? [...mp4, ...webm] : [...webm, ...mp4];
   for (const t of candidates) {
     try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (_) {}
   }
@@ -870,10 +932,20 @@ function startRecording() {
   };
   paint();
 
+  // iOS Safari only stabilised canvas.captureStream in 15.4 — if it's missing, bail
+  // cleanly so the live try-on itself is unaffected (we just skip the downloadable clip).
+  if (typeof recordCanvas.captureStream !== "function") {
+    console.warn("canvas.captureStream unsupported — clip recording disabled on this device");
+    stopPaintLoop();
+    return;
+  }
   const captured = recordCanvas.captureStream(30);   // 30 fps, video-only
   try {
     const mime = pickRecorderMime();
     mediaRecorder = new MediaRecorder(captured, mime ? { mimeType: mime } : undefined);
+    // Record what the recorder ACTUALLY negotiated so the Blob/File + filename carry
+    // the true container (the browser may pick something other than our request).
+    recorderMime = (mediaRecorder.mimeType || mime || "").toLowerCase() || null;
   } catch (e) {
     console.warn("MediaRecorder unavailable:", e?.message || e);
     stopPaintLoop();
@@ -909,9 +981,15 @@ function stopRecording() {
 /** Build the downloadable clip from the buffered chunks and reveal the button. */
 function finalizeRecording() {
   if (!recordedChunks.length) return;
-  const type = recordedChunks[0].type || "video/webm";
+  // Prefer the negotiated container MIME so the Blob/File advertise the real codec
+  // (mp4 vs webm) — mobile OSes key the "Save Video → gallery" affordance off a
+  // correct, complete video/* type. Strip any ";codecs=…" so the Blob type is the
+  // clean container the OS expects.
+  const raw = (recordedChunks[0] && recordedChunks[0].type) || recorderMime || "video/webm";
+  const type = raw.split(";")[0] || "video/webm";
   const blob = new Blob(recordedChunks, { type });
   recordedChunks = [];
+  recordedBlob = blob;
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
   recordedUrl = URL.createObjectURL(blob);
   showDownloadButton();
@@ -934,14 +1012,57 @@ function showDownloadButton() {
   btn.hidden = false;
 }
 
-/** Trigger a local save of the recorded clip. */
-function downloadRecording() {
-  if (!recordedUrl) return;
-  const ext = recordedUrl.indexOf("mp4") > -1 ? "mp4" : "webm";   // best-effort label
-  const name = (activeItem && activeItem.name ? activeItem.name : "session").replace(/\s+/g, "-");
+/**
+ * Save the recorded clip locally — mobile-first (mobile download fix).
+ *
+ * On phones the classic `<a download>` is unreliable: iOS Safari ignores the
+ * download attribute entirely (it just navigates to the blob, often playing it
+ * inline), so the clip never lands in Photos. The robust path is the Web Share API
+ * with a File — that opens the native share sheet whose "Save Video" action drops
+ * the clip straight into the iOS/Android gallery. We only reach for it when the
+ * platform reports it can actually share THIS file, and we fall back to the anchor
+ * download on desktop or when sharing is unavailable/declined.
+ *
+ * Must run inside the click gesture: the File is built synchronously and
+ * navigator.share() is invoked before any real async gap, preserving the gesture.
+ * @returns {Promise<void>}
+ */
+async function downloadRecording() {
+  if (!recordedBlob && !recordedUrl) return;
+  const type = (recordedBlob && recordedBlob.type) || (recorderMime || "").split(";")[0] || "video/webm";
+  const ext = type.indexOf("mp4") > -1 ? "mp4" : "webm";
+  const base = (activeItem && activeItem.name ? activeItem.name : "session").replace(/\s+/g, "-");
+  const filename = `pear-fitting-${base}.${ext}`;
+
+  // 1) Native gallery save via the share sheet (the reliable mobile path).
+  if (recordedBlob && typeof navigator.canShare === "function" && typeof navigator.share === "function") {
+    try {
+      const file = new File([recordedBlob], filename, { type });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "PEAR — מדידה וירטואלית",
+          text: "הלוק שלי מ-PEAR · PEAR virtual fitting",
+        });
+        return;                                   // saved/shared — done
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;   // user dismissed the sheet — not an error
+      console.warn("share failed, falling back to download:", err?.message || err);
+      // fall through to the anchor download below
+    }
+  }
+
+  // 2) Desktop / fallback: object-URL anchor download. Keep the URL alive (no
+  //    immediate revoke) so mobile browsers that open it in a new tab can still
+  //    read the blob and let the user long-press → "Save Video"; it is revoked on
+  //    the next session (clearRecording / finalizeRecording).
+  if (!recordedUrl && recordedBlob) recordedUrl = URL.createObjectURL(recordedBlob);
   const a = document.createElement("a");
   a.href = recordedUrl;
-  a.download = `pear-fitting-${name}.${ext}`;
+  a.download = filename;
+  a.rel = "noopener";
+  if (IS_MOBILE) a.target = "_blank";             // iOS w/o canShare: open so it can be saved manually
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -952,6 +1073,8 @@ function clearRecording() {
   stopPaintLoop();                     // ensure no stale paint loop leaks into the next session
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
   recordedChunks = [];
+  recordedBlob = null;
+  recorderMime = null;
   const btn = $("downloadBtn");
   if (btn) btn.hidden = true;
 }

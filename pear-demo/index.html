@@ -17,6 +17,32 @@
      SCREEN 1 — Size / body-measurement calculator (REQUIRED FIRST STEP)
      ════════════════════════════════════════════════════════════════════ -->
 <div id="screen-calculator" class="screen active">
+  <div class="calc-shell">
+
+    <!-- ░░ Editorial lookbook panel — premium B&W split-screen on desktop, an elegant
+         banner on mobile. Purely decorative: the photo is forced monochrome via CSS,
+         and if the remote image ever fails it removes itself, leaving a styled black
+         panel so the layout never reads as broken. ░░ -->
+    <aside class="calc-editorial">
+      <img class="calc-editorial__img"
+           src="https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=1100&q=80&sat=-100&auto=format&fit=crop"
+           alt="" aria-hidden="true" loading="eager" onerror="this.remove()">
+      <div class="calc-editorial__scrim"></div>
+      <div class="calc-editorial__content">
+        <span class="calc-editorial__kicker">PEAR · Atelier</span>
+        <h1 class="calc-editorial__headline">המידה שלך,<br>בדיוק מושלם</h1>
+        <p class="calc-editorial__lead">חדר הלבשה וירטואלי בזמן אמת — הלוק נמדד על הגוף שלך, מתוך נתונים ולא ניחושים.</p>
+        <ul class="calc-editorial__list">
+          <li>התאמת מידה אלגוריתמית מדויקת</li>
+          <li>מדידה חיה של הבגד על הגוף</li>
+          <li>שמירה והורדה של הלוק</li>
+        </ul>
+        <span class="calc-editorial__meta">Lookbook № 01 — Monochrome Capsule</span>
+      </div>
+    </aside>
+
+    <!-- ░░ Calculator column ░░ -->
+    <div class="calc-main">
     <div class="step-progress">
         <div class="step-progress-label">
             <span>שלב 1 מתוך 2 · Size</span>
@@ -69,6 +95,8 @@
 
         <button id="btn-next-screen" class="btn-primary" disabled>המשך לחדר המדידה הוירטואלי →</button>
     </div>
+    </div><!-- /.calc-main -->
+  </div><!-- /.calc-shell -->
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════
