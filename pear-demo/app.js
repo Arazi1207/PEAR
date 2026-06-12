@@ -919,23 +919,23 @@ function getSizeDelta() {
  */
 function getFitModifier(delta, garmentType) {
   if (garmentType === "upper_body") {
-    if (delta <= -2) return "extremely restrictive tight fit, fabric stretched aggressively across the chest, painfully short hem, sleeves pulling up";
-    if (delta === -1) return "slim and snug athletic fit, tightly tailored contour hugging the torso";
+    if (delta <= -2) return "sleek athletic compression fit, form-fitting tailored silhouette with a snug contour seamlessly hugging the torso, structurally intact fabric lying smooth and flat against the body, cropped hem sitting cleanly at the natural waistline";
+    if (delta === -1) return "slim tailored athletic fit, close contour following the torso with clean structural drape, fabric lying taut but smooth with no distortion";
     if (delta === 0)  return "perfectly tailored true-to-size fit, flawless natural drape with no excess fabric";
     if (delta === 1)  return "relaxed fit, slightly loose drape, comfortable room across the shoulders and chest";
-    /* delta >= 2 */  return "exaggerated oversized baggy fit, heavily dropped shoulders, excessive fabric bunching at the waist, ultra-long hem";
+    /* delta >= 2 */  return "oversized fashion-forward fit, generously dropped shoulders, easy relaxed volume through the torso, elongated hem with natural gravity drape";
   }
   /* lower_body */
-  if (delta <= -2) return "skin-tight compression fit, severely cropped above the ankles, fabric pulling tight at the thighs and knees";
-  if (delta === -1) return "slim and snug tailored fit, tightly fitted through the thighs and tapered at the calves";
+  if (delta <= -2) return "high-compression slim silhouette, fabric lying smooth and continuous from waist to ankle in a seamlessly fitted contour, structurally clean at the knee and thigh with no creasing or distortion, full-length inseam with a tailored ankle cuff";
+  if (delta === -1) return "slim tailored fit, close through the thigh and knee with a clean tapered leg, fabric draping smoothly to a narrow ankle opening";
   if (delta === 0)  return "perfectly tailored true-to-size fit, clean break at the ankle with no pooling";
   if (delta === 1)  return "relaxed wide fit, comfortable room through the thighs, natural break at the ankle";
-  /* delta >= 2 */  return "very loose baggy fit, extreme wide leg, fabric heavily pooling and dragging over the shoes, low crotch drop";
+  /* delta >= 2 */  return "wide-leg fashion silhouette, generous volume through the thigh with a sweeping leg that breaks softly over the shoe, clean continuous fabric geometry";
 }
 
 /* Appended to every VTON prompt to lock the engine into photorealistic output.
    Kept as a module constant so changing it in one place affects all call sites. */
-const QUALITY_SUFFIX = ", photorealistic real-world fabric texture, visible seams and stitching, micro-detailed weave, natural environmental lighting matching the user's room, cinematic shading, ultra-realistic physical garment appearance";
+const QUALITY_SUFFIX = ", photorealistic real-world fabric texture, visible seams and stitching, micro-detailed weave, natural environmental lighting matching the user's room, cinematic shading, ultra-realistic physical garment appearance, strictly maintain flawless fabric integrity, continuous realistic 3D mesh, and natural material physics without any glitching, strange horizontal bands, tearing, or unnatural structural folds";
 
 function buildPrompt(item) {
   const colorWord = colorName(item.color);
