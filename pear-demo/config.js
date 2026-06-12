@@ -51,7 +51,6 @@ export const CONFIG = Object.freeze({
      native-RTCPeerConnection hook in app.js because the SDK (LiveKit) owns the
      peer connection; app.js never sees the receiver or SDP directly. */
   PLAYOUT_DELAY_HINT: 0,            // seconds; 0 = decode+render immediately, no anti-jitter buffering (Chromium only)
-  PREFER_LOW_LATENCY_CODEC: false,  // SDP munge OFF by default: reordering LiveKit's negotiated codecs risks breaking
-                                    // the Decart session for ~0 latency gain. Flip to true only to experiment.
+  PREFER_LOW_LATENCY_CODEC: true,   // SDP munge ON: codec reorder + b=AS:4000 / b=TIAS:4000000 bandwidth injection.
   CODEC_PREFERENCE: Object.freeze(["VP8", "H264"]), // when the munge is ON, these are MOVED to the front of m=video (never removed)
 });

@@ -75,6 +75,33 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   // Move preferred (low-latency / hw-friendly) codecs to the front of the
   // m=video payload list. Conservative: codecs are only REORDERED, never
   // removed, so if the server ignores the hint the session still negotiates.
+  // Inject b=AS:4000 (kbps, RFC 4566) + b=TIAS:4000000 (bps, RFC 3890) into the
+  // m=video section, replacing any existing b= lines, to unlock 4 Mbps headroom.
+  // Always applied to both setLocalDescription and setRemoteDescription.
+  function mungeSdpBandwidth(sdp) {
+    try {
+      if (typeof sdp !== "string") return sdp;
+      const lines = sdp.split(/\r\n|\n/);
+      const mIdx = lines.findIndex((l) => l.startsWith("m=video"));
+      if (mIdx === -1) return sdp;
+
+      // Remove any pre-existing b= lines in the video section to avoid duplicates.
+      const secEnd = (() => { const i = lines.findIndex((l, j) => j > mIdx && l.startsWith("m=")); return i === -1 ? lines.length : i; })();
+      for (let i = mIdx + 1; i < secEnd; ) {
+        if (lines[i].startsWith("b=")) lines.splice(i, 1);
+        else i++;
+      }
+
+      // Insert after m=video and any immediately following c= line.
+      let at = mIdx + 1;
+      if (at < lines.length && lines[at].startsWith("c=")) at++;
+      lines.splice(at, 0, "b=AS:4000", "b=TIAS:4000000");
+      return lines.join("\r\n");
+    } catch (_) {
+      return sdp;
+    }
+  }
+
   function mungeSdpPreferCodec(sdp) {
     try {
       if (typeof sdp !== "string") return sdp;
@@ -109,9 +136,8 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   function Patched(...args) {
     const pc = new Native(...args);
 
-    // (1) playoutDelayHint — zero the anti-jitter buffer on the remote VIDEO
-    //     receiver the instant its track arrives. Chromium-only; the `in` guard
-    //     makes it a silent no-op on Firefox/Safari.
+    // (1) playoutDelayHint = 0 — flush the client jitter buffer immediately on every
+    //     incoming video track. Chromium-only; the `in` guard silently no-ops elsewhere.
     pc.addEventListener("track", (e) => {
       try {
         const r = e.receiver;
@@ -121,16 +147,28 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       } catch (_) {}
     });
 
-    // (2) optional SDP codec-preference munge — OFF by default (see config.js).
-    if (PREFER_LOW_LATENCY_CODEC) {
-      const origSetLocal = pc.setLocalDescription.bind(pc);
-      pc.setLocalDescription = function (desc) {
-        if (desc && desc.sdp) {
-          try { desc = { type: desc.type, sdp: mungeSdpPreferCodec(desc.sdp) }; } catch (_) {}
-        }
-        return origSetLocal(desc);
-      };
-    }
+    // (2) SDP bandwidth munge (always ON) applied to both directions so the encoder
+    //     on both ends is given 4 Mbps headroom instead of the browser default (~600 kbps).
+    //     Codec-preference reorder is optional (gated by PREFER_LOW_LATENCY_CODEC).
+    const origSetLocal = pc.setLocalDescription.bind(pc);
+    pc.setLocalDescription = function (desc) {
+      if (desc && desc.sdp) {
+        try {
+          let sdp = mungeSdpBandwidth(desc.sdp);
+          if (PREFER_LOW_LATENCY_CODEC) sdp = mungeSdpPreferCodec(sdp);
+          desc = { type: desc.type, sdp };
+        } catch (_) {}
+      }
+      return origSetLocal(desc);
+    };
+
+    const origSetRemote = pc.setRemoteDescription.bind(pc);
+    pc.setRemoteDescription = function (desc) {
+      if (desc && desc.sdp) {
+        try { desc = { type: desc.type, sdp: mungeSdpBandwidth(desc.sdp) }; } catch (_) {}
+      }
+      return origSetRemote(desc);
+    };
 
     return pc;
   }
@@ -229,6 +267,7 @@ let recorderMime = null;     // the container/codec MediaRecorder actually negot
 let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
 let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
 let recordingActive = false; // guards the paint loop + single-start per session
+let replayActive = false;   // true while the user is watching the cached local replay
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -542,11 +581,14 @@ async function startCamera() {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width: { ideal: 720 },
-          height: { ideal: 960 },
-          frameRate: { ideal: 30, max: 30 },   // match Lucy-VTON's 30fps target — no capture-side cadence mismatch
+          width: { ideal: 1920, max: 3840 },
+          height: { ideal: 1080, max: 2160 },
+          frameRate: { ideal: 30, max: 60 },
         },
         audio: false,
+      });
+      localStream.getVideoTracks().forEach((t) => {
+        if ("contentHint" in t) t.contentHint = "motion";
       });
       const v = $("webcam");
       v.srcObject = localStream;
@@ -573,6 +615,7 @@ function showCamError(msg) {
 }
 
 function resetToLive() {
+  if (!isLive()) clearRecording();   // revoke replay URL + hide post-session buttons when no active API session
   card().classList.remove("show-result");
   $("scanOverlay").hidden = true;
   $("retakeBtn").hidden = true;
@@ -701,6 +744,7 @@ async function connectRealtime() {
        disconnects; cloning means it stops its OWN copies, leaving localStream
        (our persistent preview) alive and reusable for the next try-on. */
     realtimeInput = new MediaStream(localStream.getTracks().map((t) => t.clone()));
+    realtimeInput.getVideoTracks().forEach((t) => { if ("contentHint" in t) t.contentHint = "motion"; });
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
@@ -1181,6 +1225,46 @@ function stopPaintLoop() {
   recordCanvas = null;
 }
 
+/** Stop any in-progress local replay without touching the recorder or API state. */
+function stopReplay() {
+  if (!replayActive) return;
+  replayActive = false;
+  const ai = $("aiVideo");
+  if (ai) {
+    ai.onended = null;
+    try { ai.pause(); } catch (_) {}
+    ai.src = "";
+    ai.style.display = "none";
+  }
+  const c = card();
+  if (c) c.classList.remove("show-live");
+}
+
+/**
+ * Point #aiVideo at the cached local blob URL and play it back. Zero network
+ * requests, zero billable API time — pure local blob replay, repeatable.
+ */
+function watchAgain() {
+  if (!recordedUrl) return;
+  const ai = $("aiVideo");
+  if (!ai) return;
+  replayActive = true;
+  ai.src = recordedUrl;
+  ai.style.display = "";    // clear teardown's inline display:none so the CSS class can take over
+  ai.currentTime = 0;
+  card().classList.add("show-live");
+  card().classList.remove("show-result");
+  ai.play().catch(() => {});
+  ai.onended = () => {
+    ai.onended = null;      // clear first to survive any re-entrant watchAgain() call
+    replayActive = false;
+    ai.src = "";
+    ai.style.display = "none";
+    card().classList.remove("show-live");
+    card().classList.add("show-result");
+  };
+}
+
 /**
  * Force-stop the recorder. Called at EXACTLY LIVE_DURATION_MS (autoStopAndFreeze)
  * and again by teardown — idempotent. onstop → finalizeRecording builds the clip.
@@ -1210,21 +1294,43 @@ function finalizeRecording() {
   showDownloadButton();
 }
 
-/** Inject (once) and reveal the "Download Video" button beside the controls. */
+/** Inject (once) and reveal the "Watch Again" + "Download Video" capsule pair. */
 function showDownloadButton() {
-  let btn = $("downloadBtn");
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.id = "downloadBtn";
-    btn.className = "btn-download";
-    btn.type = "button";
-    btn.innerHTML = '<span class="btn-download__icon">⬇</span>' +
-      '<span>הורד וידאו</span><span class="btn-download__en">Download Video</span>';
-    btn.addEventListener("click", downloadRecording);
+  let row = $("postSessionActions");
+  if (!row) {
+    row = document.createElement("div");
+    row.id = "postSessionActions";
+    row.className = "post-session-actions";
+
+    // "Watch Again" — solid-black capsule (replay local blob, zero API cost)
+    const watchBtn = document.createElement("button");
+    watchBtn.id = "watchAgainBtn";
+    watchBtn.className = "btn-watch";
+    watchBtn.type = "button";
+    watchBtn.innerHTML =
+      '<span class="btn-watch__icon">▶</span>' +
+      '<span>צפה שוב</span>' +
+      '<span class="btn-watch__en">Watch Again</span>';
+    watchBtn.addEventListener("click", watchAgain);
+
+    // "Download Video" — white-capsule (save clip to device)
+    const dlBtn = document.createElement("button");
+    dlBtn.id = "downloadBtn";
+    dlBtn.className = "btn-download";
+    dlBtn.type = "button";
+    dlBtn.innerHTML =
+      '<span class="btn-download__icon">⬇</span>' +
+      '<span>הורד וידאו</span>' +
+      '<span class="btn-download__en">Download Video</span>';
+    dlBtn.addEventListener("click", downloadRecording);
+
+    row.appendChild(watchBtn);
+    row.appendChild(dlBtn);
+
     const controls = document.querySelector(".cam-controls");
-    (controls || card()).appendChild(btn);
+    (controls || card()).appendChild(row);
   }
-  btn.hidden = false;
+  row.hidden = false;
 }
 
 /**
@@ -1283,15 +1389,16 @@ async function downloadRecording() {
   a.remove();
 }
 
-/** Drop the current clip + hide the button (called when a new session starts). */
+/** Drop the current clip, stop any replay, and hide post-session buttons. */
 function clearRecording() {
   stopPaintLoop();                     // ensure no stale paint loop leaks into the next session
+  stopReplay();                        // abort any in-progress local blob replay
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
   recordedChunks = [];
   recordedBlob = null;
   recorderMime = null;
-  const btn = $("downloadBtn");
-  if (btn) btn.hidden = true;
+  const row = $("postSessionActions");
+  if (row) row.hidden = true;
 }
 
 /* ── offline-dev mock (ONLY via ?demo=1) ─────────────────────────────────── */

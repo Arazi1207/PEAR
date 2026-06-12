@@ -618,9 +618,34 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 }
 @keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.16); } }
 
-/* ── Feature 2 — "Download Video" button (sits in .cam-controls) ──────────── */
+/* ── Feature 2 — "Watch Again" + "Download Video" side-by-side capsule row ─── */
+
+/* Flex-row wrapper injected by showDownloadButton() */
+.post-session-actions {
+  display: flex; gap: 12px; width: 100%;
+}
+.post-session-actions[hidden] { display: none; }
+
+/* Both capsules fill equal width inside the row */
+.post-session-actions .btn-watch,
+.post-session-actions .btn-download { flex: 1; width: auto; min-width: 0; }
+
+/* "Watch Again" — solid black capsule (primary replay action) */
+.btn-watch {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 14px 24px; border: 1px solid var(--ink); border-radius: var(--pill);
+  background: var(--ink); color: #fff; cursor: pointer; font-weight: 800;
+  font-family: "Urbanist", sans-serif; font-size: 1rem;
+  transition: background .2s, color .2s, transform .12s;
+}
+.btn-watch:hover { background: #fff; color: var(--ink); transform: translateY(-1px); }
+.btn-watch:active { transform: translateY(0); }
+.btn-watch__icon { font-size: 1.15rem; }
+.btn-watch__en { font-size: .74rem; opacity: .7; letter-spacing: .06em; }
+
+/* "Download Video" — white capsule (secondary save action) */
 .btn-download {
-  width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 14px 24px; border: 1px solid var(--ink); border-radius: var(--pill);
   background: #fff; color: var(--ink); cursor: pointer; font-weight: 800;
   font-family: "Urbanist", sans-serif; font-size: 1rem;
@@ -629,4 +654,3 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 .btn-download:hover { background: var(--ink); color: #fff; transform: translateY(-1px); }
 .btn-download__icon { font-size: 1.15rem; filter: grayscale(1); }
 .btn-download__en { font-size: .74rem; opacity: .7; letter-spacing: .06em; }
-.btn-download[hidden] { display: none; }
