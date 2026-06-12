@@ -263,7 +263,6 @@ let liveCountdownTimer = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordedUrl = null;
-let replayUrl = null;        // "Watch Again": same blob-backed URL, cached for unlimited local replay (no network/billing)
 let recordedBlob = null;     // the finalized clip Blob — kept so we can build a File for the share sheet
 let recorderMime = null;     // the container/codec MediaRecorder actually negotiated (mp4 vs webm)
 let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
@@ -1428,8 +1427,7 @@ function ensureReplayZone() {
   return zone;
 }
 
-/** Build the downloadable clip from the buffered chunks, reveal the Replay Zone,
- *  and wire the quick-access buttons in the capture controls area. */
+/** Build the downloadable clip from the buffered chunks and reveal the Replay Zone. */
 function finalizeRecording() {
   if (!recordedChunks.length) return;
   const raw = (recordedChunks[0] && recordedChunks[0].type) || recorderMime || "video/webm";
@@ -1439,92 +1437,17 @@ function finalizeRecording() {
   recordedBlob = blob;
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
   recordedUrl = URL.createObjectURL(blob);
-  replayUrl = recordedUrl;
 
   // Populate the dedicated Replay Zone and fade it in below the camera card.
   const zone = ensureReplayZone();
   const vid = $("pearReplayVideo");
-  if (vid) { vid.src = replayUrl; vid.muted = true; vid.load(); }
+  if (vid) { vid.src = recordedUrl; vid.muted = true; vid.load(); }
   const titleEl = $("pearRzTitle");
   if (titleEl) titleEl.textContent = activeItem ? activeItem.name : "";
 
   zone.classList.add("is-visible");
   // Two-rAF trick: browser paints display:block first, then transition fires.
   requestAnimationFrame(() => requestAnimationFrame(() => zone.classList.add("is-ready")));
-
-  showDownloadButton();
-  showWatchAgainButton();
-}
-
-/** Lazily create the side-by-side quick-action row above the capture button. */
-function resultActionsRow() {
-  let row = $("resultActions");
-  if (!row) {
-    row = document.createElement("div");
-    row.id = "resultActions";
-    row.className = "result-actions";
-    const controls = document.querySelector(".cam-controls");
-    (controls || card()).appendChild(row);
-  }
-  return row;
-}
-
-/** Inject (once) and reveal the "Download Video" quick-button. */
-function showDownloadButton() {
-  const row = resultActionsRow();
-  let btn = $("downloadBtn");
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.id = "downloadBtn";
-    btn.className = "btn-download";
-    btn.type = "button";
-    btn.innerHTML = '<span class="btn-download__icon">⬇</span>' +
-      '<span>הורד וידאו</span><span class="btn-download__en">Download Video</span>';
-    btn.addEventListener("click", downloadRecording);
-    row.appendChild(btn);
-  }
-  btn.hidden = false;
-  row.classList.add("show");
-}
-
-/** Inject (once) and reveal the "Watch Again" quick-button. Clicking it scrolls
- *  the user down to the Replay Zone and triggers playback there. */
-function showWatchAgainButton() {
-  if (!replayUrl) return;
-  const row = resultActionsRow();
-  let btn = $("watchAgainBtn");
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.id = "watchAgainBtn";
-    btn.className = "btn-watch";
-    btn.type = "button";
-    btn.innerHTML = '<span class="btn-watch__icon">↺</span>' +
-      '<span>צפה שוב</span><span class="btn-watch__en">Watch Again</span>';
-    btn.addEventListener("click", watchAgain);
-    row.appendChild(btn);
-  }
-  btn.hidden = false;
-  row.classList.add("show");
-}
-
-/**
- * Scroll to the Replay Zone and (re)start playback of the cached local blob.
- * Zero network requests, zero billable API time — pure local replay.
- */
-function watchAgain() {
-  if (!replayUrl) return;
-  const zone = ensureReplayZone();
-  const vid = $("pearReplayVideo");
-  if (!vid) return;
-
-  replayActive = true;
-  if (vid.src !== replayUrl) { vid.src = replayUrl; vid.load(); }
-  vid.onended = () => { replayActive = false; };
-
-  // Smooth-scroll to the Replay Zone so the user sees it, then play.
-  zone.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  // Brief delay lets the scroll settle before playback starts.
-  setTimeout(() => vid.play().catch(() => {}), 120);
 }
 
 /**
@@ -1588,7 +1511,6 @@ function clearRecording() {
   stopPaintLoop();                     // ensure no stale paint loop leaks into the next session
   stopReplay();                        // abort any in-progress local blob replay
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} recordedUrl = null; }
-  replayUrl = null;                    // same underlying URL as recordedUrl — already revoked above
   recordedChunks = [];
   recordedBlob = null;
   recorderMime = null;
@@ -1607,12 +1529,6 @@ function clearRecording() {
     const titleEl = $("pearRzTitle");
     if (titleEl) titleEl.textContent = "";
   }
-
-  // Hide the quick-access Download / Watch-Again row in the capture controls.
-  const row = $("resultActions");
-  if (row) row.classList.remove("show");
-  const dl = $("downloadBtn"); if (dl) dl.hidden = true;
-  const wa = $("watchAgainBtn"); if (wa) wa.hidden = true;
 }
 
 /* ── offline-dev mock (ONLY via ?demo=1) ─────────────────────────────────── */
