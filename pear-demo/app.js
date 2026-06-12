@@ -218,6 +218,7 @@ const $ = (s) => document.getElementById(s);
 
 /* ── state ───────────────────────────────────────────────────────────────── */
 let currentUserSize = null;
+let activeTryOnSize = null;   // size the user has selected in the Screen 2 override selector
 let activeItem = null;
 let focusMode = false;
 
@@ -282,6 +283,9 @@ const ZARA_SIZE_CHART = [
   { size: "L",  minHeight: 178, maxHeight: 186, minWeight: 75, maxWeight: 87,  minChest: 102, maxChest: 110, minWaist: 88, maxWaist: 96,  minLegs: 102, maxLegs: 106 },
   { size: "XL", minHeight: 184, maxHeight: 195, minWeight: 85, maxWeight: 100, minChest: 110, maxChest: 118, minWaist: 96, maxWaist: 106, minLegs: 106, maxLegs: 112 },
 ];
+
+/* Ordered size scale used for relative-fit comparison in the override selector. */
+const SIZE_SCALE = ["S", "M", "L", "XL", "XXL"];
 
 /* Task 6 — conditional input flow: the optional fields stay hidden until BOTH
    mandatory fields (height + weight) hold sane, in-range values. */
@@ -457,6 +461,10 @@ function enterRoom() {
 
   $("completeLook").hidden = false;
   setConn("idle");
+
+  // Reset the size override to the Screen-1 recommendation and rebuild the selector UI.
+  activeTryOnSize = currentUserSize;
+  injectSizeSelector();
 }
 
 function setActiveItem(item, opts = {}) {
@@ -856,14 +864,57 @@ async function applyGarment(item) {
   await rtClient.set(payload);
 }
 
+/**
+ * Reads the size-calculator inputs collected in Screen 1 and returns a
+ * structured anatomical-constraint clause ready to be appended to any VTON
+ * prompt. Falls back to a generic high-fidelity draping instruction when the
+ * user skipped the calculator or filled only the mandatory fields.
+ */
+function buildBodyProfileString() {
+  const num = (id) => { const el = $(id); return el && el.value ? parseFloat(el.value) : null; };
+  const height = num("height"), weight = num("weight");
+  const chest  = num("chest"),  waist  = num("waist"),  legs = num("legs");
+  const size   = currentUserSize;
+
+  const parts = [];
+  if (height) parts.push(`an exact height of ${height}cm`);
+  if (weight) parts.push(`weight of ${weight}kg`);
+  if (chest)  parts.push(`chest circumference of ${chest}cm`);
+  if (waist)  parts.push(`waist of ${waist}cm`);
+  if (legs)   parts.push(`inseam of ${legs}cm`);
+  if (size)   parts.push(`matching size ${size}`);
+
+  if (parts.length >= 2) {
+    return `, tailored precisely to a photorealistic body model with ${parts.join(", ")}. The fabric must warp, drape, and wrinkle realistically according to these exact anatomical proportions, ensuring zero generic guessing, high-fidelity texture fit, and flawless physical alignment`;
+  }
+  return ", with photorealistic fabric drape, high-fidelity texture mapping, and true-to-life anatomical fit — no generic guessing, maximum physical fidelity";
+}
+
+/**
+ * Returns a fit-modifier clause based on how the user's size override compares to
+ * their calculated recommendation. Empty string when no override or sizes match.
+ */
+function buildFitModifier() {
+  if (!currentUserSize || !activeTryOnSize) return "";
+  const baseIdx = SIZE_SCALE.indexOf(currentUserSize);
+  const pickIdx = SIZE_SCALE.indexOf(activeTryOnSize);
+  if (baseIdx === -1 || pickIdx === -1 || pickIdx === baseIdx) return "";
+  if (pickIdx < baseIdx) {
+    return ", tight fit, skin-tight, snug compression fit, slightly short hem, fabric pulling tightly against the body proportions";
+  }
+  return ", oversized look, loose baggy fit, relaxed drop-shoulder draping, extra length, spacious fabric wrinkles";
+}
+
 function buildPrompt(item) {
   const colorWord = colorName(item.color);
   const sub = SUBTYPE_PROMPT[item.subType] || "";
+  const bodyProfile = buildBodyProfileString();
+  const fitMod = buildFitModifier();
   if (item.garmentType === "lower_body") {
-    return `Substitute the current bottoms with ${colorWord} ${sub} trousers, realistic fabric, natural drape and a true-to-life fit.`.replace(/\s+/g, " ").trim();
+    return `Substitute the current bottoms with ${colorWord} ${sub} trousers, realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`.replace(/\s+/g, " ").trim();
   }
   const noun = SHIRT_NOUN[item.subType] || "top";
-  return `Substitute the current top with a ${colorWord} ${sub} ${noun}, realistic fabric, natural drape and a true-to-life fit.`.replace(/\s+/g, " ").trim();
+  return `Substitute the current top with a ${colorWord} ${sub} ${noun}, realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -931,8 +982,156 @@ function buildLookPrompt(top, bottom) {
   const tColor = colorName(top.color), tSub = SUBTYPE_PROMPT[top.subType] || "";
   const tNoun = SHIRT_NOUN[top.subType] || "top";
   const bColor = colorName(bottom.color), bSub = SUBTYPE_PROMPT[bottom.subType] || "";
-  return `Dress the person in one complete outfit in a single pass: replace the top with a ${tColor} ${tSub} ${tNoun} and at the same time replace the bottoms with ${bColor} ${bSub} trousers. Render both garments together with realistic fabric, natural drape and a true-to-life fit.`
+  const bodyProfile = buildBodyProfileString();
+  const fitMod = buildFitModifier();
+  return `Dress the person in one complete outfit in a single pass: replace the top with a ${tColor} ${tSub} ${tNoun} and at the same time replace the bottoms with ${bColor} ${bSub} trousers. Render both garments together with realistic fabric, natural drape and a true-to-life fit${bodyProfile}${fitMod}.`
     .replace(/\s+/g, " ").trim();
+}
+
+/* =============================================================================
+   Size Override Selector — Screen 2 (Try-On room)
+   ─────────────────────────────────────────────────────────────────────────
+   A glassmorphism button row (S / M / L / XL / XXL) injected below the active-
+   garment chip. The button matching currentUserSize is highlighted by default.
+   Selecting a different size sets activeTryOnSize, which buildFitModifier() then
+   uses to append tight-fit or oversized descriptors to the VTON prompt. If a
+   WebRTC session is already live, applyActive() is called immediately so the
+   garment resizes without restarting the connection.
+   ============================================================================= */
+function injectSizeSelector() {
+  // Remove any stale selector from a previous room entry before rebuilding.
+  const old = $("pearSizeSelector");
+  if (old) old.remove();
+
+  if (!$("pearSizeSelectorStyles")) {
+    const s = document.createElement("style");
+    s.id = "pearSizeSelectorStyles";
+    s.textContent = `
+      #pearSizeSelector {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 12px 0 4px;
+        padding: 10px 14px;
+        background: rgba(30, 30, 38, 0.60);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      }
+      .pear-sz-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.40);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .pear-sz-btns {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .pear-sz-btn {
+        min-width: 40px;
+        padding: 6px 11px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.60);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .04em;
+        cursor: pointer;
+        transition: background .14s ease, border-color .14s ease,
+                    color .14s ease, box-shadow .14s ease, transform .1s ease;
+      }
+      .pear-sz-btn:hover {
+        background: rgba(255,255,255,0.10);
+        border-color: rgba(255,255,255,0.22);
+        color: #fff;
+      }
+      .pear-sz-btn:active { transform: scale(0.93); }
+      .pear-sz-btn.is-active {
+        background: #149c7a;
+        border-color: #149c7a;
+        color: #fff;
+        box-shadow: 0 2px 12px rgba(20,156,122,0.38);
+      }
+      .pear-sz-hint {
+        margin-left: auto;
+        font-size: 10px;
+        color: rgba(255,255,255,0.28);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  const row = document.createElement("div");
+  row.id = "pearSizeSelector";
+  row.setAttribute("aria-label", "Size override selector");
+
+  const current = activeTryOnSize || currentUserSize;
+  const btnHtml = SIZE_SCALE.map((sz) => {
+    const isActive = sz === current;
+    const isRec    = sz === currentUserSize;
+    return `<button class="pear-sz-btn${isActive ? " is-active" : ""}" data-sz="${sz}" type="button" aria-pressed="${isActive}">${sz}${isRec ? " ★" : ""}</button>`;
+  }).join("");
+
+  row.innerHTML =
+    `<span class="pear-sz-label">מידה · Size</span>` +
+    `<div class="pear-sz-btns">${btnHtml}</div>` +
+    (currentUserSize ? `<span class="pear-sz-hint">★ מומלצת</span>` : "");
+
+  row.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pear-sz-btn");
+    if (btn) setSizeOverride(btn.dataset.sz);
+  });
+
+  // Insert directly below the active-garment chip; fall back to #cameraCard.
+  const anchor = $("activeGarment");
+  if (anchor && anchor.parentNode) {
+    anchor.parentNode.insertBefore(row, anchor.nextSibling);
+  } else {
+    const cc = $("cameraCard");
+    if (cc) cc.appendChild(row);
+  }
+}
+
+/**
+ * Switch the active try-on size, refresh button highlight states, and — if a
+ * WebRTC session is currently live — push a new prompt payload immediately so
+ * the garment resizes in real-time without restarting the connection.
+ * @param {string} size — one of SIZE_SCALE ('S'|'M'|'L'|'XL'|'XXL')
+ */
+function setSizeOverride(size) {
+  activeTryOnSize = size;
+
+  document.querySelectorAll(".pear-sz-btn").forEach((btn) => {
+    const on = btn.dataset.sz === size;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+
+  if (isLive()) {
+    applyActive().catch((e) => console.warn("size override apply:", e?.message || e));
+  }
+
+  const baseIdx = SIZE_SCALE.indexOf(currentUserSize);
+  const pickIdx = SIZE_SCALE.indexOf(size);
+  if (!currentUserSize || baseIdx === -1) {
+    toast(`מידה שנבחרה: <b>${size}</b>`);
+  } else if (pickIdx < baseIdx) {
+    toast(`מידה <b>${size}</b> — הלבוש יראה הדוק יותר`);
+  } else if (pickIdx > baseIdx) {
+    toast(`מידה <b>${size}</b> — הלבוש יראה גדול יותר`);
+  } else {
+    toast(`מידה <b>${size}</b> — התאמה מדויקת`);
+  }
 }
 
 /* =============================================================================
