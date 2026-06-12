@@ -23,6 +23,7 @@
  * @property {number}   PLAYOUT_DELAY_HINT      Chromium RTCRtpReceiver.playoutDelayHint (seconds). 0 = render ASAP.
  * @property {boolean}  PREFER_LOW_LATENCY_CODEC Opt-in SDP codec-preference munge (default OFF — see note below).
  * @property {string[]} CODEC_PREFERENCE        Codec order tried when the munge flag is ON (reorder only, never remove).
+ * @property {number}   VIDEO_TARGET_BITRATE_KBPS Max video bitrate forced into the m=video SDP (b=AS, kbps). 0 disables the munge.
  */
 
 /** @type {Readonly<PearConfig>} */
@@ -53,4 +54,11 @@ export const CONFIG = Object.freeze({
   PLAYOUT_DELAY_HINT: 0,            // seconds; 0 = decode+render immediately, no anti-jitter buffering (Chromium only)
   PREFER_LOW_LATENCY_CODEC: true,   // SDP munge ON: codec reorder + b=AS:4000 / b=TIAS:4000000 bandwidth injection.
   CODEC_PREFERENCE: Object.freeze(["VP8", "H264"]), // when the munge is ON, these are MOVED to the front of m=video (never removed)
+
+  /* Force a high video bitrate ceiling into BOTH descriptions' m=video section
+     (b=AS:<kbps> + b=TIAS:<bps>) so the network can't compress the HD camera /
+     VTON output down to a blurry low-bitrate stream. ADDITIVE only — it inserts a
+     bandwidth line, never touches payloads/codecs — so negotiation stays intact.
+     Set to 0 to disable. ~4 Mbps comfortably carries 1080p30. */
+  VIDEO_TARGET_BITRATE_KBPS: 4000,
 });
