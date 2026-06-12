@@ -1231,14 +1231,8 @@ function stopPaintLoop() {
 function stopReplay() {
   if (!replayActive) return;
   replayActive = false;
-  const ai = $("aiVideo");
-  if (ai) {
-    ai.onended = null;
-    try { ai.pause(); } catch (_) {}
-    ai.removeAttribute("src");
-    try { ai.load(); } catch (_) {}
-  }
-  card().classList.remove("replaying");
+  const vid = $("pearReplayVideo");
+  if (vid) { vid.onended = null; try { vid.pause(); } catch (_) {} }
 }
 
 /**
@@ -1253,13 +1247,191 @@ function stopRecording() {
   mediaRecorder = null;
 }
 
-/** Build the downloadable clip from the buffered chunks and reveal the button. */
+/* =============================================================================
+   Replay Zone — dedicated, premium UI injected below the camera card
+   ─────────────────────────────────────────────────────────────────────────
+   Once the 5-second clip is finalised we surface a glassmorphism "Replay Zone"
+   directly below #cameraCard. It holds a proper <video> element with native
+   controls so the user can scrub, replay, and download without any extra taps.
+   The Watch-Again quick-button in the capture controls area scrolls them here.
+   ============================================================================= */
+
+/** Inject the Replay Zone CSS exactly once into <head>. */
+function injectReplayStyles() {
+  if ($("pearReplayStyles")) return;
+  const s = document.createElement("style");
+  s.id = "pearReplayStyles";
+  s.textContent = `
+    /* ── PEAR Replay Zone ──────────────────────────────────────────── */
+    #pearReplayZone {
+      margin-top: 18px;
+      border-radius: 16px;
+      background: rgba(18, 18, 26, 0.84);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(20,156,122,.3);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,.04),
+        0 12px 40px rgba(0,0,0,.5);
+      padding: 16px 16px 14px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity .4s cubic-bezier(.4,0,.2,1),
+                  transform .4s cubic-bezier(.4,0,.2,1);
+      display: none;
+    }
+    #pearReplayZone.is-visible { display: block; }
+    #pearReplayZone.is-ready   { opacity: 1; transform: translateY(0); }
+
+    .pear-rz-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .pear-rz-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #149c7a;
+      background: rgba(20,156,122,.12);
+      border: 1px solid rgba(20,156,122,.28);
+      border-radius: 99px;
+      padding: 4px 10px 4px 8px;
+    }
+    .pear-rz-badge::before {
+      content: '●';
+      font-size: 7px;
+      animation: pearRzPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pearRzPulse {
+      0%,100% { opacity:.9; } 50% { opacity:.22; }
+    }
+    .pear-rz-title {
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255,255,255,.45);
+      letter-spacing: .02em;
+      max-width: 55%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    #pearReplayVideo {
+      width: 100%;
+      max-height: 480px;
+      border-radius: 10px;
+      display: block;
+      background: #000;
+      object-fit: contain;
+    }
+
+    .pear-rz-actions {
+      display: flex;
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .pear-rz-btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: transform .13s ease, box-shadow .13s ease, background .13s ease;
+      white-space: nowrap;
+    }
+    .pear-rz-btn:active { transform: scale(.96); }
+    .pear-rz-btn__en {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: .65;
+    }
+    .pear-rz-btn--replay {
+      background: rgba(255,255,255,.07);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .pear-rz-btn--replay:hover {
+      background: rgba(255,255,255,.12);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.18);
+    }
+    .pear-rz-btn--dl {
+      background: #149c7a;
+      color: #fff;
+    }
+    .pear-rz-btn--dl:hover {
+      background: #12b389;
+      box-shadow: 0 4px 18px rgba(20,156,122,.38);
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+/**
+ * Lazily create (once) the Replay Zone DOM and insert it directly below
+ * #cameraCard. Returns the zone element. Buttons are wired at construction.
+ */
+function ensureReplayZone() {
+  let zone = $("pearReplayZone");
+  if (!zone) {
+    zone = document.createElement("div");
+    zone.id = "pearReplayZone";
+    zone.setAttribute("aria-label", "Replay zone");
+    zone.innerHTML =
+      `<div class="pear-rz-header">` +
+        `<span class="pear-rz-badge">ההקלטה שלך · Your Try-On</span>` +
+        `<span id="pearRzTitle" class="pear-rz-title"></span>` +
+      `</div>` +
+      `<video id="pearReplayVideo" class="pear-rz-video"` +
+             ` controls loop playsinline muted preload="metadata"></video>` +
+      `<div class="pear-rz-actions">` +
+        `<button id="pearRzReplayBtn" class="pear-rz-btn pear-rz-btn--replay" type="button">` +
+          `<span aria-hidden="true">↺</span>` +
+          `<span>צפה שוב</span>` +
+          `<span class="pear-rz-btn__en">Replay</span>` +
+        `</button>` +
+        `<button id="pearRzDlBtn" class="pear-rz-btn pear-rz-btn--dl" type="button">` +
+          `<span aria-hidden="true">⬇</span>` +
+          `<span>הורד</span>` +
+          `<span class="pear-rz-btn__en">Download</span>` +
+        `</button>` +
+      `</div>`;
+
+    zone.querySelector("#pearRzReplayBtn").addEventListener("click", () => {
+      const v = $("pearReplayVideo");
+      if (!v) return;
+      replayActive = true;
+      try { v.currentTime = 0; } catch (_) {}
+      v.play().catch(() => {});
+    });
+    zone.querySelector("#pearRzDlBtn").addEventListener("click", downloadRecording);
+
+    const anchor = card();
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(zone, anchor.nextSibling);
+    } else {
+      document.body.appendChild(zone);
+    }
+  }
+  return zone;
+}
+
+/** Build the downloadable clip from the buffered chunks, reveal the Replay Zone,
+ *  and wire the quick-access buttons in the capture controls area. */
 function finalizeRecording() {
   if (!recordedChunks.length) return;
-  // Prefer the negotiated container MIME so the Blob/File advertise the real codec
-  // (mp4 vs webm) — mobile OSes key the "Save Video → gallery" affordance off a
-  // correct, complete video/* type. Strip any ";codecs=…" so the Blob type is the
-  // clean container the OS expects.
   const raw = (recordedChunks[0] && recordedChunks[0].type) || recorderMime || "video/webm";
   const type = raw.split(";")[0] || "video/webm";
   const blob = new Blob(recordedChunks, { type });
@@ -1267,13 +1439,24 @@ function finalizeRecording() {
   recordedBlob = blob;
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
   recordedUrl = URL.createObjectURL(blob);
-  replayUrl = recordedUrl;             // cache the SAME blob-backed URL for local "Watch Again"
+  replayUrl = recordedUrl;
+
+  // Populate the dedicated Replay Zone and fade it in below the camera card.
+  const zone = ensureReplayZone();
+  const vid = $("pearReplayVideo");
+  if (vid) { vid.src = replayUrl; vid.muted = true; vid.load(); }
+  const titleEl = $("pearRzTitle");
+  if (titleEl) titleEl.textContent = activeItem ? activeItem.name : "";
+
+  zone.classList.add("is-visible");
+  // Two-rAF trick: browser paints display:block first, then transition fires.
+  requestAnimationFrame(() => requestAnimationFrame(() => zone.classList.add("is-ready")));
+
   showDownloadButton();
-  showWatchAgainButton();              // sits right beside Download once the 5s session ends
+  showWatchAgainButton();
 }
 
-/** Lazily create the side-by-side (flex-row) action row that holds Download +
- *  Watch-Again, so both capsules sit next to each other under the capture button. */
+/** Lazily create the side-by-side quick-action row above the capture button. */
 function resultActionsRow() {
   let row = $("resultActions");
   if (!row) {
@@ -1286,7 +1469,7 @@ function resultActionsRow() {
   return row;
 }
 
-/** Inject (once) and reveal the "Download Video" button inside the action row. */
+/** Inject (once) and reveal the "Download Video" quick-button. */
 function showDownloadButton() {
   const row = resultActionsRow();
   let btn = $("downloadBtn");
@@ -1304,9 +1487,8 @@ function showDownloadButton() {
   row.classList.add("show");
 }
 
-/** Inject (once) and reveal the "צפה שוב / Watch Again" button beside Download.
- *  Replay is 100% local (cached blob URL) — never a network request or a new
- *  billable AI session. */
+/** Inject (once) and reveal the "Watch Again" quick-button. Clicking it scrolls
+ *  the user down to the Replay Zone and triggers playback there. */
 function showWatchAgainButton() {
   if (!replayUrl) return;
   const row = resultActionsRow();
@@ -1325,22 +1507,24 @@ function showWatchAgainButton() {
   row.classList.add("show");
 }
 
-/** Replay the cached 5-second clip locally on #aiVideo — as many times as the
- *  user likes, with zero network/billing. Lifts the clip above the frozen result
- *  canvas for the duration of playback, then restores the frozen frame on end. */
+/**
+ * Scroll to the Replay Zone and (re)start playback of the cached local blob.
+ * Zero network requests, zero billable API time — pure local replay.
+ */
 function watchAgain() {
   if (!replayUrl) return;
-  const ai = $("aiVideo");
-  if (!ai) return;
+  const zone = ensureReplayZone();
+  const vid = $("pearReplayVideo");
+  if (!vid) return;
+
   replayActive = true;
-  ai.srcObject = null;                 // detach the now-dead realtime stream
-  if (ai.src !== replayUrl) ai.src = replayUrl;   // point at the cached local blob
-  ai.muted = true;                     // stay within autoplay policy
-  ai.loop = false;
-  ai.onended = () => { replayActive = false; card().classList.remove("replaying"); };
-  card().classList.add("replaying");   // raise #aiVideo above #resultCanvas
-  try { ai.currentTime = 0; } catch (_) {}
-  ai.play().catch(() => {});
+  if (vid.src !== replayUrl) { vid.src = replayUrl; vid.load(); }
+  vid.onended = () => { replayActive = false; };
+
+  // Smooth-scroll to the Replay Zone so the user sees it, then play.
+  zone.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  // Brief delay lets the scroll settle before playback starts.
+  setTimeout(() => vid.play().catch(() => {}), 120);
 }
 
 /**
@@ -1409,13 +1593,22 @@ function clearRecording() {
   recordedBlob = null;
   recorderMime = null;
 
-  // Detach the cached replay clip from #aiVideo and restore the frozen-result
-  // layering, so the UI returns to a clean live-prep state for the next try-on.
-  const ai = $("aiVideo");
-  if (ai) { ai.onended = null; ai.removeAttribute("src"); try { ai.load(); } catch (_) {} }
-  card().classList.remove("replaying");
+  // Reset and hide the dedicated Replay Zone so the next session starts clean.
+  const zone = $("pearReplayZone");
+  if (zone) {
+    zone.classList.remove("is-ready", "is-visible");
+    const vid = $("pearReplayVideo");
+    if (vid) {
+      vid.onended = null;
+      try { vid.pause(); } catch (_) {}
+      vid.removeAttribute("src");
+      try { vid.load(); } catch (_) {}
+    }
+    const titleEl = $("pearRzTitle");
+    if (titleEl) titleEl.textContent = "";
+  }
 
-  // Hide the side-by-side Download / Watch-Again row.
+  // Hide the quick-access Download / Watch-Again row in the capture controls.
   const row = $("resultActions");
   if (row) row.classList.remove("show");
   const dl = $("downloadBtn"); if (dl) dl.hidden = true;
@@ -1672,6 +1865,7 @@ function colorName(hex) {
  * @returns {void}
  */
 function init() {
+  injectReplayStyles();
   updateProgress();
 
   const handoff = parseHandoff();
