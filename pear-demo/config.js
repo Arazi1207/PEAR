@@ -20,6 +20,9 @@
  * @property {string}   TOKEN_ENDPOINT          Same-origin proxy route that mints the ephemeral ek_ token.
  * @property {string}   HEALTH_ENDPOINT         Same-origin proxy health route used by the pre-use check.
  * @property {string[]} SDK_URLS                Ordered Decart SDK CDN fallbacks.
+ * @property {number}   PLAYOUT_DELAY_HINT      Chromium RTCRtpReceiver.playoutDelayHint (seconds). 0 = render ASAP.
+ * @property {boolean}  PREFER_LOW_LATENCY_CODEC Opt-in SDP codec-preference munge (default OFF — see note below).
+ * @property {string[]} CODEC_PREFERENCE        Codec order tried when the munge flag is ON (reorder only, never remove).
  */
 
 /** @type {Readonly<PearConfig>} */
@@ -39,4 +42,16 @@ export const CONFIG = Object.freeze({
     "https://esm.sh/@decartai/sdk@0.1.5",
     "https://cdn.jsdelivr.net/npm/@decartai/sdk@0.1.5/+esm",
   ]),
+
+  /* ── realtime latency tuning (CLIENT-side only) ─────────────────────────────
+     ⚠️ Scope reality check: the ~1s a user perceives in the Lucy-VTON feed is
+     dominated by SERVER-SIDE neural inference + network RTT, neither of which is
+     tunable from the browser. The knobs below only trim the CLIENT jitter buffer
+     / decode path — a real but bounded win (tens of ms). They are applied via a
+     native-RTCPeerConnection hook in app.js because the SDK (LiveKit) owns the
+     peer connection; app.js never sees the receiver or SDP directly. */
+  PLAYOUT_DELAY_HINT: 0,            // seconds; 0 = decode+render immediately, no anti-jitter buffering (Chromium only)
+  PREFER_LOW_LATENCY_CODEC: false,  // SDP munge OFF by default: reordering LiveKit's negotiated codecs risks breaking
+                                    // the Decart session for ~0 latency gain. Flip to true only to experiment.
+  CODEC_PREFERENCE: Object.freeze(["VP8", "H264"]), // when the munge is ON, these are MOVED to the front of m=video (never removed)
 });

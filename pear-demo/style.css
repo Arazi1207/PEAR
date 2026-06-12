@@ -348,6 +348,15 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 .active-garment__name { display: block; font-family: "Urbanist"; font-size: 1.05rem; font-weight: 800; margin: 2px 0; color: var(--ink); }
 .active-garment__type { font-size: .82rem; color: var(--muted); }
 
+/* Full-look chip — when activeOutfit has BOTH a top and a bottom, the media box
+   widens and shows the two garments side-by-side so the user can SEE that adding a
+   piece kept the other (the additive "Add to Look" is never hidden). Strict B&W. */
+.active-garment.is-duo .active-garment__media { width: 120px; }
+.active-garment__media > span.ag-duo {           /* higher specificity → overrides the generic span rule */
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+}
+.ag-duo > span { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+
 /* ── camera card ───────────────────────────────────────────────────────── */
 .camera-card {
   position: relative; width: 100%; max-width: 470px; margin: 0 auto;
@@ -478,6 +487,36 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 .btn-capture__en { font-size: .74rem; opacity: .8; letter-spacing: .06em; }
 .btn-ghost[hidden] { display: none; }
 
+/* ── product media: IDENTICAL premium framing on desktop AND mobile ────────────
+   Every product card frames its art in a fixed-ratio box (set per card below).
+   The art itself is an inline SVG flat-lay (and may be a real <img>/<video>).
+   Without explicit sizing an inline SVG falls back to the browser default size
+   (~300×150), which fills small mobile boxes "by accident" but mis-sizes and looks
+   warped in the larger desktop cards. We force the art to FILL its box on every
+   breakpoint so the clothing looks sharp and identical at any width:
+     • SVG flat-lays → object-fit/preserveAspectRatio contain (centered, never warped)
+     • real photos   → object-fit: cover (premium edge-to-edge crop)                */
+.active-garment__media,
+.cat-item__media,
+.cl-card__media { position: relative; overflow: hidden; }
+
+.active-garment__media > span,
+.cat-item__media > span,
+.cl-card__media > span,
+.active-garment__media svg, .active-garment__media img, .active-garment__media video,
+.cat-item__media svg,       .cat-item__media img,       .cat-item__media video,
+.cl-card__media svg,        .cl-card__media img,        .cl-card__media video {
+  display: block; width: 100%; height: 100%;
+}
+/* flat-lay garment art — fit the whole garment, centered, no stretch */
+.active-garment__media svg,
+.cat-item__media svg,
+.cl-card__media svg { object-fit: contain; }
+/* real photography — fill the fixed-ratio frame edge-to-edge */
+.active-garment__media img, .active-garment__media video,
+.cat-item__media img,       .cat-item__media video,
+.cl-card__media img,        .cl-card__media video { object-fit: cover; object-position: 50% 35%; }
+
 /* ── catalog panel (non-focus entry) ───────────────────────────────────── */
 .catalog-panel { margin-top: 46px; }
 .catalog-panel[hidden] { display: none; }
@@ -522,12 +561,22 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 .cl-card__cat { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); }
 .cl-card__name { font-family: "Urbanist"; font-size: .98rem; font-weight: 800; margin: 4px 0; color: var(--ink); }
 .cl-card__price { font-size: .84rem; color: var(--ink); font-weight: 600; }
-.cl-card__swap {
-  margin: 10px; padding: 11px; border: 1px solid var(--ink); border-radius: var(--pill);
-  background: #fff; color: var(--ink); font-weight: 800; font-size: .82rem;
-  cursor: pointer; transition: background .15s, color .15s;
+/* "Complete the Look" CTA — premium B&W capsule (solid black, inverts on hover). */
+.cl-card__look {
+  margin: 10px; padding: 11px 14px; border: 1px solid var(--ink); border-radius: var(--pill);
+  background: var(--ink); color: #fff; font-weight: 800; font-size: .82rem; letter-spacing: .01em;
+  cursor: pointer; transition: background .15s, color .15s, transform .12s;
 }
-.cl-card__swap:hover { background: var(--ink); color: #fff; }
+.cl-card__look:hover { background: #fff; color: var(--ink); transform: translateY(-1px); }
+.cl-card__look:active { transform: translateY(0); }
+
+/* subtle confirmation cue once a full look is assembled */
+.complete-look.is-complete .cl-title { position: relative; }
+.complete-look.is-complete .cl-title::after {
+  content: "✓ Total Look"; margin-inline-start: 10px; font-size: .68rem; font-weight: 800;
+  letter-spacing: .04em; text-transform: uppercase; color: #fff; background: var(--ink);
+  padding: 3px 10px; border-radius: var(--pill); vertical-align: middle;
+}
 
 /* ── toast ─────────────────────────────────────────────────────────────── */
 .toast {

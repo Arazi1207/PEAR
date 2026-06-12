@@ -37,6 +37,9 @@ const {
   TOKEN_ENDPOINT,
   HEALTH_ENDPOINT,
   SDK_URLS,
+  PLAYOUT_DELAY_HINT,
+  PREFER_LOW_LATENCY_CODEC,
+  CODEC_PREFERENCE,
 } = CONFIG;
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
@@ -48,6 +51,99 @@ const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
    iPadOS reports its platform as "Mac", so a touch-capable Mac counts as mobile too. */
 const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
+
+/* ──────────────────────────────────────────────────────────────────────────
+   REAL-TIME LATENCY HOOK — client jitter-buffer trim (best-effort)
+   ----------------------------------------------------------------------------
+   WHY A HOOK: the Decart SDK (LiveKit under the hood) owns the RTCPeerConnection,
+   its receivers, and the SDP. app.js only ever receives the finished MediaStream
+   via onRemoteStream — a MediaStream exposes tracks, NOT RTCRtpReceivers or SDP.
+   So the only way to reach the remote receiver (for playoutDelayHint) and the
+   SDP (for the optional codec munge) is to wrap the *native* RTCPeerConnection
+   ONCE, here at module load, BEFORE the SDK is dynamically imported in
+   connectRealtime(). Every pc the SDK then creates is our patched instance.
+
+   ⚠️ SCOPE: this only shrinks the CLIENT jitter buffer / decode latency (tens of
+   ms). The ~1s a user perceives is dominated by server-side Lucy-VTON inference
+   + network RTT, which is NOT addressable from the browser. Every step below is
+   feature-detected and try-wrapped so it can never break the realtime session.
+   ────────────────────────────────────────────────────────────────────────── */
+(function installRealtimeLatencyHook() {
+  const Native = typeof window !== "undefined" && window.RTCPeerConnection;
+  if (!Native || Native.__pearLowLatencyPatched) return;
+
+  // Move preferred (low-latency / hw-friendly) codecs to the front of the
+  // m=video payload list. Conservative: codecs are only REORDERED, never
+  // removed, so if the server ignores the hint the session still negotiates.
+  function mungeSdpPreferCodec(sdp) {
+    try {
+      if (typeof sdp !== "string") return sdp;
+      const lines = sdp.split(/\r\n|\n/);
+      const mIdx = lines.findIndex((l) => l.startsWith("m=video"));
+      if (mIdx === -1) return sdp;
+
+      const wanted = [];
+      for (const name of CODEC_PREFERENCE) {
+        const re = new RegExp(`^a=rtpmap:(\\d+)\\s+${name}/`, "i");
+        for (const l of lines) {
+          const m = l.match(re);
+          if (m && !wanted.includes(m[1])) wanted.push(m[1]);
+        }
+      }
+      if (!wanted.length) return sdp;
+
+      const parts = lines[mIdx].split(" ");           // m=video PORT PROTO pt pt …
+      const header = parts.slice(0, 3);
+      const pts = parts.slice(3);
+      const reordered = [
+        ...wanted.filter((p) => pts.includes(p)),
+        ...pts.filter((p) => !wanted.includes(p)),
+      ];
+      lines[mIdx] = [...header, ...reordered].join(" ");
+      return lines.join("\r\n");
+    } catch (_) {
+      return sdp;                                     // never let a munge error break negotiation
+    }
+  }
+
+  function Patched(...args) {
+    const pc = new Native(...args);
+
+    // (1) playoutDelayHint — zero the anti-jitter buffer on the remote VIDEO
+    //     receiver the instant its track arrives. Chromium-only; the `in` guard
+    //     makes it a silent no-op on Firefox/Safari.
+    pc.addEventListener("track", (e) => {
+      try {
+        const r = e.receiver;
+        if (r && "playoutDelayHint" in r && e.track && e.track.kind === "video") {
+          r.playoutDelayHint = PLAYOUT_DELAY_HINT;
+        }
+      } catch (_) {}
+    });
+
+    // (2) optional SDP codec-preference munge — OFF by default (see config.js).
+    if (PREFER_LOW_LATENCY_CODEC) {
+      const origSetLocal = pc.setLocalDescription.bind(pc);
+      pc.setLocalDescription = function (desc) {
+        if (desc && desc.sdp) {
+          try { desc = { type: desc.type, sdp: mungeSdpPreferCodec(desc.sdp) }; } catch (_) {}
+        }
+        return origSetLocal(desc);
+      };
+    }
+
+    return pc;
+  }
+
+  Patched.prototype = Native.prototype;     // preserve instanceof + all instance methods
+  Object.setPrototypeOf(Patched, Native);   // inherit statics (e.g. generateCertificate)
+  Patched.__pearLowLatencyPatched = true;
+
+  try {
+    window.RTCPeerConnection = Patched;
+    if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Patched;
+  } catch (_) {}
+})();
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
 const PEAR_CATALOG = [
@@ -86,13 +182,16 @@ let currentUserSize = null;
 let activeItem = null;
 let focusMode = false;
 
-/* "Complete the Look" (Total Look) — both halves of the outfit are tracked
-   independently so that changing ONLY the shirt or ONLY the pants later still
-   updates the full look. `completeLookMode` flips the goLive payload from a
-   single garment to BOTH garments packaged into one realtime set() call. */
-let selectedTop = null;       // last-selected upper_body garment (the shirt slot)
-let selectedBottom = null;    // last-selected lower_body garment (the pants slot)
-let completeLookMode = false; // when true, goLive overlays the shirt AND pants at once
+/* "Complete the Look" — incremental outfit state (the SINGLE source of truth).
+   activeOutfit holds at most ONE upper-body garment (top) and ONE lower-body
+   garment (bottom). Selecting/adding a garment fills its OWN slot and NEVER clears
+   the opposite one, so "Add to Look" (הוסף ללוק) is purely additive: adding pants
+   keeps the shirt, and vice-versa. When BOTH slots are filled, goLive bundles them
+   into ONE realtime payload so the shirt and the pants render together in the same
+   strict 5-second stream (see applyActive / applyLook). */
+const activeOutfit = { top: null, bottom: null };
+const slotOf = (item) => (item && item.garmentType === "lower_body" ? "bottom" : "top");
+const outfitComplete = () => !!(activeOutfit.top && activeOutfit.bottom);
 let localStream = null;
 let rtClient = null;
 let connState = "idle";
@@ -323,57 +422,98 @@ function enterRoom() {
 function setActiveItem(item, opts = {}) {
   activeItem = item;
 
-  // Keep the per-half look slots in sync so the full-look payload always reflects
-  // the most recently chosen shirt and pants — this is what lets the user change
-  // the shirt OR the pants individually and have "Complete the Look" follow along.
-  if (item.garmentType === "lower_body") selectedBottom = item;
-  else selectedTop = item;
+  // ADDITIVE write: fill ONLY this garment's slot (top|bottom) and leave the
+  // opposite slot untouched. Picking a different shirt replaces the top; adding
+  // pants fills the bottom while KEEPING the shirt — the whole point of the
+  // incremental "Add to Look" outfit.
+  activeOutfit[slotOf(item)] = item;
 
   $("focusItemName").innerText = item.name;
-
-  $("activeGarment").hidden = false;
-  $("activeGarmentMedia").innerHTML = garmentThumb(item);
-  $("activeGarmentName").innerText = item.name;
-  $("activeGarmentType").innerText =
-    (item.garmentType === "lower_body" ? "מכנסיים · " : "חולצה · ") + (SUBTYPE_LABEL_HE[item.subType] || "");
-
+  renderActiveGarment();             // shows either the single item or the full look
   renderCompleteTheLook(item);
   highlightCatalog(item.id);
 
   if (!opts.silent) {
     toast(`עכשיו מודדים: <b>${item.name}</b>`);
     resetToLive();
-    // applyActive() re-applies the FULL look when completeLookMode is on (so a mid-
+    // applyActive() re-applies the FULL look when both slots are filled (so a mid-
     // session shirt/pants swap restyles the whole outfit), else just this garment.
     if (isLive()) applyActive().catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
 }
 
+/**
+ * Paint the "active garment" chip. With a single garment it shows that piece; once
+ * the outfit is complete (top + bottom) it shows BOTH halves so the user can SEE
+ * that adding a piece kept the other one — the additive look is never hidden.
+ * @returns {void}
+ */
+function renderActiveGarment() {
+  const { top, bottom } = activeOutfit;
+  const chip = $("activeGarment");
+  chip.hidden = false;
+  const eyebrow = chip.querySelector(".active-garment__eyebrow");
+
+  if (top && bottom) {
+    $("activeGarmentMedia").innerHTML = `<span class="ag-duo">${garmentThumb(top)}${garmentThumb(bottom)}</span>`;
+    $("activeGarmentName").innerText = `${top.name} + ${bottom.name}`;
+    $("activeGarmentType").innerText = "לוק מלא · חולצה + מכנסיים";
+    if (eyebrow) eyebrow.innerText = "לוק מלא · Full look";
+    chip.classList.add("is-duo");
+  } else {
+    const item = activeItem;
+    $("activeGarmentMedia").innerHTML = garmentThumb(item);
+    $("activeGarmentName").innerText = item.name;
+    $("activeGarmentType").innerText =
+      (item.garmentType === "lower_body" ? "מכנסיים · " : "חולצה · ") + (SUBTYPE_LABEL_HE[item.subType] || "");
+    if (eyebrow) eyebrow.innerText = "פריט נמדד · Now fitting";
+    chip.classList.remove("is-duo");
+  }
+}
+
 /* =============================================================================
-   "Complete the Look" (Total Look) — full-outfit selection + payload
+   "Complete the Look" — incremental "Add to Look" (הוסף ללוק)
    ─────────────────────────────────────────────────────────────────────────
-   completeTheLook() is fired from a recommendation card: it slots the chosen
-   complementary piece in beside the currently active garment, flips on
-   completeLookMode, and (if a session is already live) restyles the whole outfit
+   addToLook() is fired from a recommendation card. It drops the chosen complement
+   into ITS slot (top|bottom) beside whatever is already on, WITHOUT clearing the
+   opposite slot, then — if a session is already live — restyles the whole outfit
    in place. The strict 5s window, countdown, recording and reset logic are all
-   untouched — this only changes WHICH garments the existing goLive flow applies.
+   untouched; this only changes WHICH garments the existing goLive flow applies.
    ============================================================================= */
-function completeTheLook(piece) {
-  // Slot the chosen complement in (top OR bottom) and refresh the active chip +
-  // recommendations. silent:true so we control the toast/apply ourselves below.
+function addToLook(piece) {
+  if (!piece) return;
+
+  // Additive slot write: setActiveItem fills activeOutfit[slotOf(piece)] = piece and
+  // refreshes the chip + recommendations, leaving the opposite slot intact. silent so
+  // we own the toast/apply below.
   setActiveItem(piece, { silent: true });
-  completeLookMode = true;
-  $("completeLook").classList.add("is-complete");
   resetToLive();
 
-  if (selectedTop && selectedBottom) {
-    toast(`לוק מלא: <b>${selectedTop.name}</b> + <b>${selectedBottom.name}</b>`);
+  if (outfitComplete()) {
+    $("completeLook").classList.add("is-complete");
+    toast(`לוק מלא: <b>${activeOutfit.top.name}</b> + <b>${activeOutfit.bottom.name}</b>`);
   } else {
-    toast(`נבחר להשלמת הלוק: <b>${piece.name}</b>`);
+    $("completeLook").classList.remove("is-complete");
+    toast(`נוסף ללוק: <b>${piece.name}</b> — הוסף/י פריט מהקטגוריה המשלימה ללוק מלא`);
   }
 
-  // If we're mid-session, restyle the live feed with BOTH garments immediately.
-  if (isLive()) applyActive().catch((e) => console.warn("apply look:", e?.message || e));
+  // Mid-session: restyle the live feed in place — the FULL look (both garments in
+  // ONE payload) when complete, else just the updated garment. Same 5s session.
+  if (isLive()) applyActive().catch((e) => console.warn("add to look:", e?.message || e));
+}
+
+/**
+ * Validate the two outfit halves and return the verified {top, bottom} pair, or
+ * null if the look is incomplete or mismatched (e.g. two tops, a missing half).
+ * Reads activeOutfit directly so it is the single guard every full-look payload
+ * passes through.
+ * @returns {{top: object, bottom: object} | null}
+ */
+function resolveLook() {
+  const { top, bottom } = activeOutfit;
+  if (!top || !bottom) return null;
+  if (top.garmentType !== "upper_body" || bottom.garmentType !== "lower_body") return null;
+  return { top, bottom };
 }
 
 /* =============================================================================
@@ -400,7 +540,12 @@ async function startCamera() {
   cameraStartPromise = (async () => {
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } },
+        video: {
+          facingMode: "user",
+          width: { ideal: 720 },
+          height: { ideal: 960 },
+          frameRate: { ideal: 30, max: 30 },   // match Lucy-VTON's 30fps target — no capture-side cadence mismatch
+        },
         audio: false,
       });
       const v = $("webcam");
@@ -676,6 +821,75 @@ function buildPrompt(item) {
   return `Substitute the current top with a ${colorWord} ${sub} ${noun}, realistic fabric, natural drape and a true-to-life fit.`.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Apply whatever the user is currently trying on: the FULL look (shirt + pants in
+ * ONE payload) when BOTH outfit slots are filled, otherwise the single active
+ * garment. The single entry point goLive() and mid-session swaps call, so the live
+ * flow stays identical for both modes.
+ * @returns {Promise<void>}
+ */
+async function applyActive() {
+  const look = resolveLook();        // non-null only when activeOutfit has top AND bottom
+  if (look) return applyLook(look.top, look.bottom);
+  return applyGarment(activeItem);
+}
+
+/**
+ * Render BOTH garments of a verified look in ONE realtime set() call — never two
+ * sequential requests (that would double-spend the strict 5s window). The unified
+ * prompt names the shirt AND the pants, so the model renders the full outfit in a
+ * single pass / one stream.
+ *
+ * SDK reality (verified against @decartai/sdk@0.1.5 `setInputSchema`): realtime
+ * set() accepts exactly { prompt, enhance, image } and STRIPS unknown keys, so only
+ * ONE reference image reaches the model today. We send the top as that reference and
+ * bundle BOTH image URLs + their categories alongside it (images / garments) so they
+ * are forward-compatible the day the model accepts multi-garment input — and both
+ * garments already render now via the combined prompt. The try/catch falls back to
+ * the minimal documented shape so a full look can never break the live session.
+ * @returns {Promise<void>}
+ */
+async function applyLook(top, bottom) {
+  if (!rtClient) throw new Error("not connected");
+
+  const prompt = buildLookPrompt(top, bottom);
+  const images = [top.img, bottom.img].filter(Boolean);   // both verified URLs
+
+  // ONE combined payload — both garments, one pass, same session.
+  const payload = {
+    prompt,
+    enhance: false,
+    image: images[0],                 // SDK single-image reference (the top)
+    images,                           // both verified URLs, bundled together
+    garments: [                       // per-slot metadata incl. category (top|bottom)
+      { category: "top",    type: top.garmentType,    image: top.img,    color: top.color,    subType: top.subType,    name: top.name },
+      { category: "bottom", type: bottom.garmentType, image: bottom.img, color: bottom.color, subType: bottom.subType, name: bottom.name },
+    ],
+  };
+
+  try {
+    await rtClient.set(payload);
+  } catch (e) {
+    // A stricter SDK build could reject the enriched shape — retry with the minimal
+    // documented contract so a full look never breaks the live session.
+    console.warn("look payload rejected, retrying minimal:", e?.message || e);
+    await rtClient.set({ prompt, image: images[0], enhance: false });
+  }
+}
+
+/**
+ * Build ONE prompt that instructs the model to overlay the shirt AND the pants
+ * simultaneously (a single pass), so a full outfit is rendered together rather
+ * than as two separate substitutions.
+ */
+function buildLookPrompt(top, bottom) {
+  const tColor = colorName(top.color), tSub = SUBTYPE_PROMPT[top.subType] || "";
+  const tNoun = SHIRT_NOUN[top.subType] || "top";
+  const bColor = colorName(bottom.color), bSub = SUBTYPE_PROMPT[bottom.subType] || "";
+  return `Dress the person in one complete outfit in a single pass: replace the top with a ${tColor} ${tSub} ${tNoun} and at the same time replace the bottoms with ${bColor} ${bSub} trousers. Render both garments together with realistic fabric, natural drape and a true-to-life fit.`
+    .replace(/\s+/g, " ").trim();
+}
+
 /* =============================================================================
    Capture flow
    ============================================================================= */
@@ -722,8 +936,9 @@ async function goLive() {
     await connectRealtime();
     await waitConnected(CONNECT_TIMEOUT_MS);
 
-    // 2) apply the garment immediately on the live stream
-    await applyGarment(activeItem);    // rtClient.set({ prompt, image, enhance:false })
+    // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
+    //    activeOutfit has both slots filled, else the single active garment. Same session.
+    await applyActive();               // rtClient.set({ prompt, image(s), enhance:false })
 
     // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
     $("scanOverlay").hidden = true;
@@ -1129,7 +1344,7 @@ function renderCompleteTheLook(item) {
         <div class="cl-card__name">${r.name}</div>
         <span class="cl-card__price">$${r.price}</span>
       </div>
-      <button class="cl-card__swap" data-swap="${r.id}">החלף פריט · Quick Swap</button>
+      <button class="cl-card__look" data-look="${r.id}">הוסף ללוק · Add to Look</button>
     </article>`).join("");
 }
 
@@ -1349,10 +1564,22 @@ function init() {
   $("retakeBtn").addEventListener("click", () => { resetToLive(); });
 
   document.addEventListener("click", (e) => {
-    const sw = e.target.closest("[data-swap]");
-    if (sw) { const p = PEAR_CATALOG.find((x) => x.id === +sw.dataset.swap); if (p) setActiveItem(toItem(p)); return; }
+    // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the
+    // active garment (additive; keeps the opposite category). toItem() rebuilds the
+    // full record from the catalog so image URL, metadata AND category (garmentType →
+    // top|bottom) are always extracted, regardless of where on the card the user tapped.
+    const lk = e.target.closest("[data-look]");
+    if (lk) {
+      const p = PEAR_CATALOG.find((x) => x.id === Number(lk.dataset.look));
+      if (p) addToLook(toItem(p));
+      return;
+    }
     const pk = e.target.closest("[data-pick]");
-    if (pk) { const p = PEAR_CATALOG.find((x) => x.id === +pk.dataset.pick); if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
+    if (pk) {
+      const p = PEAR_CATALOG.find((x) => x.id === Number(pk.dataset.pick));
+      if (p) { setActiveItem(toItem(p)); $("cameraCard").scrollIntoView({ behavior: "smooth", block: "center" }); }
+      return;
+    }
   });
 
   // Terminate the Decart WebRTC session the moment the user leaves or hides the
