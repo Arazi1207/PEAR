@@ -471,6 +471,44 @@ body.tryon-open { overflow: hidden; }
 .pdp__missing h1 { font-size: 30px; color: var(--ink); margin-bottom: 12px; }
 .pdp__missing p { color: var(--muted); margin-bottom: 24px; }
 
+/* ============================================================
+   NETWORK QUALITY MODAL
+   ============================================================ */
+body.net-modal-open { overflow: hidden; }
+
+.net-modal { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: clamp(16px, 4vw, 48px); visibility: hidden; opacity: 0; transition: opacity 0.3s var(--ease), visibility 0.3s var(--ease); }
+.net-modal.open { visibility: visible; opacity: 1; }
+.net-modal__backdrop { position: absolute; inset: 0; background: rgba(6,18,45,0.55); backdrop-filter: blur(10px) saturate(120%); -webkit-backdrop-filter: blur(10px) saturate(120%); cursor: pointer; }
+
+.net-modal__panel {
+  position: relative; z-index: 1;
+  width: min(420px, 100%);
+  background: var(--white); border-radius: 20px;
+  box-shadow: 0 32px 80px -20px rgba(6,18,45,0.55), 0 0 0 1px rgba(11,60,149,0.08);
+  padding: clamp(28px, 5vw, 44px) clamp(24px, 5vw, 40px);
+  text-align: center;
+  transform: translateY(18px) scale(0.97); transition: transform 0.35s var(--ease);
+}
+.net-modal.open .net-modal__panel { transform: translateY(0) scale(1); }
+
+.net-modal__icon { display: flex; justify-content: center; margin-bottom: 22px; }
+.net-modal__icon svg { filter: drop-shadow(0 4px 14px rgba(11,60,149,0.18)); }
+
+.net-modal__title { font-size: clamp(17px, 3vw, 21px); font-weight: 800; letter-spacing: -0.4px; color: var(--ink); margin: 0 0 10px; line-height: 1.25; }
+
+.net-modal__body { font-size: 14px; line-height: 1.65; color: var(--text); margin: 0 0 28px; }
+
+.net-modal__actions { display: flex; flex-direction: column; gap: 10px; }
+
+.net-modal__btn { width: 100%; padding: 13px 28px; border-radius: 11px; font-size: 14px; font-weight: 700; letter-spacing: 0.2px; cursor: pointer; border: none; transition: transform 0.15s, background 0.2s, box-shadow 0.2s; font-family: inherit; }
+.net-modal__btn:active { transform: scale(0.97); }
+
+.net-modal__btn--primary { background: var(--blue); color: #fff; box-shadow: 0 4px 18px rgba(11,60,149,0.35); }
+.net-modal__btn--primary:hover { background: var(--blue-deep); box-shadow: 0 6px 24px rgba(11,60,149,0.45); }
+
+.net-modal__btn--ghost { background: var(--blue-tint); color: var(--blue); }
+.net-modal__btn--ghost:hover { background: var(--blue-tint-2); }
+
 @media (max-width: 860px) {
   .pdp__grid { grid-template-columns: 1fr; gap: 32px; }
   .pdp__media { position: static; aspect-ratio: 1 / 1; }

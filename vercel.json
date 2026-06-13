@@ -12,7 +12,8 @@
           "catalog.js",
           "store.js",
           "product.js",
-          "pear-demo/**"
+          "pear-demo/**",
+          "lib/**"
         ]
       }
     }
