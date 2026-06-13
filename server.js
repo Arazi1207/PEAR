@@ -277,10 +277,32 @@ app.post("/api/track-tryon", async (req, res) => {
   try {
     await logTryOn({ garmentId, garmentName, garmentType, subType, size, ip });
     console.log("[track-tryon] sheet row written");
+    res.json({ ok: true });
   } catch (err) {
     console.error("[track-tryon] sheet write failed:", err?.message);
+    res.json({ ok: false, error: err?.message });
   }
-  res.json({ ok: true });
+});
+
+/* ── Debug: verify Sheets env vars and write a test row ─────────────────────── */
+app.get("/api/test-sheets", async (req, res) => {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  const email   = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const key     = process.env.GOOGLE_PRIVATE_KEY;
+  const envCheck = {
+    GOOGLE_SHEET_ID:              sheetId ? `✓ (${sheetId})` : "✗ MISSING",
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: email   ? `✓ (${email})`   : "✗ MISSING",
+    GOOGLE_PRIVATE_KEY:           key     ? "✓ present"       : "✗ MISSING",
+  };
+  if (!sheetId || !email || !key) {
+    return res.json({ ok: false, envCheck, error: "Missing env vars — check Vercel settings" });
+  }
+  try {
+    await logTryOn({ garmentId: "test", garmentName: "TEST", garmentType: "test", subType: "test", size: "test", ip: req.ip });
+    res.json({ ok: true, envCheck, message: "Row written successfully — check the sheet!" });
+  } catch (err) {
+    res.json({ ok: false, envCheck, error: err?.message });
+  }
 });
 
 app.all("/api/*", (req, res) => {
