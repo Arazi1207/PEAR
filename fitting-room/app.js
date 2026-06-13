@@ -461,6 +461,17 @@ function toItem(raw) {
    Screen transition
    ============================================================================= */
 function goToFitting() {
+  // Log to Sheets the moment the user presses the button
+  const _handoff = parseHandoff();
+  if (_handoff) {
+    logTryOnAnalytics({
+      id:          _handoff.id,
+      name:        _handoff.name,
+      garmentType: _handoff.type,
+      subType:     _handoff.subType,
+    }, currentUserSize || "");
+  }
+
   try {
     $("final-size-text").innerText = currentUserSize || "";
     $("screen-calculator").classList.remove("active");
