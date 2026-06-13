@@ -461,16 +461,25 @@ function toItem(raw) {
    Screen transition
    ============================================================================= */
 function goToFitting() {
-  // Log to Sheets the moment the user presses the button
+  // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
-  if (_handoff) {
-    logTryOnAnalytics({
-      id:          _handoff.id,
-      name:        _handoff.name,
-      garmentType: _handoff.type,
-      subType:     _handoff.subType,
-    }, currentUserSize || "");
-  }
+  const _payload = {
+    garmentId:   _handoff?.id      ?? "",
+    garmentName: _handoff?.name    ?? "",
+    garmentType: _handoff?.type    ?? "",
+    subType:     _handoff?.subType ?? "",
+    size:        currentUserSize   || "",
+  };
+  fetch("/api/track-tryon", {
+    method:    "POST",
+    headers:   { "Content-Type": "application/json" },
+    body:      JSON.stringify(_payload),
+    keepalive: true,
+  })
+    .then(r => r.json())
+    .then(data => { if (!data.ok) console.error("[analytics] sheet write failed:", data.error); })
+    .catch(err  => console.error("[analytics] fetch failed:", err));
+
 
   try {
     $("final-size-text").innerText = currentUserSize || "";
