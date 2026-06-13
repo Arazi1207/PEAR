@@ -63,15 +63,21 @@ app.disable("x-powered-by");
    all sensitive data flows over the encrypted peer channel to Decart's servers. */
 const ORIGINS_LOCKED = ALLOWED_ORIGINS.length > 0;
 
-const isOriginAllowed = (origin) => {
+const isOriginAllowed = (origin, reqHost) => {
   if (!origin) return true;              // same-origin / server-to-server requests
-  if (ORIGINS_LOCKED) return ALLOWED_ORIGINS.includes(origin);
-  return true;                           // open fallback — env var not configured yet
+  if (!ORIGINS_LOCKED) return true;      // open fallback — env var not configured yet
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Auto-allow the server's own host so a fetch() from /fitting-room/ to
+  // /api/realtime-token always works on any Vercel URL, preview deployment,
+  // or custom domain without needing to update DECART_ALLOWED_ORIGINS.
+  if (reqHost &&
+      (origin === `https://${reqHost}` || origin === `http://${reqHost}`)) return true;
+  return false;
 };
 
 app.use("/api", (req, res, next) => {
   const origin = req.headers.origin || "";
-  const allowed = isOriginAllowed(origin);
+  const allowed = isOriginAllowed(origin, req.headers.host);
 
   if (origin) res.header("Access-Control-Allow-Origin", allowed ? origin : "null");
   res.header("Vary",                          "Origin");
@@ -83,7 +89,10 @@ app.use("/api", (req, res, next) => {
 
   if (req.method === "OPTIONS") return res.sendStatus(allowed ? 204 : 403);
   if (!allowed) {
-    console.warn(`[cors] blocked: ${origin}`);
+    console.warn(
+      `[cors] blocked: origin="${origin}" host="${req.headers.host}" ` +
+      `allowed=[${ALLOWED_ORIGINS.join(", ") || "(none)"}]`
+    );
     return res.status(403).json({ error: "forbidden", message: "Origin not allowed." });
   }
   console.log(`[api] ${req.method} ${req.originalUrl}`);

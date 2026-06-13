@@ -5,7 +5,17 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["ui/**", "lib/**"]
+        "includeFiles": [
+          "fitting-room/**",
+          "lib/**",
+          "docs/**",
+          "index.html",
+          "product.html",
+          "style.css",
+          "catalog.js",
+          "store.js",
+          "product.js"
+        ]
       }
     }
   ],
