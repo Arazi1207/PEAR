@@ -607,31 +607,7 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
   .container h2 { font-size: 1.6rem; }
 }
 
-/* ── Feature 1 — live countdown timer (top-left of the camera card) ───────────
-   RTL note: the LIVE pill uses inset-inline-start, so it renders top-RIGHT here;
-   the countdown takes the physical top-left and never collides with it.
-   Integrated into the B&W system: white capsule, thin black ring, black ink. */
-.live-timer {
-  position: absolute; top: 14px; left: 14px; z-index: 7;
-  min-width: 40px; height: 40px; padding: 0 8px;
-  display: flex; align-items: center; justify-content: center;
-  background: #fff;
-  border: 1px solid var(--line-strong); border-radius: var(--pill);
-  color: var(--ink); font-family: "Urbanist", sans-serif; font-weight: 800;
-  font-size: 1.18rem; line-height: 1; font-variant-numeric: tabular-nums;
-  box-shadow: var(--shadow);
-  opacity: 0; transform: scale(.7); transition: opacity .2s, transform .2s;
-}
-.live-timer.show { opacity: 1; transform: scale(1); }
-.live-timer[hidden] { display: none; }
-/* final stretch (≤2s): invert to solid black and pulse once per second */
-.live-timer.is-urgent {
-  background: var(--ink); color: #fff; border-color: var(--ink);
-  animation: timerPulse 1s ease-in-out infinite;
-}
-@keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.16); } }
-
-/* ── Feature 2 — "Watch Again" + "Download Video" side-by-side capsule row ─── */
+/* ── "Watch Again" + "Download Video" side-by-side capsule row ─── */
 
 /* Flex-row wrapper injected by showDownloadButton() */
 .post-session-actions {

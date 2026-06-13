@@ -875,7 +875,7 @@ async function connectRealtime() {
 /**
  * Single teardown that kills the server-side Decart session immediately so
  * billing stops at once (rather than running until token TTL expiry). Called by
- * autoStopAndFreeze/stopLive and on beforeunload, pagehide, and visibilitychange.
+ * stopLive (the manual billing kill-switch) and on beforeunload, pagehide, and visibilitychange.
  * @returns {void}
  */
 function teardown() {
@@ -1284,9 +1284,9 @@ function onLiveToggle() {
 
 /**
  * Open ONE realtime session, apply the active garment, and stream the live
- * AI-edited video so the garment warps/tracks the user dynamically. A STRICT
- * 5-second timer (LIVE_DURATION_MS) then auto-disconnects so no tokens are spent
- * beyond the window. Switching items mid-window reuses this session via set().
+ * AI-edited video so the garment warps/tracks the user dynamically. The session
+ * stays open until the user presses Stop (stopLive). Switching items reuses this
+ * session via set() without reconnecting.
  *
  * Re-entrancy (Task 10): `busy` is claimed BEFORE the first await (the pre-use
  * connectivity probe and the camera prompt), so rapid double-clicks cannot open
@@ -1412,7 +1412,7 @@ function pickRecorderMime() {
  * camera). We continuously paint the remote frames onto an off-DOM canvas and
  * record canvas.captureStream(), which guarantees real encoded pixels — recording
  * a raw remote WebRTC track directly produces a black video in Chromium. The clip
- * is video-only and is force-stopped by stopRecording() at exactly LIVE_DURATION_MS.
+ * is video-only and is force-stopped by stopRecording() when the user presses Stop.
  * Idempotent within a session.
  */
 function startRecording() {
@@ -1486,8 +1486,8 @@ function stopReplay() {
 }
 
 /**
- * Force-stop the recorder. Called at EXACTLY LIVE_DURATION_MS (autoStopAndFreeze)
- * and again by teardown — idempotent. onstop → finalizeRecording builds the clip.
+ * Force-stop the recorder. Called by teardown (on Stop / tab-hide / unload) —
+ * idempotent. onstop → finalizeRecording builds the downloadable clip.
  */
 function stopRecording() {
   stopPaintLoop();
