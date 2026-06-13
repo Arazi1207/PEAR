@@ -271,19 +271,13 @@ app.get("/api/speed-probe", (_req, res) => {
 });
 
 /* ── Analytics: log a garment try-on to Google Sheets ───────────────────────── */
-app.post("/api/track-tryon", async (req, res) => {
-  console.log("[track-tryon] route hit — raw body:", JSON.stringify(req.body));
+app.post("/api/track-tryon", (req, res) => {
   const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
   const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || "";
-  console.log("[track-tryon] parsed →", { garmentId, garmentName, garmentType, subType, size, ip });
-  try {
-    await logTryOn({ garmentId, garmentName, garmentType, subType, size, ip });
-    console.log("[track-tryon] logTryOn completed successfully");
-  } catch (err) {
-    console.error("[track-tryon] logTryOn threw an error:", err?.message || err);
-    console.error("[track-tryon] stack:", err?.stack);
-  }
-  res.json({ ok: true });
+  res.json({ ok: true }); // respond immediately — don't block on Sheets API
+  logTryOn({ garmentId, garmentName, garmentType, subType, size, ip })
+    .then(() => console.log("[track-tryon] sheet row written"))
+    .catch(err => console.error("[track-tryon] sheet write failed:", err?.message));
 });
 
 app.all("/api/*", (req, res) => {
