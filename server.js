@@ -271,13 +271,16 @@ app.get("/api/speed-probe", (_req, res) => {
 });
 
 /* ── Analytics: log a garment try-on to Google Sheets ───────────────────────── */
-app.post("/api/track-tryon", (req, res) => {
+app.post("/api/track-tryon", async (req, res) => {
   const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
   const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || "";
-  res.json({ ok: true }); // respond immediately — don't block on Sheets API
-  logTryOn({ garmentId, garmentName, garmentType, subType, size, ip })
-    .then(() => console.log("[track-tryon] sheet row written"))
-    .catch(err => console.error("[track-tryon] sheet write failed:", err?.message));
+  try {
+    await logTryOn({ garmentId, garmentName, garmentType, subType, size, ip });
+    console.log("[track-tryon] sheet row written");
+  } catch (err) {
+    console.error("[track-tryon] sheet write failed:", err?.message);
+  }
+  res.json({ ok: true });
 });
 
 app.all("/api/*", (req, res) => {
