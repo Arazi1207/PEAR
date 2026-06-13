@@ -1267,18 +1267,25 @@ function setSizeOverride(size) {
    ============================================================================= */
 function logTryOnAnalytics(item, size) {
   if (!item) return;
+  const payload = {
+    garmentId:   item.id          ?? "",
+    garmentName: item.name        ?? "",
+    garmentType: item.garmentType ?? "",
+    subType:     item.subType     ?? "",
+    size:        size             ?? "",
+  };
+  console.log("[analytics] firing /api/track-tryon →", payload);
   fetch("/api/track-tryon", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      garmentId:   item.id          ?? "",
-      garmentName: item.name        ?? "",
-      garmentType: item.garmentType ?? "",
-      subType:     item.subType     ?? "",
-      size:        size             ?? "",
-    }),
-    keepalive: true, // completes even if the user navigates away immediately
-  }).catch(() => {}); // never block or throw — tracking must never affect the session
+    body: JSON.stringify(payload),
+    keepalive: true,
+  })
+    .then(r => {
+      console.log("[analytics] /api/track-tryon response:", r.status, r.ok ? "ok" : "ERROR");
+      return r.json().then(body => console.log("[analytics] response body:", JSON.stringify(body)));
+    })
+    .catch(err => console.error("[analytics] /api/track-tryon fetch failed:", err));
 }
 
 /* =============================================================================

@@ -272,10 +272,16 @@ app.get("/api/speed-probe", (_req, res) => {
 
 /* ── Analytics: log a garment try-on to Google Sheets (no PII) ──────────────── */
 app.post("/api/track-tryon", async (req, res) => {
+  console.log("[track-tryon] route hit — raw body:", JSON.stringify(req.body));
   const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
-  // Await before responding — Vercel serverless freezes the runtime the moment
-  // res.json() returns, so fire-and-forget never completes in production.
-  await logTryOn({ garmentId, garmentName, garmentType, subType, size });
+  console.log("[track-tryon] parsed →", { garmentId, garmentName, garmentType, subType, size });
+  try {
+    await logTryOn({ garmentId, garmentName, garmentType, subType, size });
+    console.log("[track-tryon] logTryOn completed successfully");
+  } catch (err) {
+    console.error("[track-tryon] logTryOn threw an error:", err?.message || err);
+    console.error("[track-tryon] stack:", err?.stack);
+  }
   res.json({ ok: true });
 });
 
