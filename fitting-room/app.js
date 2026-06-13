@@ -1333,7 +1333,15 @@ async function goLive() {
     // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
     //    activeOutfit has both slots filled, else the single active garment. Same session.
     await applyActive();               // rtClient.set({ prompt, image(s), enhance:false })
-    logTryOnAnalytics(activeItem, activeTryOnSize || currentUserSize);
+    // Log every garment being worn — both top AND bottom when a full look is active.
+    const _trackSize = activeTryOnSize || currentUserSize;
+    const _look = resolveLook();
+    if (_look) {
+      logTryOnAnalytics(_look.top,    _trackSize);
+      logTryOnAnalytics(_look.bottom, _trackSize);
+    } else {
+      logTryOnAnalytics(activeItem, _trackSize);
+    }
 
     // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
     $("scanOverlay").hidden = true;
