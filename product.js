@@ -6,7 +6,7 @@
    ============================================================ */
 "use strict";
 
-const PEAR_PATH = "./pear-demo/index.html";
+const PEAR_PATH = "./ui/fitting-room/index.html";
 const LS_BAG    = "meridian_bag";
 const LS_TRYON  = "pear_tryon";
 

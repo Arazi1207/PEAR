@@ -9,7 +9,7 @@
 /* ── config ──
    PRODUCTS, SUBTYPE_LABEL, shade(), garmentSVG() live in catalog.js,
    which is loaded before this file. */
-const PEAR_PATH = "./pear-demo/index.html"; // store lives at root
+const PEAR_PATH = "./ui/fitting-room/index.html"; // store lives at root
 const LS_TRYON  = "pear_tryon";
 const LS_BAG    = "meridian_bag";
 
@@ -219,13 +219,6 @@ function setActiveItem(p, opts = {}) {
 }
 
 async function openTryOn(p) {
-  if (netChecking) return;
-  netChecking    = true;
-  pendingProduct = p;
-  showToast("Checking your connection&#8230;");
-  const adequate = await checkNetworkQuality();
-  netChecking = false;
-  if (!adequate) { showNetworkModal(); return; }
   pendingProduct = null;
   setActiveItem(p);
   frame.src = pearUrl(p, true);
@@ -233,6 +226,9 @@ async function openTryOn(p) {
   tryonEl.classList.add("open");
   tryonEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("tryon-open");
+  checkNetworkQuality().then(adequate => {
+    if (!adequate) showToast("Tip: connect to Wi-Fi or 4G+ for the best experience");
+  });
 }
 
 function closeTryOn() {
