@@ -44,6 +44,8 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
+const LIVE_DURATION_MS = 5000;
+
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
    (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
        frequently reject WebM; (2) the save path — iOS Safari ignores <a download>,
@@ -282,6 +284,7 @@ let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
 let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
 let recordingActive = false; // guards the paint loop + single-start per session
 let replayActive = false;   // true while the user is watching the cached local replay
+let liveDurationTimer = null;  // auto-teardown handle for the strict 5s session limit
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -879,6 +882,11 @@ async function connectRealtime() {
  * @returns {void}
  */
 function teardown() {
+  // Cancel the 5s auto-teardown timer before bumping the generation — order matters:
+  // clearing first means the timer callback (which checks sessionGen) can never fire
+  // concurrently with this teardown, even on the same tick.
+  if (liveDurationTimer) { clearTimeout(liveDurationTimer); liveDurationTimer = null; }
+
   // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
   // client we're about to disconnect become no-ops (see connectRealtime).
   sessionGen++;
@@ -1332,6 +1340,18 @@ async function goLive() {
     card().classList.add("show-live");
     setLiveControls(true);
     startRecording();                  // Feature 2 — record while the session is live
+
+    // Strict 5-second session limit — stops billing and returns to standby automatically.
+    // Captures sessionGen so a manual Stop before expiry (which bumps the gen) makes
+    // the callback a no-op, protecting any subsequent session from being torn down.
+    const timerGen = sessionGen;
+    liveDurationTimer = setTimeout(() => {
+      if (sessionGen !== timerGen) return;
+      console.log("[PEAR] 5s live limit reached — auto-stopping session");
+      toast("⏱ 5 שניות הסתיימו — המדידה הסתיימה אוטומטית");
+      stopLive();
+    }, LIVE_DURATION_MS);
+
     toast("✨ מדידה חיה — לחץ עצור לסיום");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
