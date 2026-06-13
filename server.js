@@ -270,13 +270,14 @@ app.get("/api/speed-probe", (_req, res) => {
     .send(payload);
 });
 
-/* ── Analytics: log a garment try-on to Google Sheets (no PII) ──────────────── */
+/* ── Analytics: log a garment try-on to Google Sheets ───────────────────────── */
 app.post("/api/track-tryon", async (req, res) => {
   console.log("[track-tryon] route hit — raw body:", JSON.stringify(req.body));
   const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
-  console.log("[track-tryon] parsed →", { garmentId, garmentName, garmentType, subType, size });
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || "";
+  console.log("[track-tryon] parsed →", { garmentId, garmentName, garmentType, subType, size, ip });
   try {
-    await logTryOn({ garmentId, garmentName, garmentType, subType, size });
+    await logTryOn({ garmentId, garmentName, garmentType, subType, size, ip });
     console.log("[track-tryon] logTryOn completed successfully");
   } catch (err) {
     console.error("[track-tryon] logTryOn threw an error:", err?.message || err);
