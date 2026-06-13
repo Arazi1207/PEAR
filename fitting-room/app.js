@@ -30,7 +30,6 @@
    We destructure the derived constants so existing call sites read naturally.   */
 import { CONFIG } from "./config.js";
 const {
-  LIVE_DURATION_MS,        // STRICT 5s live window — value owned by config.js
   CONNECT_TIMEOUT_MS,
   HEALTH_PROBE_TIMEOUT_MS,
   TOAST_DURATION_MS,
@@ -255,8 +254,6 @@ let rtClient = null;
 let connState = "idle";
 let connecting = false;
 let busy = false;
-let liveTimer = null;
-/* LIVE_DURATION_MS (the strict 5s window) is imported from config.js above. */
 
 /* Bug 3 — consecutive-session state.
    `sessionGen` is a monotonic generation counter bumped on every connect and
@@ -270,9 +267,6 @@ let liveTimer = null;
    stream (localStream) survives for the next try-on. */
 let sessionGen = 0;
 let realtimeInput = null;
-
-/* Feature 1 — live countdown timer interval handle (top-left of the camera). */
-let liveCountdownTimer = null;
 
 /* Feature 2 — MediaRecorder capture of the REMOTE Lucy-VTON output.
    We do NOT record the raw remote WebRTC track directly (Chromium often encodes
@@ -1337,13 +1331,8 @@ async function goLive() {
     $("scanOverlay").hidden = true;
     card().classList.add("show-live");
     setLiveControls(true);
-    toast("✨ מדידה חיה — 5 שניות");
-
-    // 4) STRICT 5s lifecycle: auto-teardown the instant the window elapses
-    clearTimeout(liveTimer);
-    liveTimer = setTimeout(autoStopAndFreeze, LIVE_DURATION_MS);
-    startLiveCountdown();              // Feature 1 — visual 5→1 countdown, top-left
-    startRecording();                 // Feature 2 — record the remote VTON output now
+    startRecording();                  // Feature 2 — record while the session is live
+    toast("✨ מדידה חיה — לחץ עצור לסיום");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("[go-live] failed:", err?.message || String(err));
@@ -1363,39 +1352,14 @@ async function goLive() {
 }
 
 /**
- * Fires exactly LIVE_DURATION_MS (5s) after the garment is applied. Freezes the
- * final live frame so the result persists, then hard-stops the session via
- * teardown() so zero extra tokens are consumed. This is the strict 5s lifecycle.
- * @returns {void}
- */
-function autoStopAndFreeze() {
-  clearTimeout(liveTimer);
-  liveTimer = null;
-  stopLiveCountdown();                 // Feature 1 — hide the countdown badge
-  stopRecording();                     // Feature 2 — force-stop the clip at EXACTLY 5s
-  const frozen = freezeFrom($("aiVideo"), { mirror: false });
-  teardown();                          // rtClient.disconnect() → billing stops now
-  card().classList.remove("show-live");
-  if (frozen) {
-    card().classList.add("show-result");
-    $("retakeBtn").hidden = false;
-  }
-  setLiveControls(false);
-  $("captureBtn").disabled = !localStream;
-  toast("✨ הוקפאה לאחר 5 שניות — נחסכו טוקנים");
-}
-
-/**
  * Manual/early hard-stop (Stop button or tab hidden). Cancels the 5s timer and
  * disconnects immediately so billing stops the instant it's called.
  * @returns {void}
  */
 function stopLive() {
-  clearTimeout(liveTimer);
-  liveTimer = null;
-  stopLiveCountdown();                 // Feature 1 — hide the countdown badge
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
+  $("retakeBtn").hidden = true;
   setLiveControls(false);
   $("captureBtn").disabled = !localStream;
 }
@@ -1412,67 +1376,6 @@ function setLiveControls(live) {
   if (icon)  icon.textContent  = live ? "⏹" : "📸";
   if (label) label.textContent = live ? "עצור מדידה חיה" : "התחל מדידה חיה";
   if (en)    en.textContent    = live ? "Stop" : "Go Live";
-}
-
-function freezeFrom(video, { mirror }) {
-  if (!video || !video.videoWidth) return false;
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const cv = $("resultCanvas");
-  cv.width = vw; cv.height = vh;
-  const c = cv.getContext("2d");
-  c.save();
-  if (mirror) { c.translate(vw, 0); c.scale(-1, 1); }
-  c.drawImage(video, 0, 0, vw, vh);
-  c.restore();
-  return true;
-}
-
-/* =============================================================================
-   Feature 1 — Live countdown timer (top-left of the camera container)
-   ─────────────────────────────────────────────────────────────────────────
-   A lightweight badge injected into #cameraCard that counts the remaining live
-   seconds down (5 → 1) so the user knows exactly when the strict LIVE_DURATION_MS
-   window will end. Purely visual — the authoritative teardown is still the
-   setTimeout(autoStopAndFreeze, LIVE_DURATION_MS) in goLive. We derive the digit
-   from a wall-clock deadline so it stays in sync with that timer.
-   ============================================================================= */
-function ensureTimerEl() {
-  let el = $("liveTimer");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "liveTimer";
-    el.className = "live-timer";
-    el.hidden = true;
-    el.setAttribute("aria-live", "polite");
-    card().appendChild(el);
-  }
-  return el;
-}
-
-function startLiveCountdown() {
-  const el = ensureTimerEl();
-  const total = Math.ceil(LIVE_DURATION_MS / 1000);   // derived from config — stays in sync
-  const deadline = Date.now() + LIVE_DURATION_MS;
-  el.hidden = false;
-  el.classList.add("show");
-
-  const tick = () => {
-    const remMs = Math.max(0, deadline - Date.now());
-    const secs = Math.min(total, Math.ceil(remMs / 1000));
-    el.textContent = String(secs);
-    el.classList.toggle("is-urgent", secs <= 2);       // turn red in the final stretch
-    if (remMs <= 0) stopLiveCountdown();
-  };
-  tick();
-  clearInterval(liveCountdownTimer);
-  liveCountdownTimer = setInterval(tick, 200);
-}
-
-function stopLiveCountdown() {
-  clearInterval(liveCountdownTimer);
-  liveCountdownTimer = null;
-  const el = $("liveTimer");
-  if (el) { el.classList.remove("show", "is-urgent"); el.hidden = true; }
 }
 
 /* =============================================================================
