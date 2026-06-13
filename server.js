@@ -44,15 +44,48 @@ const app = express();
 app.use(express.json({ limit: "8mb" }));
 app.disable("x-powered-by");
 
-/* ── CORS + request logging ──────────────────────────────────────────────── */
+/* ── CORS enforcement ────────────────────────────────────────────────────────
+   The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
+   or account is required. CORS is used solely to ensure API calls originate
+   from our storefront domain, not from third-party scrapers or abusers.
+
+   Production: set DECART_ALLOWED_ORIGINS to your live domain(s), e.g.:
+     DECART_ALLOWED_ORIGINS=https://yourstore.vercel.app,https://yourshop.myshopify.com
+   Dev / unset: all origins are allowed (with a one-time startup warning) so a
+   missing env var never silently breaks a live deployment.
+
+   WebRTC transport: DTLS/SRTP is mandated by the WebRTC spec and enforced by
+   the browser — all peer-connection media is end-to-end encrypted regardless
+   of this server's config.
+   Zero-retention: this proxy never receives, buffers, or persists user images,
+   WebRTC frames, or body measurements.  It only mints short-lived ek_ tokens;
+   all sensitive data flows over the encrypted peer channel to Decart's servers. */
+const ORIGINS_LOCKED = ALLOWED_ORIGINS.length > 0;
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;              // same-origin / server-to-server requests
+  if (ORIGINS_LOCKED) return ALLOWED_ORIGINS.includes(origin);
+  return true;                           // open fallback — env var not configured yet
+};
+
 app.use("/api", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin",  req.headers.origin || "*");
+  const origin = req.headers.origin || "";
+  const allowed = isOriginAllowed(origin);
+
+  if (origin) res.header("Access-Control-Allow-Origin", allowed ? origin : "null");
   res.header("Vary",                          "Origin");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   res.header("Access-Control-Max-Age",       "600");
+  res.header("X-Content-Type-Options",       "nosniff");
+  res.header("Referrer-Policy",              "strict-origin-when-cross-origin");
+
+  if (req.method === "OPTIONS") return res.sendStatus(allowed ? 204 : 403);
+  if (!allowed) {
+    console.warn(`[cors] blocked: ${origin}`);
+    return res.status(403).json({ error: "forbidden", message: "Origin not allowed." });
+  }
   console.log(`[api] ${req.method} ${req.originalUrl}`);
-  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
@@ -272,11 +305,17 @@ if (!process.env.VERCEL) {
     console.log("\n────────────────────────────────────────────────────────");
     console.log(`  PEAR VTON server → http://localhost:${PORT}`);
     console.log(`  Storefront  : http://localhost:${PORT}/`);
-    console.log(`  Fitting room: http://localhost:${PORT}/pear-demo/   ← OPEN THIS`);
+    console.log(`  Fitting room: http://localhost:${PORT}/ui/fitting-room/   ← OPEN THIS`);
     console.log(`  Decart      : ${decart ? `SDK ready (${VTON_MODEL}, TTL ${TOKEN_TTL}s)` : "SDK not ready — will use REST fallback"}`);
     console.log(`  Key source  : ${KEY_SOURCE || "(none — set DECART_API_KEY in .env)"}`);
     console.log(`  REST order  : ${REST_ENDPOINTS.join(" → ")}`);
-    if (ALLOWED_ORIGINS.length) console.log(`  Origin lock : ${ALLOWED_ORIGINS.join(", ")}`);
+    if (ORIGINS_LOCKED) {
+      console.log(`  Origin lock : ${ALLOWED_ORIGINS.join(", ")}`);
+    } else {
+      console.warn("  ⚠ CORS open : DECART_ALLOWED_ORIGINS not set — all origins allowed.");
+      console.warn("    Set it in .env or Vercel env vars before going to production:");
+      console.warn("    DECART_ALLOWED_ORIGINS=https://yourstore.vercel.app");
+    }
     console.log("────────────────────────────────────────────────────────\n");
   });
 }

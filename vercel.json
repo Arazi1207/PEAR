@@ -12,7 +12,7 @@
           "catalog.js",
           "store.js",
           "product.js",
-          "pear-demo/**",
+          "ui/**",
           "lib/**"
         ]
       }

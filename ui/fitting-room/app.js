@@ -811,7 +811,7 @@ async function connectRealtime() {
     }
 
     rtClient.on("error", (err) => {
-      console.error("Decart realtime error:", err);
+      console.error("[session] Decart error:", err?.message || String(err));
       showCamError("שגיאת Decart: " + (err?.message || err));
     });
 
@@ -1278,7 +1278,7 @@ async function goLive() {
     startRecording();                 // Feature 2 — record the remote VTON output now
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
-    console.error("go-live failed:", err);
+    console.error("[go-live] failed:", err?.message || String(err));
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
       card().classList.add("show-result");
