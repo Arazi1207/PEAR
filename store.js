@@ -9,7 +9,7 @@
 /* ── config ──
    PRODUCTS, SUBTYPE_LABEL, shade(), garmentSVG() live in catalog.js,
    which is loaded before this file. */
-const PEAR_PATH = "./fitting-room/index.html"; // server roots at ui/
+const PEAR_PATH = "/fitting-room/";
 const LS_TRYON  = "pear_tryon";
 const LS_BAG    = "meridian_bag";
 

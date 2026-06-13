@@ -372,9 +372,14 @@ function calculateSize() {
   });
 
   if (minPenalty > MAX_ALLOWED_PENALTY) {
-    resultLabel.innerText = "תוצאה:";
-    sizeResult.innerText = "מידה מחוץ לטווח";
+    // Measurements don't match any chart row exactly, but we still let the user
+    // proceed — the fitting room works without a size recommendation, it just
+    // won't show a size badge. bestSize still holds the closest row found.
+    resultLabel.innerText = "קירוב מידה מומלץ:";
+    sizeResult.innerText = bestSize;
     resultBox.classList.add("show");
+    currentUserSize = bestSize;   // use closest match rather than blocking
+    nextBtn.disabled = false;
   } else {
     sizeResult.innerText = bestSize;
     resultBox.classList.add("show");
@@ -422,10 +427,24 @@ function parseHandoff() {
   const fromCatalog = !isNaN(id) ? PEAR_CATALOG.find((p) => p.id === id) : null;
 
   const type = (q.get("type") || q.get("itemType") || (fromCatalog && fromCatalog.type) || "").toLowerCase();
+
+  console.group("[PEAR] parseHandoff() — URL params debug");
+  console.log("full URL     :", location.href);
+  console.log("id param     :", q.get("id"), "→ parsed:", id);
+  console.log("type param   :", q.get("type") || "(none)");
+  console.log("itemType     :", q.get("itemType") || "(none)", "→ resolved type:", type || "(EMPTY — focus mode disabled)");
+  console.log("subType      :", q.get("subType") || "(none)");
+  console.log("color        :", q.get("color") || "(none)");
+  console.log("name         :", q.get("name") || "(none)");
+  console.log("img          :", q.get("img") ? q.get("img").slice(0, 80) + "…" : "(none)");
+  console.log("fromCatalog  :", fromCatalog ? fromCatalog.name : "(not found in PEAR_CATALOG)");
+  if (!type) console.warn("[PEAR] parseHandoff() — no type resolved; focus mode OFF (catalog view will show)");
+  console.groupEnd();
+
   if (!type) return null;
 
   const color = q.get("color") ? "#" + q.get("color").replace(/^#/, "") : (fromCatalog ? fromCatalog.color : "#0B3C95");
-  return {
+  const result = {
     id: isNaN(id) ? null : id,
     name: q.get("name") || (fromCatalog ? fromCatalog.name : "Garment"),
     type,
@@ -433,6 +452,8 @@ function parseHandoff() {
     color,
     img: q.get("img") || (fromCatalog ? fromCatalog.img : ""),
   };
+  console.log("[PEAR] parseHandoff() — resolved handoff:", result);
+  return result;
 }
 
 function toItem(raw) {
@@ -443,11 +464,21 @@ function toItem(raw) {
    Screen transition
    ============================================================================= */
 function goToFitting() {
-  $("final-size-text").innerText = currentUserSize || "";
-  $("screen-calculator").classList.remove("active");
-  $("screen-fitting").classList.add("active");
-  window.scrollTo(0, 0);
-  enterRoom();
+  try {
+    $("final-size-text").innerText = currentUserSize || "";
+    $("screen-calculator").classList.remove("active");
+    $("screen-fitting").classList.add("active");
+    window.scrollTo(0, 0);
+    enterRoom();
+  } catch (err) {
+    console.error("[goToFitting] screen transition failed:", err?.message || String(err), err);
+    // Force the screen switch even if enterRoom() threw so the user isn't left on Screen 1
+    try {
+      $("screen-calculator").classList.remove("active");
+      $("screen-fitting").classList.add("active");
+    } catch (_) {}
+    toast("שגיאה בטעינת חדר המדידה — " + (err?.message || "נסה לרענן את הדף"));
+  }
 }
 
 function backToCalculator() {
@@ -676,6 +707,7 @@ async function loadSDK() {
  * @throws {Error} if the proxy is unreachable or returns no valid token.
  */
 async function mintEphemeralToken() {
+  console.log("[PEAR] mintEphemeralToken() — POST", TOKEN_ENDPOINT);
   let resp;
   try {
     resp = await fetch(TOKEN_ENDPOINT, {
@@ -683,17 +715,32 @@ async function mintEphemeralToken() {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
+    console.error("[PEAR] mintEphemeralToken() — network error (server unreachable?):", e?.message || e);
     throw new Error("לא ניתן להגיע לשרת הטוקנים (" + (e?.message || e) + ")");
   }
 
   let data = {};
   try { data = await resp.json(); } catch (_) {}
 
+  console.log("[PEAR] mintEphemeralToken() — server responded HTTP", resp.status, "|",
+    resp.ok ? "OK" : "FAILED",
+    "| body keys:", Object.keys(data).join(", ") || "(empty)");
+
   if (!resp.ok || data.error) {
     const detail = data.message || data.error || `HTTP ${resp.status}`;
+    console.error("[PEAR] mintEphemeralToken() — token mint failed:", detail,
+      "\n  Full server response:", data,
+      "\n  → Check that DECART_API_KEY in .env is set to a valid dct_… key from platform.decart.ai");
     throw new Error("מינטינג טוקן נכשל: " + detail);
   }
-  if (!data.apiKey) throw new Error("השרת לא החזיר טוקן ek_ תקין.");
+  if (!data.apiKey) {
+    console.error("[PEAR] mintEphemeralToken() — response OK but no apiKey field:", data);
+    throw new Error("השרת לא החזיר טוקן ek_ תקין.");
+  }
+  const preview = data.apiKey.slice(0, 8);
+  console.log("[PEAR] mintEphemeralToken() — token received, starts with:", preview + "…",
+    "| model:", data.model || "(not in response)",
+    "| expiresAt:", data.expiresAt || "(not in response)");
   return data.apiKey;
 }
 
@@ -752,9 +799,11 @@ async function connectRealtime() {
   connecting = true;
   setConn("connecting");
 
+  console.log("[PEAR] connectRealtime() — stage 1/4: loading SDK from CDN…");
   try {
     /* ── load SDK ─────────────────────────────────────────────────────────── */
     const { createDecartClient } = await loadSDK();
+    console.log("[PEAR] connectRealtime() — stage 2/4: SDK loaded. Minting ephemeral token…");
 
     /* ── mint a short-lived ek_ token from the secure proxy (only now, never on
           page load) — the permanent dct_ key stays server-side ─────────────── */
@@ -762,9 +811,11 @@ async function connectRealtime() {
 
     // A teardown may have fired while we were awaiting the SDK/token — abort.
     if (gen !== sessionGen) return;
+    console.log("[PEAR] connectRealtime() — stage 3/4: token OK. Creating Decart client…");
 
     /* ── create client with the ephemeral token ───────────────────────────── */
     const client = createDecartClient({ apiKey: ekToken });
+    console.log("[PEAR] connectRealtime() — stage 4/4: opening WebRTC session (waiting for 'connected')…");
 
     /* Bug 3 fix: hand the SDK a CLONE of the camera tracks. The realtime SDK
        (LiveKit under the hood) stops the tracks it publishes when the session
@@ -817,7 +868,11 @@ async function connectRealtime() {
 
     connState = (rtClient.getConnectionState && rtClient.getConnectionState()) || "connected";
     setConn(connState);
+    console.log("[PEAR] connectRealtime() — WebRTC session open. connState:", connState);
 
+  } catch (err) {
+    console.error("[connectRealtime] failed at stage:", err?.message || String(err), err);
+    throw err;   // re-throw so goLive()'s catch block can show the user-facing error
   } finally {
     connecting = false;
   }
@@ -879,6 +934,16 @@ async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
   const payload = { prompt: buildPrompt(item), enhance: true };
   if (item.img) payload.image = item.img;
+
+  console.group("[PEAR] applyGarment() — VTON payload debug");
+  console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType})`);
+  console.log("subType  :", item.subType, "| color:", item.color);
+  console.log("img URL  :", item.img || "(none — VTON will have no garment reference)");
+  console.log("prompt   :", payload.prompt);
+  console.groupEnd();
+
+  if (!item.img) console.warn("[PEAR] applyGarment() — no img URL; the model will rely on the text prompt only.");
+
   await rtClient.set(payload);
 }
 
@@ -1244,11 +1309,14 @@ async function goLive() {
 
   try {
     // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
+    // NOTE: treated as a soft warning only — a failed probe (false-negative, e.g.
+    // the server is slow to respond) must NOT block the live session attempt.
+    // If the network is genuinely down the subsequent WebRTC / token steps will
+    // fail with a real error that is caught below and shown to the user.
     const online = await ensureOnline();
     if (!online) {
-      showCamError("נראה שאין חיבור אינטרנט יציב כרגע. בדוק את הרשת ונסה שוב — המדידה החיה מתבצעת בזמן אמת ודורשת חיבור.");
-      toast("אין חיבור אינטרנט — בדוק את הרשת ונסה שוב");
-      return;                          // finally releases busy + re-enables the button
+      console.warn("[go-live] health probe returned offline — proceeding anyway (may be false negative)");
+      toast("בדיקת קישוריות לא הצליחה — ממשיכים בניסיון חיבור");
     }
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
@@ -2068,6 +2136,16 @@ function init() {
   updateProgress();
 
   const handoff = parseHandoff();
+  console.group("[PEAR] init() — fitting room startup");
+  console.log("mode    :", handoff ? `focus (garment: ${handoff.name})` : "catalog (no garment in URL)");
+  console.log("SDK URLs:", CONFIG.SDK_URLS);
+  console.log("token @ :", CONFIG.TOKEN_ENDPOINT, "| health @:", CONFIG.HEALTH_ENDPOINT);
+  if (handoff) {
+    console.log("garment :", handoff.name, "| type:", handoff.type, "| subType:", handoff.subType);
+    console.log("color   :", handoff.color, "| img:", handoff.img ? handoff.img.slice(0, 60) + "…" : "(none)");
+  }
+  console.groupEnd();
+
   if (handoff) {
     const hint = $("focusCalcHint");
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }

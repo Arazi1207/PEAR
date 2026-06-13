@@ -6,7 +6,7 @@
    ============================================================ */
 "use strict";
 
-const PEAR_PATH = "./ui/fitting-room/index.html";
+const PEAR_PATH = "/fitting-room/";
 const LS_BAG    = "meridian_bag";
 const LS_TRYON  = "pear_tryon";
 
@@ -158,15 +158,35 @@ function renderSizes() {
 
 /* ── handoff to PEAR (remembers the garment; PEAR runs the calculator first) ── */
 function launchPear() {
+  const url = pearUrl(product, activeColor);
+  const payload = {
+    id:       product.id,
+    itemType: product.type,
+    subType:  product.subType,
+    color:    activeColor.replace("#", ""),
+    name:     product.name,
+    size:     activeSize,
+    img:      product.imageUrl || "(none)",
+  };
+
+  console.group("[PEAR] launchPear() — handoff debug");
+  console.log("product :", product.name, `(id=${product.id})`);
+  console.log("type    :", product.type, "| subType:", product.subType);
+  console.log("color   :", activeColor, "| size:", activeSize);
+  console.log("img URL :", product.imageUrl || "(no imageUrl on this product)");
+  console.log("target  :", url);
+  console.log("payload :", payload);
+  console.groupEnd();
+
+  if (!product.imageUrl) {
+    console.warn("[PEAR] launchPear() — product.imageUrl is empty; the VTON model will have no garment reference image.");
+  }
+
   try {
-    localStorage.setItem(LS_TRYON, JSON.stringify({
-      id: product.id, itemType: product.type, subType: product.subType,
-      color: activeColor.replace("#", ""), name: product.name, size: activeSize,
-      img: product.imageUrl,
-    }));
+    localStorage.setItem(LS_TRYON, JSON.stringify(payload));
   } catch (_) {}
   showToast(`Launching <b>PEAR Camera</b> — ${product.name}…`);
-  setTimeout(() => { location.href = pearUrl(product, activeColor); }, 600);
+  setTimeout(() => { location.href = url; }, 600);
 }
 
 /* ── not found ── */

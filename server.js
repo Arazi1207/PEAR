@@ -21,6 +21,7 @@
 import "dotenv/config";
 import express from "express";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
@@ -271,31 +272,26 @@ app.all("/api/*", (req, res) => {
   res.status(404).json({ error: "not_found", message: `No API route for ${req.method} ${req.path}` });
 });
 
-/* ── Static hosting — all browser-facing files live under ui/ ────────────── */
-const uiRoot = path.join(__dirname, "ui");
-app.use(express.static(uiRoot, { extensions: ["html"] }));
+/* ── Static hosting ──────────────────────────────────────────────────────── */
+const uiRoot = __dirname;
 
-/* ── Wildcard fallback — maps any path to the correct file under ui/ ─────
-   Resolution order:
-     1. Try the exact path as a file under ui/
-     2. Append index.html for directory-style paths  (/fitting-room/ → ui/fitting-room/index.html)
-     3. Fall back to ui/index.html for anything else (SPA-style final safety net)
-   ──────────────────────────────────────────────────────────────────────── */
-app.get("*", (req, res) => {
-  const rel = req.path.endsWith("/") ? `${req.path}index.html` : req.path;
-  const target = path.join(uiRoot, rel);
-  res.sendFile(target, (err) => {
-    if (!err) return;
-    // Directory index fallback: /fitting-room (no slash) → ui/fitting-room/index.html
-    const dirIndex = path.join(uiRoot, req.path, "index.html");
-    res.sendFile(dirIndex, (e) => {
-      if (!e) return;
-      // Final fallback: serve storefront index
-      res.sendFile(path.join(uiRoot, "index.html"), (e2) => {
-        if (e2) res.status(404).json({ error: "not_found", path: req.path });
-      });
-    });
-  });
+/* serve-static for all assets (JS, CSS, images, fonts…) */
+app.use(express.static(uiRoot, { extensions: ["html"], index: false }));
+
+/* Page router — resolves every URL to the right HTML file under ui/ */
+app.use((req, res) => {
+  const candidates = [
+    path.join(uiRoot, req.path),                     // exact file
+    path.join(uiRoot, req.path, "index.html"),        // directory index
+    path.join(uiRoot, req.path.replace(/\/$/, "") + ".html"), // extensionless → .html
+    path.join(uiRoot, "index.html"),                  // SPA fallback
+  ];
+  for (const file of candidates) {
+    try {
+      if (fs.statSync(file).isFile()) return res.sendFile(file);
+    } catch {}
+  }
+  res.status(404).json({ error: "not_found", path: req.path });
 });
 
 /* ── Start (local only — Vercel manages its own listener) ────────────────── */
