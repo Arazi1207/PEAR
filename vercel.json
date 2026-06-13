@@ -5,7 +5,7 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["ui/**", "lib/**"]
+        "includeFiles": ["*.html", "*.css", "*.js", "fitting-room/**", "lib/**"]
       }
     }
   ],
