@@ -719,6 +719,14 @@ async function mintEphemeralToken() {
   let data = {};
   try { data = await resp.json(); } catch (_) {}
 
+  if (resp.status === 405) {
+    const port = window.location.port;
+    const where = port && port !== "3000"
+      ? `port ${port} — open the fitting room at http://localhost:3000/fitting-room/ instead`
+      : "a separate file server — open the fitting room via the Express server on port 3000";
+    throw new Error(`HTTP 405: fitting room is served by ${where}.`);
+  }
+
   console.log("[PEAR] mintEphemeralToken() — server responded HTTP", resp.status, "|",
     resp.ok ? "OK" : "FAILED",
     "| body keys:", Object.keys(data).join(", ") || "(empty)");
@@ -727,7 +735,9 @@ async function mintEphemeralToken() {
     const detail = data.message || data.error || `HTTP ${resp.status}`;
     console.error("[PEAR] mintEphemeralToken() — token mint failed:", detail,
       "\n  Full server response:", data,
-      "\n  → Check that DECART_API_KEY in .env is set to a valid dct_… key from platform.decart.ai");
+      resp.status !== 405
+        ? "\n  → Check that DECART_API_KEY in .env is set to a valid dct_… key from platform.decart.ai"
+        : "\n  → Open the fitting room via http://localhost:3000/fitting-room/ (the Express server)");
     throw new Error("מינטינג טוקן נכשל: " + detail);
   }
   if (!data.apiKey) {
