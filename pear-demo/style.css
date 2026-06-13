@@ -512,10 +512,23 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 .active-garment__media svg,
 .cat-item__media svg,
 .cl-card__media svg { object-fit: contain; }
-/* real photography — fill the fixed-ratio frame edge-to-edge */
+/* real photography — fill the fixed-ratio frame edge-to-edge, anchored to the garment top */
 .active-garment__media img, .active-garment__media video,
 .cat-item__media img,       .cat-item__media video,
-.cl-card__media img,        .cl-card__media video { object-fit: cover; object-position: 50% 35%; }
+.cl-card__media img,        .cl-card__media video {
+  object-fit: cover;
+  object-position: center top;
+  will-change: transform;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Smooth editorial zoom on hover — clipped by the parent's overflow:hidden */
+.cat-item:hover .cat-item__media img,
+.cat-item:hover .cat-item__media video,
+.cl-card:hover .cl-card__media img,
+.cl-card:hover .cl-card__media video {
+  transform: scale(1.05);
+}
 
 /* ── catalog panel (non-focus entry) ───────────────────────────────────── */
 .catalog-panel { margin-top: 46px; }
@@ -528,7 +541,7 @@ h1, h2, h3, h4 { font-family: "Urbanist", "Inter", sans-serif; letter-spacing: -
 }
 .cat-item:hover { border-color: var(--ink); box-shadow: var(--shadow); transform: translateY(-2px); }
 .cat-item.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(0,0,0,.16); }
-.cat-item__media { aspect-ratio: 1; background: var(--bg-soft); }
+.cat-item__media { aspect-ratio: 3 / 4; background: var(--bg-soft); overflow: hidden; }
 .cat-item__body { padding: 10px 12px 12px; }
 .cat-item__name { display: block; font-weight: 700; font-size: .82rem; color: var(--ink); }
 .cat-item__price { font-size: .78rem; color: var(--muted); }
