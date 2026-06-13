@@ -271,28 +271,27 @@ app.all("/api/*", (req, res) => {
   res.status(404).json({ error: "not_found", message: `No API route for ${req.method} ${req.path}` });
 });
 
-/* ── Static hosting ──────────────────────────────────────────────────────── */
-app.use(express.static(__dirname, { extensions: ["html"] }));
+/* ── Static hosting — all browser-facing files live under ui/ ────────────── */
+const uiRoot = path.join(__dirname, "ui");
+app.use(express.static(uiRoot, { extensions: ["html"] }));
 
-/* ── Wildcard fallback — maps any path to the correct on-disk file ────────
-   express.static handles the common case; this catches anything it misses
-   (e.g. /pear-demo/ when running inside the Vercel Lambda bundle).
+/* ── Wildcard fallback — maps any path to the correct file under ui/ ─────
    Resolution order:
-     1. Try the exact path as a file (handles /style.css, /catalog.js, etc.)
-     2. Append index.html for directory-style paths  (/pear-demo/ → pear-demo/index.html)
-     3. Fall back to root index.html for anything else (SPA-style final safety net)
+     1. Try the exact path as a file under ui/
+     2. Append index.html for directory-style paths  (/fitting-room/ → ui/fitting-room/index.html)
+     3. Fall back to ui/index.html for anything else (SPA-style final safety net)
    ──────────────────────────────────────────────────────────────────────── */
 app.get("*", (req, res) => {
   const rel = req.path.endsWith("/") ? `${req.path}index.html` : req.path;
-  const target = path.join(__dirname, rel);
+  const target = path.join(uiRoot, rel);
   res.sendFile(target, (err) => {
     if (!err) return;
-    // Directory index fallback: /pear-demo (no slash) → pear-demo/index.html
-    const dirIndex = path.join(__dirname, req.path, "index.html");
+    // Directory index fallback: /fitting-room (no slash) → ui/fitting-room/index.html
+    const dirIndex = path.join(uiRoot, req.path, "index.html");
     res.sendFile(dirIndex, (e) => {
       if (!e) return;
-      // Final fallback: serve root index.html
-      res.sendFile(path.join(__dirname, "index.html"), (e2) => {
+      // Final fallback: serve storefront index
+      res.sendFile(path.join(uiRoot, "index.html"), (e2) => {
         if (e2) res.status(404).json({ error: "not_found", path: req.path });
       });
     });
@@ -305,7 +304,7 @@ if (!process.env.VERCEL) {
     console.log("\n────────────────────────────────────────────────────────");
     console.log(`  PEAR VTON server → http://localhost:${PORT}`);
     console.log(`  Storefront  : http://localhost:${PORT}/`);
-    console.log(`  Fitting room: http://localhost:${PORT}/ui/fitting-room/   ← OPEN THIS`);
+    console.log(`  Fitting room: http://localhost:${PORT}/fitting-room/   ← OPEN THIS`);
     console.log(`  Decart      : ${decart ? `SDK ready (${VTON_MODEL}, TTL ${TOKEN_TTL}s)` : "SDK not ready — will use REST fallback"}`);
     console.log(`  Key source  : ${KEY_SOURCE || "(none — set DECART_API_KEY in .env)"}`);
     console.log(`  REST order  : ${REST_ENDPOINTS.join(" → ")}`);
