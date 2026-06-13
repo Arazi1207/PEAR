@@ -23,6 +23,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
+import { logTryOn } from "./lib/sheets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -215,6 +216,22 @@ mountTokenRoute("/api/tryon");
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, decart: !!decart, model: VTON_MODEL, keySource: KEY_SOURCE, ttl: TOKEN_TTL });
+});
+
+app.get("/api/speed-probe", (_req, res) => {
+  const payload = Buffer.alloc(102_400); // 100 KB calibration payload for bandwidth check
+  res
+    .set("Content-Type", "application/octet-stream")
+    .set("Cache-Control", "no-store, no-cache, must-revalidate")
+    .set("Pragma", "no-cache")
+    .send(payload);
+});
+
+/* ── Analytics: log a garment try-on to Google Sheets (no PII) ──────────────── */
+app.post("/api/track-tryon", (req, res) => {
+  const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
+  res.json({ ok: true }); // respond instantly — don't block the browser
+  logTryOn({ garmentId, garmentName, garmentType, subType, size }).catch(() => {});
 });
 
 app.all("/api/*", (req, res) => {

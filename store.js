@@ -35,6 +35,16 @@ const chips    = $$("#filters .chip");
 const bagCount = $("#bagCount");
 const toastEl  = $("#toast");
 
+/* ── network-quality guard ── */
+const NET_PROBE_URL     = "/api/speed-probe";
+const NET_PROBE_BYTES   = 102_400;  // must match server payload (bytes)
+const NET_MIN_KBPS      = 2000;     // 2 Mbps minimum for live AI video
+const NET_PROBE_TIMEOUT = 8000;     // abort probe after 8 s
+
+const netModalEl = $("#netModal");
+let   netChecking    = false;
+let   pendingProduct = null; // product queued while net check is in-flight
+
 /* ── card template ── */
 function cardHTML(p, i) {
   const href = `product.html?id=${p.id}`;
@@ -208,9 +218,16 @@ function setActiveItem(p, opts = {}) {
   }
 }
 
-function openTryOn(p) {
+async function openTryOn(p) {
+  if (netChecking) return;
+  netChecking    = true;
+  pendingProduct = p;
+  showToast("Checking your connection&#8230;");
+  const adequate = await checkNetworkQuality();
+  netChecking = false;
+  if (!adequate) { showNetworkModal(); return; }
+  pendingProduct = null;
   setActiveItem(p);
-  // Load the PEAR camera isolated to this garment (embedded = store supplies chrome).
   frame.src = pearUrl(p, true);
   frameLoaded = true;
   tryonEl.classList.add("open");
@@ -222,6 +239,40 @@ function closeTryOn() {
   tryonEl.classList.remove("open");
   tryonEl.setAttribute("aria-hidden", "true");
   document.body.classList.remove("tryon-open");
+}
+
+async function checkNetworkQuality() {
+  if (navigator.connection) {
+    const { effectiveType, downlink } = navigator.connection;
+    if (effectiveType === "slow-2g" || effectiveType === "2g") return false;
+    if (typeof downlink === "number" && downlink > 0 && downlink < NET_MIN_KBPS / 1000) return false;
+  }
+  try {
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), NET_PROBE_TIMEOUT);
+    const t0    = performance.now();
+    const resp  = await fetch(`${NET_PROBE_URL}?_=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
+    if (!resp.ok) { clearTimeout(timer); return false; }
+    await resp.arrayBuffer();
+    clearTimeout(timer);
+    const kbps = (NET_PROBE_BYTES * 8) / 1024 / ((performance.now() - t0) / 1000);
+    return kbps >= NET_MIN_KBPS;
+  } catch (_) {
+    return false;
+  }
+}
+
+function showNetworkModal() {
+  netModalEl.classList.add("open");
+  netModalEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("net-modal-open");
+}
+
+function hideNetworkModal() {
+  netModalEl.classList.remove("open");
+  netModalEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("net-modal-open");
+  pendingProduct = null;
 }
 
 function switchItem(p) {
@@ -291,13 +342,24 @@ function init() {
     const lc = e.target.closest("[data-launch]");
     if (lc) { const p = PRODUCTS.find((x) => x.id === +lc.dataset.launch); if (p) launchPearCamera(p); return; }
     if (e.target.closest("[data-tryon-close]")) { closeTryOn(); return; }
+    if (e.target.closest("[data-netmodal-close]")) { hideNetworkModal(); return; }
     const a = e.target.closest("[data-bag]");
     if (a) { const p = PRODUCTS.find((x) => x.id === +a.dataset.bag); if (p) addToBag(p); return; }
   });
 
-  // close try-on with Escape
+  // close modals with Escape
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && tryonEl.classList.contains("open")) closeTryOn();
+    if (e.key === "Escape") {
+      if (netModalEl.classList.contains("open")) { hideNetworkModal(); return; }
+      if (tryonEl.classList.contains("open")) closeTryOn();
+    }
+  });
+
+  // network modal actions
+  $("#netModalRetry").addEventListener("click", async () => {
+    const p = pendingProduct;
+    hideNetworkModal();
+    if (p) await openTryOn(p);
   });
 
   // favorites carousel controls

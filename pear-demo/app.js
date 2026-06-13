@@ -1177,6 +1177,26 @@ function setSizeOverride(size) {
 }
 
 /* =============================================================================
+   Analytics — fire-and-forget try-on event (backend appends to Google Sheets)
+   No PII is sent: only garment metadata and the recommended size.
+   ============================================================================= */
+function logTryOnAnalytics(item, size) {
+  if (!item) return;
+  fetch("/api/track-tryon", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      garmentId:   item.id          ?? "",
+      garmentName: item.name        ?? "",
+      garmentType: item.garmentType ?? "",
+      subType:     item.subType     ?? "",
+      size:        size             ?? "",
+    }),
+    keepalive: true, // completes even if the user navigates away immediately
+  }).catch(() => {}); // never block or throw — tracking must never affect the session
+}
+
+/* =============================================================================
    Capture flow
    ============================================================================= */
 /* One button toggles the live session: Go Live ⇄ Stop. */
@@ -1225,6 +1245,7 @@ async function goLive() {
     // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
     //    activeOutfit has both slots filled, else the single active garment. Same session.
     await applyActive();               // rtClient.set({ prompt, image(s), enhance:false })
+    logTryOnAnalytics(activeItem, activeTryOnSize || currentUserSize);
 
     // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
     $("scanOverlay").hidden = true;
