@@ -9,7 +9,7 @@
 /* ── config ──
    PRODUCTS, SUBTYPE_LABEL, shade(), garmentSVG() live in catalog.js,
    which is loaded before this file. */
-const PEAR_PATH = "./ui/fitting-room/index.html"; // store lives at root
+const PEAR_PATH = "./fitting-room/index.html"; // server roots at ui/
 const LS_TRYON  = "pear_tryon";
 const LS_BAG    = "meridian_bag";
 
@@ -226,9 +226,6 @@ async function openTryOn(p) {
   tryonEl.classList.add("open");
   tryonEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("tryon-open");
-  checkNetworkQuality().then(adequate => {
-    if (!adequate) showToast("Tip: connect to Wi-Fi or 4G+ for the best experience");
-  });
 }
 
 function closeTryOn() {
@@ -258,11 +255,7 @@ async function checkNetworkQuality() {
   }
 }
 
-function showNetworkModal() {
-  netModalEl.classList.add("open");
-  netModalEl.setAttribute("aria-hidden", "false");
-  document.body.classList.add("net-modal-open");
-}
+function showNetworkModal() { /* disabled */ }
 
 function hideNetworkModal() {
   netModalEl.classList.remove("open");
