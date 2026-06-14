@@ -1018,6 +1018,108 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   PEAR History Gallery — "גלריית מדידות" floating liquid-glass pod (Screen 2)
+   Horizontal swipeable tray of saved looks (client-side snapshots).
+   ════════════════════════════════════════════════════════════════════════ */
+.pear-gallery-pod {
+  max-width: 760px; margin: 42px auto 8px;
+  padding: 16px clamp(14px, 4vw, 22px) 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,.4) 0%, rgba(255,255,255,.16) 100%);
+  -webkit-backdrop-filter: blur(25px) saturate(210%); backdrop-filter: blur(25px) saturate(210%);
+  border: 1px solid var(--glass-border); border-radius: 24px;
+  box-shadow: var(--shadow);
+  animation: galleryPodIn .6s cubic-bezier(.25, 1, .5, 1) both;
+}
+.pear-gallery-pod[hidden] { display: none; }
+@keyframes galleryPodIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+.pear-gallery-pod__head { display: flex; align-items: center; gap: 10px; margin: 0 2px 14px; }
+.pear-gallery-pod__icon { display: inline-flex; color: var(--pear-deep); }
+.pear-gallery-pod__icon svg { width: 18px; height: 18px; }
+.pear-gallery-pod__title { font-size: 1.04rem; font-weight: 800; margin: 0; }
+.pear-gallery-pod__title span { color: var(--pear-deep); font-weight: 700; font-size: .84rem; }
+.pear-gallery-pod__clear {
+  margin-inline-start: auto; font-size: .74rem; font-weight: 700; color: var(--muted);
+  background: var(--glass-soft); border: 1px solid var(--glass-border); border-radius: var(--pill);
+  padding: 5px 13px; cursor: pointer; transition: all .4s var(--ease);
+}
+.pear-gallery-pod__clear:hover { color: var(--ink); background: rgba(255,255,255,.7); transform: translateY(-1px); }
+.pear-gallery-pod__clear:active { transform: scale(.96); }
+
+.pear-gallery-track {
+  display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 6px;
+  scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.pear-gallery-track::-webkit-scrollbar { height: 0; width: 0; display: none; }
+
+.gallery-item {
+  position: relative; flex: 0 0 132px; scroll-snap-align: start;
+  display: block; padding: 0; text-align: start; cursor: pointer;
+  border: 1px solid var(--glass-border); border-radius: 18px; overflow: hidden;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-soft);
+  transition: all .4s var(--ease);
+  animation: galleryItemIn .5s cubic-bezier(.25, 1, .5, 1) both;
+  animation-delay: calc(var(--gi, 0) * .05s);
+}
+.gallery-item:hover { transform: scale(1.05) translateY(-4px); box-shadow: var(--shadow-lift); border-color: rgba(141,182,0,.5); }
+.gallery-item:active { transform: scale(.96); }
+@keyframes galleryItemIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+
+.gallery-item__media {
+  display: block; aspect-ratio: 3 / 4; background: #050505; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 2px 16px rgba(0,0,0,.4);
+}
+.gallery-item__media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* absolute micro-badge: "Name — Size" in crisp glass */
+.gallery-item__badge {
+  position: absolute; left: 8px; right: 8px; bottom: 8px;
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 10px; border-radius: 12px;
+  background: rgba(16,16,18,.5);
+  -webkit-backdrop-filter: blur(12px) saturate(180%); backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.18);
+}
+.gallery-item__name {
+  flex: 1; min-width: 0; color: #fff; font-size: .7rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gallery-item__size {
+  flex-shrink: 0; font-family: "Urbanist", sans-serif; font-size: .74rem; font-weight: 900;
+  letter-spacing: .02em; color: var(--pear);
+}
+
+/* tap-to-view lightbox — full-size glass overlay */
+.pear-lightbox { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center; padding: 24px; }
+.pear-lightbox.show { display: flex; animation: fade .35s var(--ease) both; }
+.pear-lightbox__backdrop {
+  position: absolute; inset: 0; background: rgba(10,10,12,.55);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.pear-lightbox__fig {
+  position: relative; z-index: 1; margin: 0; max-width: min(460px, 92vw); max-height: 84vh;
+  display: flex; flex-direction: column; gap: 12px;
+  animation: galleryItemIn .45s cubic-bezier(.25, 1, .5, 1) both;
+}
+.pear-lightbox__img {
+  width: 100%; max-height: 74vh; object-fit: contain; border-radius: 22px;
+  border: 1px solid var(--glass-border); box-shadow: var(--shadow-lift); background: #050505;
+}
+.pear-lightbox__cap { text-align: center; color: #fff; font-family: "Urbanist", sans-serif; font-weight: 800; font-size: 1rem; letter-spacing: .02em; }
+.pear-lightbox__close {
+  position: absolute; top: -8px; inset-inline-end: -8px; z-index: 2;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--glass-border); background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--ink); font-size: 1.5rem; line-height: 1; cursor: pointer;
+  transition: all .4s var(--ease);
+}
+.pear-lightbox__close:hover { transform: scale(1.08); background: #fff; }
+.pear-lightbox__close:active { transform: scale(.94); }
+
+/* ════════════════════════════════════════════════════════════════════════
    Extra micro-motion — premium entrance + ambient life
    ════════════════════════════════════════════════════════════════════════ */
 @keyframes riseIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }

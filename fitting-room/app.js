@@ -1475,6 +1475,10 @@ async function goLive() {
  * @returns {void}
  */
 function stopLive() {
+  // 🖼 Auto-save the current live look BEFORE teardown() detaches #aiVideo. Wrapped
+  // so a capture hiccup can never delay the billing kill-switch below.
+  try { if (isLive()) addFitFromLive(); } catch (_) {}
+
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
   $("retakeBtn").hidden = true;
@@ -2152,6 +2156,143 @@ function colorName(hex) {
  * that stop billing the moment the user leaves or hides the tab.
  * @returns {void}
  */
+/* =============================================================================
+   PEAR History Gallery — client-side "Sizing Gallery" (zero extra tokens)
+   ─────────────────────────────────────────────────────────────────────────
+   A static frame is grabbed from the live #aiVideo (or webcam fallback) the
+   instant a session ends, downscaled to a small JPEG, and persisted to
+   localStorage. No re-fetch from Decart, no new WebRTC channel — so the strict
+   5-second LIVE_DURATION_MS window is never touched. Render is pure DOM.
+   ============================================================================= */
+const GALLERY_KEY = "pear_fit_gallery";
+const GALLERY_MAX = 18;                 // cap items so we stay well under the localStorage quota
+
+const escHtml = (s) => String(s == null ? "" : s)
+  .replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function readGallery() {
+  try { const a = JSON.parse(localStorage.getItem(GALLERY_KEY)); return Array.isArray(a) ? a : []; }
+  catch (_) { return []; }
+}
+function writeGallery(arr) {
+  try { localStorage.setItem(GALLERY_KEY, JSON.stringify(arr)); return true; }
+  catch (_) {
+    // quota exceeded → drop oldest entries until it fits
+    while (arr.length > 1) {
+      arr.shift();
+      try { localStorage.setItem(GALLERY_KEY, JSON.stringify(arr)); return true; } catch (_) {}
+    }
+    return false;
+  }
+}
+
+/* Grab the current dressed frame as a small JPEG data-URL. Prefers the live
+   AI-edited stream; falls back to the (mirrored) raw webcam. Returns null if no
+   frame is available — capture must never throw into the teardown path. */
+function captureLiveFrame() {
+  const ai = $("aiVideo");
+  const webcam = $("webcam");
+  let src = null, mirror = false, w = 0, h = 0;
+  if (ai && ai.videoWidth > 0 && ai.style.display !== "none") {
+    src = ai; w = ai.videoWidth; h = ai.videoHeight;            // already correctly oriented
+  } else if (webcam && webcam.videoWidth > 0) {
+    src = webcam; w = webcam.videoWidth; h = webcam.videoHeight; mirror = true;  // selfie-mirror
+  }
+  if (!src || !w || !h) return null;
+
+  const maxW = 360;
+  const scale = Math.min(1, maxW / w);
+  const cw = Math.max(1, Math.round(w * scale));
+  const ch = Math.max(1, Math.round(h * scale));
+  const cnv = document.createElement("canvas");
+  cnv.width = cw; cnv.height = ch;
+  const ctx = cnv.getContext("2d");
+  if (mirror) { ctx.translate(cw, 0); ctx.scale(-1, 1); }
+  try { ctx.drawImage(src, 0, 0, cw, ch); } catch (_) { return null; }
+  try { return cnv.toDataURL("image/jpeg", 0.7); } catch (_) { return null; }
+}
+
+/* Friendly name for the look currently being worn (full outfit when present). */
+function currentLookName() {
+  const look = resolveLook();
+  if (look) return `${look.top.name} + ${look.bottom.name}`;
+  return activeItem && activeItem.name ? activeItem.name : "Look";
+}
+
+/* Public helper (per spec): push a look into history + persist + re-render. */
+function saveFitToGallery(imageSrc, garmentName, size) {
+  if (!imageSrc) return;
+  const arr = readGallery();
+  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "—", ts: Date.now() });
+  while (arr.length > GALLERY_MAX) arr.shift();
+  writeGallery(arr);
+  renderGallery(arr);
+  toast("👗 הלוק נשמר בגלריית המדידות");
+}
+
+/* Capture + save the current live look. Wrapped by callers in try/catch so a
+   capture failure can never delay billing teardown. */
+function addFitFromLive() {
+  const img = captureLiveFrame();
+  if (!img) return;
+  const size = activeTryOnSize || currentUserSize || "—";
+  saveFitToGallery(img, currentLookName(), size);
+}
+
+/* Build the thumbnail tray (newest first) and toggle the pod visibility. */
+function renderGallery(arr) {
+  const pod = $("pearGallery"), track = $("galleryTrack");
+  if (!pod || !track) return;
+  const data = arr || readGallery();
+  if (!data.length) { track.innerHTML = ""; pod.hidden = true; return; }
+  pod.hidden = false;
+  track.innerHTML = data.map((it, idx) => ({ it, idx })).reverse().map(({ it, idx }, i) =>
+    `<button class="gallery-item" type="button" data-idx="${idx}" style="--gi:${i}">
+       <span class="gallery-item__media"><img src="${it.img}" alt="${escHtml(it.name)} ${escHtml(it.size)}" loading="lazy"></span>
+       <span class="gallery-item__badge">
+         <span class="gallery-item__name">${escHtml(it.name)}</span>
+         <span class="gallery-item__size">${escHtml(it.size)}</span>
+       </span>
+     </button>`).join("");
+}
+
+/* Render function (per spec): read persisted history on init and build the DOM. */
+function loadGallery() { renderGallery(readGallery()); }
+
+function clearGallery() {
+  try { localStorage.removeItem(GALLERY_KEY); } catch (_) {}
+  renderGallery([]);
+  toast("גלריית המדידות נוקתה");
+}
+
+/* Tap a thumbnail → full-size glass lightbox (lazily created once). */
+function openFitLightbox(idx) {
+  const it = readGallery()[idx];
+  if (!it) return;
+  let lb = $("pearLightbox");
+  if (!lb) {
+    lb = document.createElement("div");
+    lb.id = "pearLightbox";
+    lb.className = "pear-lightbox";
+    lb.innerHTML =
+      `<div class="pear-lightbox__backdrop"></div>` +
+      `<figure class="pear-lightbox__fig">` +
+        `<img class="pear-lightbox__img" alt="">` +
+        `<figcaption class="pear-lightbox__cap"></figcaption>` +
+      `</figure>` +
+      `<button class="pear-lightbox__close" type="button" aria-label="סגור">×</button>`;
+    document.body.appendChild(lb);
+    lb.addEventListener("click", (e) => {
+      if (e.target.closest(".pear-lightbox__backdrop") || e.target.closest(".pear-lightbox__close")) {
+        lb.classList.remove("show");
+      }
+    });
+  }
+  lb.querySelector(".pear-lightbox__img").src = it.img;
+  lb.querySelector(".pear-lightbox__cap").textContent = `${it.name} · ${it.size}`;
+  lb.classList.add("show");
+}
+
 function init() {
   injectReplayStyles();
   updateProgress();
@@ -2182,6 +2323,16 @@ function init() {
   $("startCamBtn").addEventListener("click", () => startCamera());
   $("captureBtn").addEventListener("click", onLiveToggle);
   $("retakeBtn").addEventListener("click", () => { resetToLive(); });
+
+  // PEAR History Gallery — render persisted looks + wire tray/clear interactions
+  loadGallery();
+  const galleryTrack = $("galleryTrack");
+  if (galleryTrack) galleryTrack.addEventListener("click", (e) => {
+    const item = e.target.closest(".gallery-item");
+    if (item) openFitLightbox(Number(item.dataset.idx));
+  });
+  const galleryClear = $("galleryClear");
+  if (galleryClear) galleryClear.addEventListener("click", clearGallery);
 
   document.addEventListener("click", (e) => {
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the
