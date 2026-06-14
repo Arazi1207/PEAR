@@ -1002,15 +1002,42 @@ function waitConnected(timeout) {
   });
 }
 
+/**
+ * Fetch a garment image via /api/img-proxy so the Decart SDK receives a Blob
+ * rather than a raw CDN URL.  The SDK's imageToBase64() calls fetch(url) on any
+ * http/https string — which fails for CDNs (suitsupply, magnific, etc.) that don't
+ * send CORS headers.  Routing through our same-origin proxy avoids that entirely.
+ * Returns null on any error so the caller can fall back to the raw URL or prompt-only.
+ */
+async function fetchGarmentBlob(imgUrl) {
+  if (!imgUrl) return null;
+  try {
+    const resp = await fetch(`/api/img-proxy?url=${encodeURIComponent(imgUrl)}`);
+    if (!resp.ok) {
+      console.warn("[PEAR] img-proxy returned", resp.status, "for", imgUrl);
+      return null;
+    }
+    return await resp.blob();
+  } catch (e) {
+    console.warn("[PEAR] img-proxy fetch error:", e?.message || e);
+    return null;
+  }
+}
+
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
   const payload = { prompt: buildPrompt(item), enhance: true };
-  if (item.img) payload.image = item.img;
+
+  if (item.img) {
+    const blob = await fetchGarmentBlob(item.img);
+    payload.image = blob ?? item.img;   // Blob avoids CORS; URL is the fallback
+  }
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType})`);
   console.log("subType  :", item.subType, "| color:", item.color);
   console.log("img URL  :", item.img || "(none — VTON will have no garment reference)");
+  console.log("img via  :", payload.image instanceof Blob ? `Blob (${payload.image.size}B)` : (payload.image || "(none)"));
   console.log("prompt   :", payload.prompt);
   console.groupEnd();
 
@@ -1142,11 +1169,15 @@ async function applyLook(top, bottom) {
   const prompt = buildLookPrompt(top, bottom);
   const images = [top.img, bottom.img].filter(Boolean);   // both verified URLs
 
+  // Fetch the top garment image via proxy to avoid CDN CORS restrictions.
+  const primaryBlob = images[0] ? await fetchGarmentBlob(images[0]) : null;
+  const primaryImage = primaryBlob ?? images[0];   // Blob preferred, URL fallback
+
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
     enhance: true,
-    image: images[0],                 // SDK single-image reference (the top)
+    image: primaryImage,              // SDK single-image reference (the top)
     images,                           // both verified URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
       { category: "top",    type: top.garmentType,    image: top.img,    color: top.color,    subType: top.subType,    name: top.name },
@@ -1160,7 +1191,7 @@ async function applyLook(top, bottom) {
     // A stricter SDK build could reject the enriched shape — retry with the minimal
     // documented contract so a full look never breaks the live session.
     console.warn("look payload rejected, retrying minimal:", e?.message || e);
-    await rtClient.set({ prompt, image: images[0], enhance: true });
+    await rtClient.set({ prompt, image: primaryImage, enhance: true });
   }
 }
 

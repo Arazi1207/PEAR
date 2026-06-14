@@ -26,6 +26,8 @@ import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
 
+logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /* ── environment ─────────────────────────────────────────────────────────── */
@@ -302,6 +304,49 @@ app.get("/api/test-sheets", async (req, res) => {
     res.json({ ok: true, envCheck, message: "Row written successfully — check the sheet!" });
   } catch (err) {
     res.json({ ok: false, envCheck, error: err?.message });
+  }
+});
+
+/* ── Image proxy — fetches garment images server-side to sidestep CORS restrictions
+   on CDN hosts (cdn.suitsupply.com, img.magnific.com, etc.) that block browser
+   cross-origin fetch.  The Decart SDK calls fetch(imageUrl) internally when you
+   pass a URL string to rtClient.set(), which fails for those CDNs.  By proxying
+   through this endpoint the browser always makes a same-origin request, and the
+   server (no CORS restriction) retrieves the image and pipes it back as a Blob.
+   The client then passes the Blob directly to rtClient.set() — no CDN fetch needed.
+   ─────────────────────────────────────────────────────────────────────────────── */
+app.get("/api/img-proxy", async (req, res) => {
+  const raw = req.query.url;
+  if (!raw) return res.status(400).json({ error: "missing_url", message: "?url= is required" });
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
+  } catch {
+    return res.status(400).json({ error: "invalid_url", message: "url must be an absolute http(s) URL" });
+  }
+
+  try {
+    const upstream = await fetch(parsed.href, {
+      headers: { "User-Agent": "PEAR-VTON-Proxy/1.0" },
+    });
+    if (!upstream.ok) {
+      return res.status(502).json({
+        error: "upstream_error",
+        message: `Upstream returned HTTP ${upstream.status} for ${parsed.href}`,
+      });
+    }
+    const contentType = upstream.headers.get("content-type") || "image/jpeg";
+    const buffer = await upstream.arrayBuffer();
+    res
+      .set("Content-Type", contentType)
+      .set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+      .set("Access-Control-Allow-Origin", "*")
+      .send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("[img-proxy] fetch failed:", err?.message || err);
+    res.status(502).json({ error: "proxy_fetch_failed", message: err?.message || String(err) });
   }
 });
 

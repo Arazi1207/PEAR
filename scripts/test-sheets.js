@@ -14,5 +14,5 @@ console.log("GOOGLE_PRIVATE_KEY           :", key   ? "✓ present"    : "✗ MI
 if (!id || !email || !key) process.exit(1);
 
 console.log("\nWriting test row to sheet…");
-await logTryOn({ garmentId: 0, garmentName: "TEST", garmentType: "upper_body", subType: "short_sleeve", size: "M" });
-console.log("Done — check the sheet for a TEST row.");
+await logTryOn({ garmentName: "Test Item", size: "M" });
+console.log("Done — check the sheet for a 'Test Item' row with M=1 (or incremented).");
