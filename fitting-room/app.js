@@ -337,8 +337,10 @@ function calculateSize() {
 
   const resultBox = $("resultBox"), sizeResult = $("sizeResult"), resultLabel = $("resultLabel");
   const nextBtn = $("btn-next-screen");
+  const resultActions = $("resultActions");
 
   resultBox.classList.remove("show", "error-result");
+  if (resultActions) resultActions.classList.remove("is-ready");   // collapse the tray
   resultLabel.innerText = "המידה המומלצת עבורך:";
   nextBtn.disabled = true;
   currentUserSize = null;
@@ -350,6 +352,7 @@ function calculateSize() {
     resultLabel.innerText = "שגיאה בנתונים:";
     sizeResult.innerText = "נתונים לא הגיוניים";
     resultBox.classList.add("show", "error-result");
+    if (resultActions) resultActions.classList.add("is-ready");
     return;
   }
 
@@ -375,11 +378,13 @@ function calculateSize() {
     resultLabel.innerText = "קירוב מידה מומלץ:";
     sizeResult.innerText = bestSize;
     resultBox.classList.add("show");
+    if (resultActions) resultActions.classList.add("is-ready");
     currentUserSize = bestSize;   // use closest match rather than blocking
     nextBtn.disabled = false;
   } else {
     sizeResult.innerText = bestSize;
     resultBox.classList.add("show");
+    if (resultActions) resultActions.classList.add("is-ready");
     currentUserSize = bestSize;
     nextBtn.disabled = false;
   }
@@ -647,11 +652,36 @@ let cameraStartPromise = null;
  * stream (or the same pending request) instead of prompting twice.
  * @returns {Promise<boolean>} true once the camera is live, false on failure/denial.
  */
+/* 🍐 Pear loader — a juicy bouncing pear shown over the camera card whenever the
+   app is busy loading (opening the camera, etc). Purely a visual cue; additive
+   DOM, removed as soon as the load resolves. The go-live render reuses the pear
+   baked into #scanOverlay. */
+function showPearLoader(label) {
+  const cc = $("cameraCard");
+  if (!cc || document.getElementById("pearCamLoader")) return;
+  const el = document.createElement("div");
+  el.id = "pearCamLoader";
+  el.className = "pear-cam-loader";
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML =
+    `<div class="pear-loader">` +
+      `<div class="pear-loader__fruit">🍐</div>` +
+      `<div class="pear-loader__shadow"></div>` +
+      (label ? `<div class="pear-loader__label">${label}</div>` : "") +
+    `</div>`;
+  cc.appendChild(el);
+}
+function hidePearLoader() {
+  const el = document.getElementById("pearCamLoader");
+  if (el) el.remove();
+}
+
 async function startCamera() {
   if (localStream) return true;
   if (cameraStartPromise) return cameraStartPromise;   // a request is already in flight
 
   cameraStartPromise = (async () => {
+    showPearLoader("מפעיל מצלמה…");        // 🍐 loading cue while permission/stream opens
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -676,6 +706,8 @@ async function startCamera() {
       showCamError("לא ניתן לגשת למצלמה: " + (err && err.message ? err.message : err) +
         " — ודא הרשאת מצלמה ושהאתר מוגש מ-localhost/https.");
       return false;
+    } finally {
+      hidePearLoader();
     }
   })();
 
@@ -1164,25 +1196,27 @@ function injectSizeSelector() {
     const s = document.createElement("style");
     s.id = "pearSizeSelectorStyles";
     s.textContent = `
+      /* Liquid-glass size selector — matches the blue glass theme in style.css.
+         Light refractive pod, glass pill tiles, royal-blue active glow. */
       #pearSizeSelector {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin: 12px 0 4px;
-        padding: 10px 14px;
-        background: rgba(30, 30, 38, 0.60);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 12px;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+        margin: 14px 0 4px;
+        padding: 10px 16px;
+        background: linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.18) 100%);
+        border: 1px solid rgba(255,255,255,0.55);
+        border-radius: 100px;
+        backdrop-filter: blur(25px) saturate(210%);
+        -webkit-backdrop-filter: blur(25px) saturate(210%);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
       }
       .pear-sz-label {
         font-size: 11px;
-        font-weight: 600;
-        letter-spacing: .08em;
+        font-weight: 700;
+        letter-spacing: .12em;
         text-transform: uppercase;
-        color: rgba(255,255,255,0.40);
+        color: #5f7d00;
         white-space: nowrap;
         flex-shrink: 0;
       }
@@ -1193,36 +1227,49 @@ function injectSizeSelector() {
       }
       .pear-sz-btn {
         min-width: 40px;
-        padding: 6px 11px;
-        border-radius: 8px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,255,255,0.05);
-        color: rgba(255,255,255,0.60);
+        padding: 7px 13px;
+        border-radius: 100px;
+        border: 1px solid rgba(255,255,255,0.55);
+        background: rgba(255,255,255,0.42);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+        color: #1c2536;
         font-size: 12px;
         font-weight: 700;
         letter-spacing: .04em;
         cursor: pointer;
-        transition: background .14s ease, border-color .14s ease,
-                    color .14s ease, box-shadow .14s ease, transform .1s ease;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+        transition: all .5s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .pear-sz-btn:hover {
-        background: rgba(255,255,255,0.10);
-        border-color: rgba(255,255,255,0.22);
-        color: #fff;
+        transform: translateY(-2px);
+        background: rgba(255,255,255,0.7);
+        border-color: rgba(141,182,0,0.45);
+        color: #0a0a0b;
+        box-shadow: 0 8px 22px rgba(0,0,0,0.12);
       }
-      .pear-sz-btn:active { transform: scale(0.93); }
+      .pear-sz-btn:active { transform: scale(0.94); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
       .pear-sz-btn.is-active {
-        background: #149c7a;
-        border-color: #149c7a;
-        color: #fff;
-        box-shadow: 0 2px 12px rgba(20,156,122,0.38);
+        background: rgba(141,182,0,0.16);
+        border-color: rgba(141,182,0,0.55);
+        color: #5f7d00;
+        box-shadow: 0 0 0 1px rgba(141,182,0,0.25), 0 6px 20px rgba(141,182,0,0.25),
+                    inset 0 0 12px rgba(141,182,0,0.18);
+        animation: pearSzPulse 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+      }
+      @keyframes pearSzPulse {
+        0%, 100% { box-shadow: 0 0 0 1px rgba(141,182,0,0.22), 0 6px 20px rgba(141,182,0,0.22), inset 0 0 12px rgba(141,182,0,0.16); }
+        50%      { box-shadow: 0 0 0 3px rgba(141,182,0,0.30), 0 10px 28px rgba(141,182,0,0.34), inset 0 0 18px rgba(141,182,0,0.28); }
       }
       .pear-sz-hint {
         margin-left: auto;
         font-size: 10px;
-        color: rgba(255,255,255,0.28);
+        font-weight: 600;
+        color: #6b6b70;
         white-space: nowrap;
         flex-shrink: 0;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pear-sz-btn.is-active { animation: none; }
       }
     `;
     document.head.appendChild(s);
@@ -2162,3 +2209,56 @@ function init() {
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
 else init();
+
+/* ════════════════════════════════════════════════════════════════════════
+   UI ONLY — subtle 3D parallax tilt on the Screen-1 size card.
+   Purely decorative; does not touch the try-on flow, tokens, or live window.
+   Tracks the pointer across #screen-calculator .container and maps it to a
+   gentle rotateX/rotateY, resetting smoothly on leave / touchend. Disabled
+   for touch-primary devices and when the user prefers reduced motion.
+   ════════════════════════════════════════════════════════════════════════ */
+(function initCardTilt() {
+  const start = () => {
+    const card = document.querySelector("#screen-calculator .container");
+    if (!card) return;
+
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const coarse = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+    if (reduce || coarse) return;
+
+    const MAX = 6; // degrees of tilt at the card edges
+    let raf = 0;
+
+    const reset = () => {
+      cancelAnimationFrame(raf);
+      card.classList.remove("is-tilting");
+      card.style.transform = "";
+    };
+
+    card.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = card.getBoundingClientRect();
+        const fx = (e.clientX - r.left) / r.width;   // 0 … 1
+        const fy = (e.clientY - r.top) / r.height;   // 0 … 1
+        const px = fx - 0.5;                          // -0.5 … 0.5
+        const py = fy - 0.5;
+        const rotX = (-py * MAX).toFixed(2);
+        const rotY = (px * MAX).toFixed(2);
+        card.classList.add("is-tilting");
+        // 3D parallax tilt
+        card.style.transform =
+          `perspective(1200px) rotateX(${rotX}deg) rotateY(${rotY}deg) translateY(-2px)`;
+        // environment mapping: move the specular highlight to the cursor
+        card.style.setProperty("--mx", (fx * 100).toFixed(1) + "%");
+        card.style.setProperty("--my", (fy * 100).toFixed(1) + "%");
+      });
+    });
+    card.addEventListener("pointerleave", reset);
+    card.addEventListener("touchend", reset, { passive: true });
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();

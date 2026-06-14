@@ -60,6 +60,7 @@
         <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
 
         <form id="sizeForm" autocomplete="off">
+            <!-- ░░ Mandatory inputs — always visible (idle state) ░░ -->
             <div class="form-group">
                 <label for="height"><span class="required">*</span>גובה (בס"מ):</label>
                 <input type="number" id="height" min="100" max="300" placeholder="לדוגמה: 175">
@@ -69,9 +70,23 @@
                 <input type="number" id="weight" min="30" max="250" placeholder="לדוגמה: 68">
             </div>
 
-            <!-- Optional fields stay hidden until BOTH mandatory fields are valid (Task 6) -->
-            <div class="optional-fields" id="optionalFields" hidden>
-                <div class="section-divider"><span>נתונים אופציונליים · לדיוק מרבי</span></div>
+            <!-- ░░ Result + Continue — appear directly below Weight once both
+                 mandatory fields are valid. .is-ready (set in app.js) drives the
+                 staggered liquid reveal. ░░ -->
+            <div class="result-actions" id="resultActions">
+                <div class="result-box" id="resultBox">
+                    <div id="resultLabel">המידה המומלצת עבורך:</div>
+                    <div class="size-display" id="sizeResult">-</div>
+                </div>
+
+                <button id="btn-next-screen" type="button" class="btn-primary" disabled>המשך לחדר המדידה הוירטואלי →</button>
+            </div>
+
+            <!-- ░░ Optional "Fine-tune your fit" tray — pushed to the bottom,
+                 revealed below the result as a secondary, optional action.
+                 Stays hidden until BOTH mandatory fields are valid (Task 6). ░░ -->
+            <div class="optional-fields optional-fields-container" id="optionalFields" hidden>
+                <div class="section-divider"><span>כוונון עדין · Fine-tune your fit</span></div>
 
                 <div class="form-group">
                     <label for="chest">היקף חזה (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
@@ -87,13 +102,6 @@
                 </div>
             </div>
         </form>
-
-        <div class="result-box" id="resultBox">
-            <div id="resultLabel">המידה המומלצת עבורך:</div>
-            <div class="size-display" id="sizeResult">-</div>
-        </div>
-
-        <button id="btn-next-screen" class="btn-primary" disabled>המשך לחדר המדידה הוירטואלי →</button>
     </div>
     </div><!-- /.calc-main -->
   </div><!-- /.calc-shell -->
@@ -145,6 +153,10 @@
             <!-- luxury AI scanning overlay -->
             <div class="scan-overlay" id="scanOverlay" hidden>
                 <div class="scan-overlay__lines"></div>
+                <div class="pear-loader" aria-hidden="true">
+                    <div class="pear-loader__fruit">🍐</div>
+                    <div class="pear-loader__shadow"></div>
+                </div>
                 <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
                 <div class="scan-overlay__sub" id="scanSub">Lucy VTON · photorealistic render</div>
             </div>
