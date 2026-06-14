@@ -307,13 +307,17 @@ const SIZE_SCALE = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
 function setOptionalVisible(show) {
   const box = $("optionalFields");
   if (!box) return;
-  if (show === !box.hidden) return;           // no-op if already in desired state
-  box.hidden = !show;
-  if (!show) {
+  const expanded = box.classList.contains("is-expanded");
+  if (show === expanded) return;              // no-op if already in desired state
+  // Pure CSS-driven expansion (see .optional-fields / .is-expanded in style.css):
+  // toggling the class lets the panel stretch open / collapse fluidly rather than
+  // snapping via a display toggle — no layout jump.
+  if (show) {
+    box.classList.add("is-expanded");
+  } else {
+    box.classList.remove("is-expanded");
     // collapsing → clear any optional values so a stale entry can't skew the result
     ["chest", "waist", "legs"].forEach((id) => { if ($(id)) $(id).value = ""; });
-  } else {
-    box.classList.add("reveal");
   }
 }
 
@@ -413,7 +417,9 @@ function onMeasurementKeydown(e) {
   if (nextBtn && !nextBtn.disabled) { goToFitting(); return; }
 
   const inputs = [...document.querySelectorAll("#sizeForm input")]
-    .filter((el) => el.offsetParent !== null);   // visible (non-hidden) inputs only
+    // visible inputs only — and skip the optional panel while it's collapsed
+    // (visibility:hidden keeps offsetParent set, so check the panel state too).
+    .filter((el) => el.offsetParent !== null && !el.closest(".optional-fields:not(.is-expanded)"));
   const idx = inputs.indexOf(e.target);
   const next = inputs.slice(idx + 1).find((el) => !el.value) || inputs[idx + 1];
   if (next) next.focus();

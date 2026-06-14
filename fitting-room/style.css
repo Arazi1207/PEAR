@@ -111,7 +111,7 @@ h1, h2, h3, h4 {
 }
 
 /* ── screens ───────────────────────────────────────────────────────────── */
-.screen { display: none; min-height: 100vh; position: relative; z-index: 1; }
+.screen { display: none; min-height: 100vh; min-height: 100dvh; position: relative; z-index: 1; }
 .screen.active { display: block; animation: fade .5s var(--ease) both; }
 @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
@@ -136,7 +136,7 @@ h1, h2, h3, h4 {
 }
 
 /* ── step progress ─────────────────────────────────────────────────────── */
-.step-progress { max-width: 452px; margin: 0 auto; padding: 38px clamp(18px,5vw,28px) 0; }
+.step-progress { max-width: 452px; margin: 0 auto; padding: 24px clamp(18px,5vw,28px) 0; }
 .step-progress-label {
   display: flex; justify-content: space-between; align-items: baseline;
   font-size: .82rem; font-weight: 600; color: var(--muted); margin-bottom: 12px;
@@ -158,9 +158,9 @@ h1, h2, h3, h4 {
 
 /* ── calculator card (floating frosted-glass pane) ─────────────────────── */
 #screen-calculator .container {
-  max-width: 472px;
-  margin: 24px auto 64px;
-  padding: clamp(28px, 4vw, 42px);
+  max-width: 460px;
+  margin: 16px auto 40px;
+  padding: clamp(20px, 3.2vw, 32px);
   background: linear-gradient(135deg, rgba(255,255,255,.45) 0%, rgba(255,255,255,.18) 100%);
   -webkit-backdrop-filter: var(--blur-lg);
   backdrop-filter: var(--blur-lg);
@@ -195,10 +195,10 @@ h1, h2, h3, h4 {
 #screen-calculator .container.is-tilting::after { opacity: 1; }
 #screen-calculator .container > * { position: relative; z-index: 1; }
 
-.container h2 { font-size: 1.65rem; font-weight: 800; margin: 0 0 7px; }
-.subtitle { color: var(--muted); margin: 0 0 28px; font-size: .92rem; line-height: 1.55; }
+.container h2 { font-size: 1.5rem; font-weight: 800; margin: 0 0 6px; }
+.subtitle { color: var(--muted); margin: 0 0 18px; font-size: .9rem; line-height: 1.5; }
 
-#sizeForm { display: grid; gap: 16px; }
+#sizeForm { display: grid; gap: 13px; }
 .form-group { display: grid; gap: 7px; }
 .form-group label { font-size: .85rem; font-weight: 600; color: var(--text); }
 .required { color: var(--pear-deep); margin-inline-end: 4px; font-weight: 800; }
@@ -235,7 +235,7 @@ h1, h2, h3, h4 {
 }
 
 .result-box {
-  margin-top: 26px; padding: 24px; border-radius: var(--radius);
+  margin-top: 26px; padding: 18px 20px; border-radius: var(--radius);
   background: linear-gradient(135deg, rgba(141,182,0,.14), rgba(141,182,0,.05));
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   border: 1px solid var(--glass-border);
@@ -251,7 +251,8 @@ h1, h2, h3, h4 {
 #resultLabel { font-size: .86rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
 .size-display {
   font-family: "Urbanist"; font-size: 2.6rem; font-weight: 900; line-height: 1;
-  background: linear-gradient(120deg, var(--pear-deep), var(--pear));
+  background: linear-gradient(120deg, var(--pear-deep), var(--pear), var(--pear-deep));
+  background-size: 220% 100%;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .error-result .size-display { font-size: 1.2rem; -webkit-text-fill-color: var(--ink); color: var(--ink); }
@@ -259,7 +260,7 @@ h1, h2, h3, h4 {
 /* ── buttons (frosted capsules) ────────────────────────────────────────── */
 /* primary action — translucent pear-green glass */
 .btn-primary {
-  width: 100%; margin-top: 28px; padding: 16px 24px;
+  width: 100%; margin-top: 20px; padding: 15px 24px;
   border: 1px solid rgba(141, 182, 0, .35); border-radius: var(--pill);
   background: var(--pear-tint);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
@@ -305,13 +306,31 @@ h1, h2, h3, h4 {
 .btn-back:hover { color: var(--ink); background: rgba(255, 255, 255, .65); transform: translateY(-2px); }
 .btn-back:active { transform: scale(.96); }
 
-/* ── conditional optional fields — slide up + fade ─────────────────────── */
-.optional-fields[hidden] { display: none; }
-.optional-fields { display: grid; gap: 16px; }
-.optional-fields.reveal { animation: slideUpFade .55s cubic-bezier(.25, 1, .5, 1) both; }
-@keyframes slideUpFade {
-  from { opacity: 0; transform: translateY(16px); clip-path: inset(0 0 100% 0); }
-  to   { opacity: 1; transform: none;            clip-path: inset(0 0 0 0); }
+/* ── conditional optional fields — fluid "Liquid Glass" expandable panel ───
+   No display:none toggle. The panel is always in the DOM and opens organically
+   via max-height + opacity + transform + visibility, so the card stretches
+   downward smoothly instead of snapping. app.js toggles .is-expanded. ░░ */
+.optional-fields {
+  display: grid; gap: 13px;
+  max-height: 0; opacity: 0; visibility: hidden;
+  overflow: hidden; margin-top: 0;
+  transform: translateY(-10px) scale(.985);
+  transition:
+    max-height .6s cubic-bezier(.25, 1, .5, 1),
+    opacity .4s ease-out,
+    transform .5s cubic-bezier(.175, .885, .32, 1.1),
+    margin-top .5s cubic-bezier(.25, 1, .5, 1),
+    visibility 0s linear .6s;          /* stay visible through the collapse, then hide */
+}
+.optional-fields.is-expanded {
+  max-height: 520px; opacity: 1; visibility: visible;
+  transform: translateY(0) scale(1); margin-top: 22px;
+  transition:
+    max-height .6s cubic-bezier(.25, 1, .5, 1),
+    opacity .4s ease-out .05s,
+    transform .5s cubic-bezier(.175, .885, .32, 1.1),
+    margin-top .5s cubic-bezier(.25, 1, .5, 1),
+    visibility 0s;
 }
 
 /* ── focus-mode calculator hint ────────────────────────────────────────── */
@@ -331,6 +350,7 @@ h1, h2, h3, h4 {
   max-width: 1180px;
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   align-items: stretch;
@@ -406,8 +426,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   display: flex; flex-direction: column; justify-content: center;
   padding: 20px clamp(16px, 3vw, 40px) 40px;
 }
-.calc-main .step-progress { width: 100%; max-width: 472px; padding-top: 20px; }
-#screen-calculator .container { margin: 20px auto; }
+.calc-main .step-progress { width: 100%; max-width: 472px; padding-top: 12px; }
+#screen-calculator .container { margin: 12px auto; }
 
 /* ── responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 920px) {
@@ -872,41 +892,60 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 /* ════════════════════════════════════════════════════════════════════════
    "Finished height + weight" — cool cascading reveal of the optional fields
    ─────────────────────────────────────────────────────────────────────────
-   When both mandatory fields become valid, app.js adds .reveal. Each optional
-   row pops up in sequence (slight elastic overshoot) so the form feels like it
-   is "filling up", inviting the user to keep going — or to continue. ░░ */
-.optional-fields.reveal { animation: optFade .3s ease both; }
-@keyframes optFade { from { opacity: .4; } to { opacity: 1; } }
-
-.optional-fields.reveal > * {
+   When both mandatory fields become valid, app.js adds .is-expanded. The panel
+   itself stretches open (above); on top of that each optional row pops up in
+   sequence (slight elastic overshoot) so the form feels like it is "filling
+   up", inviting the user to keep going — or to continue. ░░ */
+.optional-fields.is-expanded > * {
   animation: pearPopIn .55s cubic-bezier(.34, 1.56, .64, 1) both;
 }
 /* delays start later so the fine-tune tray clearly lands AFTER the result + button */
-.optional-fields.reveal > *:nth-child(1) { animation-delay: .26s; }
-.optional-fields.reveal > *:nth-child(2) { animation-delay: .35s; }
-.optional-fields.reveal > *:nth-child(3) { animation-delay: .44s; }
-.optional-fields.reveal > *:nth-child(4) { animation-delay: .53s; }
+.optional-fields.is-expanded > *:nth-child(1) { animation-delay: .26s; }
+.optional-fields.is-expanded > *:nth-child(2) { animation-delay: .35s; }
+.optional-fields.is-expanded > *:nth-child(3) { animation-delay: .44s; }
+.optional-fields.is-expanded > *:nth-child(4) { animation-delay: .53s; }
 @keyframes pearPopIn {
   0%   { opacity: 0; transform: translateY(14px) scale(.96); }
   60%  { opacity: 1; transform: translateY(-2px) scale(1.01); }
   100% { opacity: 1; transform: none; }
 }
-/* the recommended size lands with a satisfying pop */
-.result-box.show .size-display { animation: sizePop .5s cubic-bezier(.34, 1.56, .64, 1) both; }
+/* the recommended size lands with a satisfying pop, then a slow pear sheen */
+.result-box.show .size-display {
+  animation: sizePop .5s cubic-bezier(.34, 1.56, .64, 1) both,
+             sizeSheen 3.4s ease-in-out .5s infinite;
+}
 @keyframes sizePop {
   0%   { transform: scale(.7); opacity: 0; }
   60%  { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); }
 }
+@keyframes sizeSheen {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
 /* ── Inverted hierarchy: Result + Continue tray sits directly below Weight ──
    Idle → fully collapsed (height 0). When app.js adds .is-ready it expands with
    a fluid elastic curve; the size box then the button stagger into place. ░░ */
 .result-actions {
-  max-height: 0; margin-top: 0; overflow: hidden;
-  transition: max-height .6s cubic-bezier(.25, 1, .5, 1),
-              margin-top .6s cubic-bezier(.25, 1, .5, 1);
+  max-height: 0; opacity: 0; visibility: hidden; overflow: hidden; margin-top: 0;
+  transform: translateY(-10px) scale(.985);
+  transition:
+    max-height .6s cubic-bezier(.25, 1, .5, 1),
+    opacity .4s ease-out,
+    transform .5s cubic-bezier(.175, .885, .32, 1.1),
+    margin-top .6s cubic-bezier(.25, 1, .5, 1),
+    visibility 0s linear .6s;
 }
-.result-actions.is-ready { max-height: 380px; margin-top: 10px; }   /* +16px grid gap ≈ 26px */
+.result-actions.is-ready {
+  max-height: 420px; opacity: 1; visibility: visible;
+  transform: translateY(0) scale(1); margin-top: 10px;
+  transition:
+    max-height .6s cubic-bezier(.25, 1, .5, 1),
+    opacity .4s ease-out .05s,
+    transform .5s cubic-bezier(.175, .885, .32, 1.1),
+    margin-top .6s cubic-bezier(.25, 1, .5, 1),
+    visibility 0s;
+}   /* +16px grid gap ≈ 26px */
 .result-actions .result-box { margin-top: 0; transition-delay: .06s; }   /* tray owns the top gap */
 
 /* staggered liquid entry — the size box first, the Continue button just after */
@@ -920,9 +959,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 #btn-next-screen:not(:disabled) { opacity: 1; transform: none; }
 #btn-next-screen:hover:not(:disabled)  { transform: translateY(-2px); }   /* keep id-level hover/press */
 #btn-next-screen:active:not(:disabled) { transform: scale(.96); }
-
-/* fine-tune tray sits a touch lower, reading as a calm secondary action */
-.optional-fields-container { margin-top: 22px; }
 
 /* once a size exists the Continue button breathes a soft pear glow — "you can go" */
 #btn-next-screen:not(:disabled) { animation: continueInvite 2.6s ease-in-out infinite; }
@@ -979,6 +1015,66 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   background: linear-gradient(160deg, rgba(255,255,255,.72), rgba(238,238,236,.8));
   -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);
   animation: fade .3s var(--ease) both;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Extra micro-motion — premium entrance + ambient life
+   ════════════════════════════════════════════════════════════════════════ */
+@keyframes riseIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+/* calculator card content cascades up on entry */
+#screen-calculator.active .kicker          { animation: riseIn .6s var(--ease) both; animation-delay: .06s; }
+#screen-calculator.active .container > h2  { animation: riseIn .6s var(--ease) both; animation-delay: .13s; }
+#screen-calculator.active .subtitle        { animation: riseIn .6s var(--ease) both; animation-delay: .20s; }
+#screen-calculator.active #sizeForm > .form-group:nth-child(1) { animation: riseIn .6s var(--ease) both; animation-delay: .27s; }
+#screen-calculator.active #sizeForm > .form-group:nth-child(2) { animation: riseIn .6s var(--ease) both; animation-delay: .34s; }
+
+/* editorial photo — slow cinematic Ken Burns drift */
+.calc-editorial__img { animation: kenBurns 24s ease-in-out infinite alternate; }
+@keyframes kenBurns {
+  from { transform: scale(1)    translate(0, 0); }
+  to   { transform: scale(1.09) translate(-2%, -2%); }
+}
+/* editorial copy fades up in sequence */
+#screen-calculator.active .calc-editorial__kicker   { animation: riseIn .7s var(--ease) both; animation-delay: .10s; }
+#screen-calculator.active .calc-editorial__headline { animation: riseIn .7s var(--ease) both; animation-delay: .20s; }
+#screen-calculator.active .calc-editorial__lead     { animation: riseIn .7s var(--ease) both; animation-delay: .30s; }
+#screen-calculator.active .calc-editorial__list     { animation: riseIn .7s var(--ease) both; animation-delay: .40s; }
+#screen-calculator.active .calc-editorial__meta     { animation: riseIn .7s var(--ease) both; animation-delay: .50s; }
+
+/* specular sheen sweeps across primary glass buttons on hover */
+.btn-primary, .btn-capture, .btn-watch { position: relative; overflow: hidden; }
+.btn-primary::after, .btn-capture::after, .btn-watch::after {
+  content: ""; position: absolute; top: 0; left: -130%;
+  width: 55%; height: 100%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.6), transparent);
+  transform: skewX(-18deg);
+}
+.btn-primary:hover:not(:disabled)::after,
+.btn-capture:hover:not(:disabled)::after,
+.btn-watch:hover::after { animation: btnShine .9s var(--ease); }
+@keyframes btnShine { from { left: -130%; } to { left: 140%; } }
+
+/* progress bar — a travelling light sheen rides the fill */
+.step-progress-fill { position: relative; overflow: hidden; }
+.step-progress-fill::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+  transform: translateX(-100%); animation: progShine 2.4s var(--ease) infinite;
+}
+@keyframes progShine { from { transform: translateX(-100%); } to { transform: translateX(240%); } }
+
+/* ── short viewports: keep the whole size card on one screen ────────────── */
+@media (max-height: 760px) {
+  .step-progress { padding-top: 16px; }
+  .calc-main .step-progress { padding-top: 6px; }
+  #screen-calculator .container { margin: 8px auto; padding: clamp(16px, 3vw, 26px); }
+  .container h2 { font-size: 1.34rem; }
+  .subtitle { margin-bottom: 12px; }
+  #sizeForm { gap: 10px; }
+  .form-group input { padding: 11px 15px; }
+  .btn-primary { margin-top: 16px; padding: 13px 24px; }
+  .result-box { padding: 14px 18px; }
 }
 
 /* ── accessibility: respect reduced-motion ─────────────────────────────── */
