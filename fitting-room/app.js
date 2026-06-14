@@ -2180,6 +2180,8 @@ const CLIP_MAX = 12;                    // in-memory clip cap — bounds blob me
 
 const liveClips = new Map();            // ts → object URL of the 5s clip (this session only)
 let lastFitTs = null;                   // ts of the entry awaiting its clip from finalizeRecording
+const compareSel = new Set();           // ts of fits picked for the Compare overlay (max 2)
+let activeClipTs = null;                // ts of the clip currently replaying in #aiVideo
 
 const escHtml = (s) => String(s == null ? "" : s)
   .replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -2291,14 +2293,74 @@ function renderGallery(arr) {
     const media = clip
       ? `<video class="lgi-video" src="${clip}" poster="${it.img}" autoplay loop muted playsinline preload="auto"></video>`
       : `<img src="${it.img}" alt="${escHtml(it.name)} ${escHtml(it.size)}" loading="lazy">`;
-    return `<button class="live-gallery-item${clip ? " has-clip" : ""}" type="button" data-idx="${idx}"${clip ? ` data-video-src="${clip}"` : ""} style="--gi:${i}">
+    const cls = "live-gallery-item" + (clip ? " has-clip" : "") +
+      (it.ts === activeClipTs ? " is-playing" : "") + (compareSel.has(it.ts) ? " is-selected" : "");
+    return `<button class="${cls}" type="button" data-idx="${idx}" data-ts="${it.ts}"${clip ? ` data-video-src="${clip}"` : ""} style="--gi:${i}">
        <span class="live-gallery-item__media">${media}</span>
+       <span class="lgi-select" role="checkbox" aria-checked="${compareSel.has(it.ts)}" title="בחר להשוואה">✓</span>
        <span class="live-gallery-item__badge">
          <span class="live-gallery-item__name">${escHtml(it.name)}</span>
          <span class="live-gallery-item__size">${escHtml(it.size)}</span>
        </span>
      </button>`;
   }).join("");
+
+  // reconcile selection with the freshly built DOM: drop picks that no longer exist
+  [...compareSel].forEach((ts) => { if (!data.some((d) => d.ts === ts)) compareSel.delete(ts); });
+  syncCompareUI();
+}
+
+/* Toggle whether the tile's clip is playing-highlighted (no re-render → no flash). */
+function markActiveTile() {
+  document.querySelectorAll(".live-gallery-item").forEach((el) =>
+    el.classList.toggle("is-playing", Number(el.dataset.ts) === activeClipTs));
+}
+
+/* Compare selection (max two). Updates tile state + the floating Compare pill. */
+function toggleCompareSelect(ts) {
+  if (compareSel.has(ts)) compareSel.delete(ts);
+  else if (compareSel.size >= 2) { toast("ניתן להשוות שתי מדידות בלבד"); return; }
+  else compareSel.add(ts);
+  syncCompareUI();
+}
+function syncCompareUI() {
+  document.querySelectorAll(".live-gallery-item").forEach((el) => {
+    const on = compareSel.has(Number(el.dataset.ts));
+    el.classList.toggle("is-selected", on);
+    const sb = el.querySelector(".lgi-select");
+    if (sb) sb.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  const bar = $("compareBar");
+  if (bar) bar.hidden = compareSel.size !== 2;
+}
+
+/* Build + reveal the side-by-side Compare overlay from the two selected fits. */
+function openCompareOverlay() {
+  const data = readGallery();
+  const picks = [...compareSel].map((ts) => data.find((d) => d.ts === ts)).filter(Boolean);
+  if (picks.length !== 2) return;
+  const split = $("compareSplit"), ov = $("pearCompare");
+  if (!split || !ov) return;
+  split.innerHTML = picks.map((it) => {
+    const clip = liveClips.get(it.ts);
+    const media = clip
+      ? `<video src="${clip}" autoplay loop muted playsinline></video>`
+      : `<img src="${it.img}" alt="${escHtml(it.name)}">`;
+    return `<div class="pcmp__cell">
+       <div class="pcmp__media">${media}</div>
+       <div class="pcmp__label"><b>${escHtml(it.name)}</b><span class="pcmp__size">${escHtml(it.size)}</span></div>
+     </div>`;
+  }).join("");
+  ov.hidden = false;
+  requestAnimationFrame(() => ov.classList.add("show"));
+}
+function closeCompare() {
+  const ov = $("pearCompare");
+  if (!ov || ov.hidden) return;
+  ov.classList.remove("show");
+  ov.hidden = true;
+  const split = $("compareSplit");
+  if (split) split.innerHTML = "";        // stop the two playing clips
 }
 
 /* Render function: read persisted history on init and build the DOM. */
@@ -2307,6 +2369,9 @@ function loadGallery() { renderGallery(readGallery()); }
 function clearGallery() {
   liveClips.forEach((url) => { try { URL.revokeObjectURL(url); } catch (_) {} });
   liveClips.clear();
+  compareSel.clear();
+  activeClipTs = null;
+  const bar = $("compareBar"); if (bar) bar.hidden = true;
   try { localStorage.removeItem(GALLERY_KEY); } catch (_) {}
   renderGallery([]);
   toast("גלריית המדידות נוקתה");
@@ -2322,23 +2387,28 @@ function exitClipReplay() {
     try { ai.load(); } catch (_) {}
   }
   card().classList.remove("show-clip");
+  activeClipTs = null;
+  markActiveTile();
 }
 
 /* Inter-capsule replay: load a history clip into the MAIN top player (#aiVideo)
    and loop it. Refuses to hijack a paid live session. Poster-only items (no clip
    after reload) fall back to the lightbox image. */
-function playClipInMainPlayer(url, idx) {
+function playClipInMainPlayer(url, idx, ts) {
   if (isLive()) { toast("עצור מדידה חיה כדי לצפות בהיסטוריה"); return; }
   const ai = $("aiVideo");
   if (!ai || !url) { if (idx != null) openFitLightbox(idx); return; }
 
-  resetToLive();                       // clean any frozen result / stale replay first
+  resetToLive();                       // clean any frozen result / stale replay first (clears activeClipTs)
   ai.srcObject = null;                 // detach any (dead) WebRTC stream
   ai.src = url;
   ai.loop = true; ai.muted = true; ai.playsInline = true;
   card().classList.remove("show-result");
   card().classList.add("show-clip");   // CSS reveals #aiVideo without live billing semantics
   ai.play().catch(() => {});
+
+  activeClipTs = (ts == null ? null : ts);   // glow the source tile in the tray
+  markActiveTile();
 
   const cc = $("cameraCard");
   if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2423,16 +2493,33 @@ function init() {
   const galleryTrack = $("galleryTrack");
   if (galleryTrack) {
     galleryTrack.addEventListener("click", (e) => {
+      // the corner select toggle (Compare mode) takes priority over replay
+      const selBtn = e.target.closest(".lgi-select");
+      if (selBtn) {
+        e.preventDefault();
+        const host = selBtn.closest(".live-gallery-item");
+        if (host) toggleCompareSelect(Number(host.dataset.ts));
+        return;
+      }
       const item = e.target.closest(".live-gallery-item");
       if (!item) return;
       const idx = Number(item.dataset.idx);
       const url = item.dataset.videoSrc;        // present only on clip-bearing tiles
-      if (url) playClipInMainPlayer(url, idx);   // inter-capsule replay in #aiVideo
+      if (url) playClipInMainPlayer(url, idx, Number(item.dataset.ts));  // replay in #aiVideo
       else openFitLightbox(idx);                 // poster-only (post-reload) → image view
     });
   }
   const galleryClear = $("galleryClear");
   if (galleryClear) galleryClear.addEventListener("click", clearGallery);
+
+  // Compare mode — open the split-screen overlay; close via ✕ / backdrop / Esc
+  const compareBar = $("compareBar");
+  if (compareBar) compareBar.addEventListener("click", openCompareOverlay);
+  const compareOverlay = $("pearCompare");
+  if (compareOverlay) compareOverlay.addEventListener("click", (e) => {
+    if (e.target.closest("[data-compare-close]")) closeCompare();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeCompare(); });
 
   document.addEventListener("click", (e) => {
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the

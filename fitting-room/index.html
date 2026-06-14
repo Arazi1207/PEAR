@@ -214,9 +214,28 @@
                 <button class="pip-clear" id="galleryClear" type="button" title="נקה גלריה">נקה</button>
             </div>
             <div class="pear-gallery-track" id="galleryTrack"></div>
+
+            <!-- Floating "Compare Looks" pill — slides up when exactly 2 fits are selected -->
+            <button class="pear-compare-bar" id="compareBar" type="button" hidden>
+                <span class="pear-compare-bar__icon" aria-hidden="true">⤢</span>
+                <span>השוואה בין המראה הנבחר</span>
+                <span class="pear-compare-bar__en">Compare Looks</span>
+            </button>
         </section>
 
         <button class="btn-back" id="btn-back">← חזור למחשבון המידות</button>
+
+        <!-- ░░ Compare Fits — split-screen liquid-glass overlay ░░ -->
+        <div class="pear-compare-overlay" id="pearCompare" role="dialog" aria-modal="true" aria-label="השוואת מדידות" hidden>
+            <div class="pcmp__backdrop" data-compare-close></div>
+            <div class="pcmp__panel" role="document">
+                <header class="pcmp__head">
+                    <h3 class="pcmp__title">השוואת מדידות <span>· Compare Fits</span></h3>
+                    <button class="pcmp__close" id="compareClose" type="button" aria-label="סגור" data-compare-close>✕</button>
+                </header>
+                <div class="pcmp__split" id="compareSplit"></div>
+            </div>
+        </div>
     </div>
 </div>
 
