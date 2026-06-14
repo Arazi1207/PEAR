@@ -562,6 +562,20 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .camera-card.show-live #webcam { visibility: hidden; }
 .camera-card.show-live .camera-card__guide { display: none; }
 
+/* CLIP replay: a saved history clip plays in #aiVideo (no live billing) */
+.camera-card.show-clip #aiVideo { display: block; transform: none; }
+.camera-card.show-clip #webcam { visibility: hidden; }
+.camera-card.show-clip .camera-card__guide,
+.camera-card.show-clip .camera-card__placeholder { display: none; }
+.camera-card.show-clip::before {
+  content: "▶ מדידה קודמת"; position: absolute; top: 14px; inset-inline-start: 14px; z-index: 6;
+  background: rgba(255,255,255,.85);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: var(--ink); font-size: .72rem; font-weight: 800; letter-spacing: .04em;
+  padding: 6px 13px; border-radius: var(--pill); border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,.18);
+}
+
 /* breathing pear-green edge glow while live */
 .camera-card.live,
 .camera-card.show-live {

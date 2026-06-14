@@ -729,6 +729,7 @@ function showCamError(msg) {
 
 function resetToLive() {
   if (!isLive()) clearRecording();   // revoke replay URL + hide post-session buttons when no active API session
+  exitClipReplay();                  // drop any history-clip playing in #aiVideo
   card().classList.remove("show-result");
   $("scanOverlay").hidden = true;
   // #retakeBtn now lives in the .pear-interaction-pod; its visibility is governed
@@ -1398,6 +1399,7 @@ async function goLive() {
   busy = true;                         // Task 10 — claim the flow before ANY await
   $("captureBtn").disabled = true;
   $("camError").hidden = true;
+  exitClipReplay();                    // clear any history clip before a real session takes #aiVideo
   clearRecording();                    // Feature 2 — drop any previous clip + button
 
   try {
@@ -2284,10 +2286,12 @@ function renderGallery(arr) {
   pod.hidden = false;
   track.innerHTML = data.map((it, idx) => ({ it, idx })).reverse().map(({ it, idx }, i) => {
     const clip = liveClips.get(it.ts);
+    // Live Photo tiles autoplay-loop like animated badges; poster-only tiles
+    // (after a reload, when the in-memory clip is gone) fall back to the image.
     const media = clip
-      ? `<video class="lgi-video" src="${clip}" poster="${it.img}" loop muted playsinline preload="metadata"></video>`
+      ? `<video class="lgi-video" src="${clip}" poster="${it.img}" autoplay loop muted playsinline preload="auto"></video>`
       : `<img src="${it.img}" alt="${escHtml(it.name)} ${escHtml(it.size)}" loading="lazy">`;
-    return `<button class="live-gallery-item${clip ? " has-clip" : ""}" type="button" data-idx="${idx}" style="--gi:${i}">
+    return `<button class="live-gallery-item${clip ? " has-clip" : ""}" type="button" data-idx="${idx}"${clip ? ` data-video-src="${clip}"` : ""} style="--gi:${i}">
        <span class="live-gallery-item__media">${media}</span>
        <span class="live-gallery-item__badge">
          <span class="live-gallery-item__name">${escHtml(it.name)}</span>
@@ -2308,19 +2312,37 @@ function clearGallery() {
   toast("גלריית המדידות נוקתה");
 }
 
-/* Hover plays the clip like a Live Photo; leaving pauses + rewinds to poster.
-   relatedTarget guards stop play/pause thrash when moving between child nodes. */
-function galleryHoverPlay(e) {
-  const item = e.target.closest(".live-gallery-item");
-  if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
-  const v = item.querySelector(".lgi-video");
-  if (v) v.play().catch(() => {});
+/* Leave the clip-replay view: pause + detach the history clip from #aiVideo and
+   drop the .show-clip state so the CSS state classes govern the camera again. */
+function exitClipReplay() {
+  const ai = $("aiVideo");
+  if (ai && ai.getAttribute("src")) {
+    try { ai.pause(); } catch (_) {}
+    ai.removeAttribute("src");
+    try { ai.load(); } catch (_) {}
+  }
+  card().classList.remove("show-clip");
 }
-function galleryHoverStop(e) {
-  const item = e.target.closest(".live-gallery-item");
-  if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
-  const v = item.querySelector(".lgi-video");
-  if (v) { try { v.pause(); v.currentTime = 0; } catch (_) {} }
+
+/* Inter-capsule replay: load a history clip into the MAIN top player (#aiVideo)
+   and loop it. Refuses to hijack a paid live session. Poster-only items (no clip
+   after reload) fall back to the lightbox image. */
+function playClipInMainPlayer(url, idx) {
+  if (isLive()) { toast("עצור מדידה חיה כדי לצפות בהיסטוריה"); return; }
+  const ai = $("aiVideo");
+  if (!ai || !url) { if (idx != null) openFitLightbox(idx); return; }
+
+  resetToLive();                       // clean any frozen result / stale replay first
+  ai.srcObject = null;                 // detach any (dead) WebRTC stream
+  ai.src = url;
+  ai.loop = true; ai.muted = true; ai.playsInline = true;
+  card().classList.remove("show-result");
+  card().classList.add("show-clip");   // CSS reveals #aiVideo without live billing semantics
+  ai.play().catch(() => {});
+
+  const cc = $("cameraCard");
+  if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
+  toast("▶ מציג מדידה קודמת");
 }
 
 /* Tap a thumbnail → full-size glass lightbox (looping clip if present, else poster). */
@@ -2402,11 +2424,12 @@ function init() {
   if (galleryTrack) {
     galleryTrack.addEventListener("click", (e) => {
       const item = e.target.closest(".live-gallery-item");
-      if (item) openFitLightbox(Number(item.dataset.idx));
+      if (!item) return;
+      const idx = Number(item.dataset.idx);
+      const url = item.dataset.videoSrc;        // present only on clip-bearing tiles
+      if (url) playClipInMainPlayer(url, idx);   // inter-capsule replay in #aiVideo
+      else openFitLightbox(idx);                 // poster-only (post-reload) → image view
     });
-    // hover = play the Live Photo clip; leave = pause + rewind to poster
-    galleryTrack.addEventListener("mouseover", galleryHoverPlay);
-    galleryTrack.addEventListener("mouseout", galleryHoverStop);
   }
   const galleryClear = $("galleryClear");
   if (galleryClear) galleryClear.addEventListener("click", clearGallery);
