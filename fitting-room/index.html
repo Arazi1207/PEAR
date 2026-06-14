@@ -177,7 +177,7 @@
                 <span class="btn-capture__label">התחל מדידה חיה</span>
                 <span class="btn-capture__en">Go Live</span>
             </button>
-            <button class="btn-ghost" id="retakeBtn" hidden>🔄 נסה שוב / Retake</button>
+            <!-- #retakeBtn now lives inside the unified .pear-interaction-pod below -->
         </div>
 
         <!-- ░░ Catalog (only when entering WITHOUT a focused product) ░░ -->
@@ -195,16 +195,23 @@
             <div class="cl-track" id="clTrack"></div>
         </section>
 
-        <!-- ░░ PEAR History Gallery — previous fits, client-side snapshots ░░ -->
-        <section class="pear-gallery-pod" id="pearGallery" aria-label="גלריית מדידות" hidden>
-            <div class="pear-gallery-pod__head">
-                <span class="pear-gallery-pod__icon" aria-hidden="true">
+        <!-- ░░ PEAR Live-Action Gallery & Retake Pod — unified glass capsule ░░
+             Retake capsule + horizontal "Live Photo" history (5s VTON clips,
+             captured locally — zero server video cost). ░░ -->
+        <section class="pear-interaction-pod" id="pearGallery" aria-label="גלריית מדידות" hidden>
+            <div class="pip-head">
+                <span class="pip-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path>
                     </svg>
                 </span>
-                <h3 class="pear-gallery-pod__title">מדידות קודמות <span>· Previous Fits</span></h3>
-                <button class="pear-gallery-pod__clear" id="galleryClear" type="button" title="נקה גלריה">נקה</button>
+                <h3 class="pip-title">מדידות קודמות <span>· Previous Fits</span></h3>
+                <button class="pip-retake" id="retakeBtn" type="button">
+                    <span class="pip-retake__icon" aria-hidden="true">↺</span>
+                    <span>מדוד שוב</span>
+                    <span class="pip-retake__en">Retake</span>
+                </button>
+                <button class="pip-clear" id="galleryClear" type="button" title="נקה גלריה">נקה</button>
             </div>
             <div class="pear-gallery-track" id="galleryTrack"></div>
         </section>

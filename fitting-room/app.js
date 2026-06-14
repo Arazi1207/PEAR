@@ -731,7 +731,8 @@ function resetToLive() {
   if (!isLive()) clearRecording();   // revoke replay URL + hide post-session buttons when no active API session
   card().classList.remove("show-result");
   $("scanOverlay").hidden = true;
-  $("retakeBtn").hidden = true;
+  // #retakeBtn now lives in the .pear-interaction-pod; its visibility is governed
+  // by the pod (shown once history exists), so it's no longer toggled here.
   $("captureBtn").disabled = !localStream;
 }
 
@@ -1457,7 +1458,6 @@ async function goLive() {
     if (DEMO_FLAG) {
       await renderMockDemo(activeItem);
       card().classList.add("show-result");
-      $("retakeBtn").hidden = false;
     } else {
       showCamError("המדידה החיה נכשלה: " + (err?.message || err));
       setConn("error");
@@ -1481,7 +1481,6 @@ function stopLive() {
 
   teardown();                          // rtClient.disconnect() → billing stops now
   card().classList.remove("show-live");
-  $("retakeBtn").hidden = true;
   setLiveControls(false);
   $("captureBtn").disabled = !localStream;
 }
@@ -1808,6 +1807,11 @@ function finalizeRecording() {
   const blob = new Blob(recordedChunks, { type });
   recordedChunks = [];
   recordedBlob = blob;
+
+  // 🎞 Live-Action gallery: hand the SAME clip to the most-recent saved fit as
+  // its own object URL (independent of recordedUrl, so the revoke below is safe).
+  try { attachClipToLastFit(blob); } catch (_) {}
+
   if (recordedUrl) { try { URL.revokeObjectURL(recordedUrl); } catch (_) {} }
   recordedUrl = URL.createObjectURL(blob);
 
@@ -2157,15 +2161,23 @@ function colorName(hex) {
  * @returns {void}
  */
 /* =============================================================================
-   PEAR History Gallery — client-side "Sizing Gallery" (zero extra tokens)
+   PEAR Live-Action Gallery — client-side "Live Photo" history (zero server cost)
    ─────────────────────────────────────────────────────────────────────────
-   A static frame is grabbed from the live #aiVideo (or webcam fallback) the
-   instant a session ends, downscaled to a small JPEG, and persisted to
-   localStorage. No re-fetch from Decart, no new WebRTC channel — so the strict
-   5-second LIVE_DURATION_MS window is never touched. Render is pure DOM.
+   Each fit stores TWO things:
+     • a tiny JPEG poster  → persisted to localStorage (survives reload)
+     • the 5s VTON clip    → an in-memory object URL built from the SAME
+                              MediaRecorder blob the Replay Zone already records
+                              (see finalizeRecording). No second recorder, no
+                              upload/download, so LIVE_DURATION_MS is untouched.
+   Blob URLs can't be serialized, so on reload tiles gracefully fall back to the
+   static poster (Apple Live Photos degrade the same way). Render is pure DOM.
    ============================================================================= */
 const GALLERY_KEY = "pear_fit_gallery";
-const GALLERY_MAX = 18;                 // cap items so we stay well under the localStorage quota
+const GALLERY_MAX = 18;                 // poster cap — stays well under the localStorage quota
+const CLIP_MAX = 12;                    // in-memory clip cap — bounds blob memory per session
+
+const liveClips = new Map();            // ts → object URL of the 5s clip (this session only)
+let lastFitTs = null;                   // ts of the entry awaiting its clip from finalizeRecording
 
 const escHtml = (s) => String(s == null ? "" : s)
   .replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -2186,9 +2198,15 @@ function writeGallery(arr) {
   }
 }
 
-/* Grab the current dressed frame as a small JPEG data-URL. Prefers the live
-   AI-edited stream; falls back to the (mirrored) raw webcam. Returns null if no
-   frame is available — capture must never throw into the teardown path. */
+/* Revoke + forget a clip URL for a given timestamp (frees blob memory). */
+function dropClip(ts) {
+  const url = liveClips.get(ts);
+  if (url) { try { URL.revokeObjectURL(url); } catch (_) {} liveClips.delete(ts); }
+}
+
+/* Grab the current dressed frame as a small JPEG data-URL (the poster). Prefers
+   the live AI-edited stream; falls back to the (mirrored) raw webcam. Returns
+   null if no frame is available — capture must never throw into teardown. */
 function captureLiveFrame() {
   const ai = $("aiVideo");
   const webcam = $("webcam");
@@ -2219,53 +2237,93 @@ function currentLookName() {
   return activeItem && activeItem.name ? activeItem.name : "Look";
 }
 
-/* Public helper (per spec): push a look into history + persist + re-render. */
+/* Public helper: push a look (poster) into history + persist + re-render.
+   Returns the new entry's ts so the recorder can attach its clip afterwards. */
 function saveFitToGallery(imageSrc, garmentName, size) {
-  if (!imageSrc) return;
+  if (!imageSrc) return null;
+  const ts = Date.now();
   const arr = readGallery();
-  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "—", ts: Date.now() });
-  while (arr.length > GALLERY_MAX) arr.shift();
+  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "—", ts });
+  while (arr.length > GALLERY_MAX) { const old = arr.shift(); dropClip(old.ts); }
   writeGallery(arr);
   renderGallery(arr);
   toast("👗 הלוק נשמר בגלריית המדידות");
+  return ts;
 }
 
-/* Capture + save the current live look. Wrapped by callers in try/catch so a
-   capture failure can never delay billing teardown. */
+/* Capture the poster + save the current live look. Wrapped by callers in
+   try/catch so a capture failure can never delay billing teardown. The matching
+   5s clip is attached later by finalizeRecording → attachClipToLastFit. */
 function addFitFromLive() {
   const img = captureLiveFrame();
   if (!img) return;
   const size = activeTryOnSize || currentUserSize || "—";
-  saveFitToGallery(img, currentLookName(), size);
+  lastFitTs = saveFitToGallery(img, currentLookName(), size);
 }
 
-/* Build the thumbnail tray (newest first) and toggle the pod visibility. */
+/* Reuse the Replay Zone's recorded Blob as the gallery's Live Photo. We mint a
+   SEPARATE object URL so clearRecording()'s revoke of recordedUrl can't break it. */
+function attachClipToLastFit(blob) {
+  if (lastFitTs == null || !blob || !blob.size) { lastFitTs = null; return; }
+  let url = null;
+  try { url = URL.createObjectURL(blob); } catch (_) { lastFitTs = null; return; }
+  liveClips.set(lastFitTs, url);
+  // bound in-memory clips: revoke the oldest beyond CLIP_MAX
+  while (liveClips.size > CLIP_MAX) dropClip(liveClips.keys().next().value);
+  lastFitTs = null;
+  renderGallery();                       // upgrade the just-saved tile: poster → Live Photo
+}
+
+/* Build the swipe tray (newest first) and toggle the pod visibility. Tiles with
+   a live clip render an autoplay-on-hover <video>; the rest show the poster. */
 function renderGallery(arr) {
   const pod = $("pearGallery"), track = $("galleryTrack");
   if (!pod || !track) return;
   const data = arr || readGallery();
   if (!data.length) { track.innerHTML = ""; pod.hidden = true; return; }
   pod.hidden = false;
-  track.innerHTML = data.map((it, idx) => ({ it, idx })).reverse().map(({ it, idx }, i) =>
-    `<button class="gallery-item" type="button" data-idx="${idx}" style="--gi:${i}">
-       <span class="gallery-item__media"><img src="${it.img}" alt="${escHtml(it.name)} ${escHtml(it.size)}" loading="lazy"></span>
-       <span class="gallery-item__badge">
-         <span class="gallery-item__name">${escHtml(it.name)}</span>
-         <span class="gallery-item__size">${escHtml(it.size)}</span>
+  track.innerHTML = data.map((it, idx) => ({ it, idx })).reverse().map(({ it, idx }, i) => {
+    const clip = liveClips.get(it.ts);
+    const media = clip
+      ? `<video class="lgi-video" src="${clip}" poster="${it.img}" loop muted playsinline preload="metadata"></video>`
+      : `<img src="${it.img}" alt="${escHtml(it.name)} ${escHtml(it.size)}" loading="lazy">`;
+    return `<button class="live-gallery-item${clip ? " has-clip" : ""}" type="button" data-idx="${idx}" style="--gi:${i}">
+       <span class="live-gallery-item__media">${media}</span>
+       <span class="live-gallery-item__badge">
+         <span class="live-gallery-item__name">${escHtml(it.name)}</span>
+         <span class="live-gallery-item__size">${escHtml(it.size)}</span>
        </span>
-     </button>`).join("");
+     </button>`;
+  }).join("");
 }
 
-/* Render function (per spec): read persisted history on init and build the DOM. */
+/* Render function: read persisted history on init and build the DOM. */
 function loadGallery() { renderGallery(readGallery()); }
 
 function clearGallery() {
+  liveClips.forEach((url) => { try { URL.revokeObjectURL(url); } catch (_) {} });
+  liveClips.clear();
   try { localStorage.removeItem(GALLERY_KEY); } catch (_) {}
   renderGallery([]);
   toast("גלריית המדידות נוקתה");
 }
 
-/* Tap a thumbnail → full-size glass lightbox (lazily created once). */
+/* Hover plays the clip like a Live Photo; leaving pauses + rewinds to poster.
+   relatedTarget guards stop play/pause thrash when moving between child nodes. */
+function galleryHoverPlay(e) {
+  const item = e.target.closest(".live-gallery-item");
+  if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
+  const v = item.querySelector(".lgi-video");
+  if (v) v.play().catch(() => {});
+}
+function galleryHoverStop(e) {
+  const item = e.target.closest(".live-gallery-item");
+  if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
+  const v = item.querySelector(".lgi-video");
+  if (v) { try { v.pause(); v.currentTime = 0; } catch (_) {} }
+}
+
+/* Tap a thumbnail → full-size glass lightbox (looping clip if present, else poster). */
 function openFitLightbox(idx) {
   const it = readGallery()[idx];
   if (!it) return;
@@ -2277,7 +2335,7 @@ function openFitLightbox(idx) {
     lb.innerHTML =
       `<div class="pear-lightbox__backdrop"></div>` +
       `<figure class="pear-lightbox__fig">` +
-        `<img class="pear-lightbox__img" alt="">` +
+        `<div class="pear-lightbox__stage"></div>` +
         `<figcaption class="pear-lightbox__cap"></figcaption>` +
       `</figure>` +
       `<button class="pear-lightbox__close" type="button" aria-label="סגור">×</button>`;
@@ -2285,12 +2343,26 @@ function openFitLightbox(idx) {
     lb.addEventListener("click", (e) => {
       if (e.target.closest(".pear-lightbox__backdrop") || e.target.closest(".pear-lightbox__close")) {
         lb.classList.remove("show");
+        const stage = lb.querySelector(".pear-lightbox__stage");
+        if (stage) stage.innerHTML = "";     // stop any playing clip on close
       }
     });
   }
-  lb.querySelector(".pear-lightbox__img").src = it.img;
+  const clip = liveClips.get(it.ts);
+  lb.querySelector(".pear-lightbox__stage").innerHTML = clip
+    ? `<video class="pear-lightbox__video" src="${clip}" autoplay loop muted playsinline controls></video>`
+    : `<img class="pear-lightbox__img" src="${it.img}" alt="">`;
   lb.querySelector(".pear-lightbox__cap").textContent = `${it.name} · ${it.size}`;
   lb.classList.add("show");
+}
+
+/* Retake — stop a running session (auto-saving the look) or clear a frozen
+   result, then return to the live-camera standby. */
+function onRetake() {
+  if (isLive()) stopLive();
+  else resetToLive();
+  const cc = $("cameraCard");
+  if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function init() {
@@ -2322,15 +2394,20 @@ function init() {
 
   $("startCamBtn").addEventListener("click", () => startCamera());
   $("captureBtn").addEventListener("click", onLiveToggle);
-  $("retakeBtn").addEventListener("click", () => { resetToLive(); });
+  $("retakeBtn").addEventListener("click", onRetake);
 
-  // PEAR History Gallery — render persisted looks + wire tray/clear interactions
+  // PEAR Live-Action Gallery — render persisted looks + wire tray/clear/retake
   loadGallery();
   const galleryTrack = $("galleryTrack");
-  if (galleryTrack) galleryTrack.addEventListener("click", (e) => {
-    const item = e.target.closest(".gallery-item");
-    if (item) openFitLightbox(Number(item.dataset.idx));
-  });
+  if (galleryTrack) {
+    galleryTrack.addEventListener("click", (e) => {
+      const item = e.target.closest(".live-gallery-item");
+      if (item) openFitLightbox(Number(item.dataset.idx));
+    });
+    // hover = play the Live Photo clip; leave = pause + rewind to poster
+    galleryTrack.addEventListener("mouseover", galleryHoverPlay);
+    galleryTrack.addEventListener("mouseout", galleryHoverStop);
+  }
   const galleryClear = $("galleryClear");
   if (galleryClear) galleryClear.addEventListener("click", clearGallery);
 
