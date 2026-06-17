@@ -45,9 +45,15 @@ const {
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── Strict live-session lifecycle (token spend lives here) ──────────────────
-   The live window is hard-capped at LIVE_DURATION_MS and the BILLED frame rate at
-   LIVE_INFERENCE_FPS. Decart bills ≈ per processed frame (fps × seconds), so the
-   token cost of a try-on is governed ENTIRELY by these two numbers:
+   Two DECOUPLED windows:
+     • LIVE_DURATION_MS — the BILLED Decart inference window. Tokens accrue ONLY
+       here; at the cap we disconnect Decart and freeze the last dressed frame.
+     • VIDEO_LENGTH_MS  — the on-screen experience + saved clip length. After the
+       billed window ends, the recorder keeps running on the FROZEN final frame so
+       the saved/replayed video reaches this length WITHOUT any extra billing.
+
+   Decart bills ≈ per processed frame (fps × seconds), so the token cost is governed
+   ENTIRELY by LIVE_INFERENCE_FPS and LIVE_DURATION_MS (NOT VIDEO_LENGTH_MS):
 
       tokens ≈ LIVE_INFERENCE_FPS × (LIVE_DURATION_MS / 1000) × ~0.39   (per-frame est.)
 
@@ -58,25 +64,27 @@ const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
    camera onto a canvas at EXACTLY LIVE_INFERENCE_FPS / LIVE_W×LIVE_H and hands the
    SDK that capture stream. The numbers below are therefore actually enforced.
 
-   • 11fps × 3.5s ≈ 38.5 frames ≈ ~15 tokens  ← current setting (hard 15-token cap)
-   • 11 × 3.5 × 0.39 = 15.0 tokens MAX per session "no matter what".
+   • 11fps × 1.0s ≈ 11 frames ≈ ~4.3 tokens  ← current setting (well under a 12 cap)
+   • 11 × 1.0 × 0.39 = 4.29 tokens MAX per session "no matter what".
+   • The user still gets a VIDEO_LENGTH_MS (5s) clip via the frozen-frame hold.
 
    LIVE_FPS is the LOCAL camera-capture rate (kept higher for a smooth preview);
    LIVE_INFERENCE_FPS is what the throttler downsamples to before the SDK sees it —
    the only knob that changes the bill. */
-const LIVE_DURATION_MS    = 3500;   // strict live-session cap — EXACTLY 3.5 seconds, no token can leak past it
+const LIVE_DURATION_MS    = 1000;   // BILLED Decart inference window — EXACTLY 1 second, no token can leak past it
+const VIDEO_LENGTH_MS     = 5000;   // total on-screen + saved clip length (1s live + frozen-frame hold; NOT billed)
 const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview; throttled down to LIVE_INFERENCE_FPS for billing)
-const LIVE_INFERENCE_FPS  = 11;     // Decart-billed frame rate — 11fps × 3.5s ≈ 38.5 frames ≈ ~15 tokens/session (hard ceiling).
+const LIVE_INFERENCE_FPS  = 11;     // Decart-billed frame rate — 11fps × 1s ≈ 11 frames ≈ ~4.3 tokens/session (hard ceiling).
                                     //   ENFORCED client-side by createThrottledInputStream() — the SDK's own fps cap is a no-op on Chromium.
-                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 15.0 "no matter what".
+                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 4.29 "no matter what".
 
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
    downscales the canvas to LIVE_W×LIVE_H before capture, so Decart receives this
-   size rather than the camera's native frame. 768×440 keeps the ~1.745 aspect so
-   nothing gets letter-boxed. Tokens scale with FRAMES, not pixels, so this trims
-   pipeline/encode overhead and upload time rather than the token count itself. */
-const LIVE_W = 768, LIVE_H = 440;
+   size rather than the camera's native frame. LOWERED to 512×288 (16:9) to cut
+   quality/upload/encode overhead per the cost trade. Tokens scale with FRAMES, not
+   pixels, so this lowers visual quality + pipeline cost, not the token count itself. */
+const LIVE_W = 512, LIVE_H = 288;
 
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
    (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
@@ -390,8 +398,11 @@ let recordCanvas = null;     // off-DOM canvas mirroring the remote VTON frames
 let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
 let recordingActive = false; // guards the paint loop + single-start per session
 let replayActive = false;   // true while the user is watching the cached local replay
-let liveDurationTimer = null;  // auto-teardown handle for the strict 5s session limit
+let liveDurationTimer = null;  // BILLING cap handle — fires at LIVE_DURATION_MS to disconnect Decart + freeze
 let liveCountdownInterval = null;  // 1s tick handle driving the on-screen countdown overlay
+let videoFinalizeTimer = null; // fires at VIDEO_LENGTH_MS to stop the recorder + finalize the frozen-hold clip
+let recordHold = false;        // true once billing stopped & the recorder is holding the frozen final frame
+let recordHoldSrc = null;      // off-DOM canvas holding the frozen final dressed frame the recorder repaints during the hold
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -1238,6 +1249,12 @@ function teardown() {
   // clearing first means the timer callback (which checks sessionGen) can never fire
   // concurrently with this teardown, even on the same tick.
   if (liveDurationTimer) { clearTimeout(liveDurationTimer); liveDurationTimer = null; }
+  // Cancel the frozen-hold finalize timer + clear its state so a Stop/tab-hide during
+  // the hold (or at any time) fully retires the session instead of leaving the held
+  // recorder running. stopRecording() below then flushes whatever clip exists so far.
+  if (videoFinalizeTimer) { clearTimeout(videoFinalizeTimer); videoFinalizeTimer = null; }
+  recordHold = false;
+  recordHoldSrc = null;
   // Same leak guard for the visual countdown ticker + overlay.
   hideLiveCountdown();
 
@@ -1788,30 +1805,34 @@ async function goLive() {
     startRecording();                  // Feature 2 — record while the session is live
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
-    // Strict 5-second session limit — auto-freezes + stops billing automatically.
-    // Captures sessionGen so a manual Stop before expiry (which bumps the gen) makes
-    // both callbacks no-ops, protecting any subsequent session from being torn down.
+    // Two timers: a BILLING cap at LIVE_DURATION_MS (disconnect Decart + freeze the
+    // final frame) and a VIDEO finalize at VIDEO_LENGTH_MS (stop the recorder on the
+    // frozen-hold tail). The countdown reflects the full VIDEO_LENGTH_MS experience;
+    // it is cleared in every teardown/finalize path via hideLiveCountdown(), so it
+    // needs no sessionGen guard — and MUST survive the sessionGen bump stopBilling()
+    // does at the billed cap so it can keep ticking through the frozen hold.
     const timerGen = sessionGen;
-    const totalSec = Math.round(LIVE_DURATION_MS / 1000);
+    const totalSec = Math.round(VIDEO_LENGTH_MS / 1000);
 
-    // Visual countdown overlay on the #aiVideo container — ticks 5→1 each second.
+    hideLiveCountdown();                // clear any stale ticker before arming a fresh one
     showLiveCountdown(totalSec);
     let remaining = totalSec;
     liveCountdownInterval = setInterval(() => {
-      if (sessionGen !== timerGen) { hideLiveCountdown(); return; }
       remaining -= 1;
       tickLiveCountdown(Math.max(remaining, 0));
+      if (remaining <= 0 && liveCountdownInterval) { clearInterval(liveCountdownInterval); liveCountdownInterval = null; }
     }, 1000);
 
-    // Hard stop at EXACTLY LIVE_DURATION_MS — independent of tick drift, so no token
-    // can ever leak past the 5-second window even if the interval is throttled.
+    // Hard BILLING stop at EXACTLY LIVE_DURATION_MS — independent of tick drift, so no
+    // token can leak past the billed window. Hands off to the frozen-frame hold, which
+    // carries the on-screen view + saved clip to VIDEO_LENGTH_MS with zero extra spend.
     liveDurationTimer = setTimeout(() => {
-      if (sessionGen !== timerGen) return;
-      console.log("[PEAR] 5s live limit reached — auto-freezing + stopping session");
-      autoStopAndFreeze();
+      if (sessionGen !== timerGen) return;   // a manual Stop already tore this session down
+      console.log("[PEAR] billed window reached (" + LIVE_DURATION_MS + "ms) — disconnecting Decart, holding frozen frame to " + VIDEO_LENGTH_MS + "ms");
+      beginFreezeHold();
     }, LIVE_DURATION_MS);
 
-    toast("✨ מדידה חיה · 3.5 שניות — לחץ עצור לסיום מוקדם");
+    toast("✨ מדידה חיה · סרטון 5 שניות");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("[go-live] failed:", err?.message || String(err));
@@ -1855,12 +1876,92 @@ function stopLive() {
   $("captureBtn").disabled = !localStream;
 }
 
-/* Strict-5s auto-teardown. Freezes the final frame, kills billing, surfaces the
-   frozen result — a thin wrapper over stopLive() so the manual Stop and the
-   automatic 5s stop share ONE freeze → save → teardown path. */
-function autoStopAndFreeze() {
-  toast("⏱ 3.5 שניות הושלמו — הלוק הוקפא ונשמר");
-  stopLive();
+/* ── Billed-window cap → frozen-frame hold ───────────────────────────────────
+   Fires at LIVE_DURATION_MS (the BILLED window). Captures the final dressed frame,
+   disconnects Decart so billing stops NOW, then keeps the recorder + on-screen view
+   on that frozen frame until VIDEO_LENGTH_MS so the saved/replayed clip is the full
+   5s WITHOUT any extra token spend. The remaining tail is finalized by
+   finalizeVideoClip(). A manual Stop / tab-hide during the live phase still uses the
+   plain stopLive()→teardown() path (an early, shorter clip — the user chose to stop). */
+function beginFreezeHold() {
+  // 1) Grab the last dressed frame BEFORE disconnecting (needs the live #aiVideo).
+  recordHoldSrc = captureHoldFrame();
+  recordHold = true;                    // paint loop now records this frozen frame to VIDEO_LENGTH_MS
+
+  // 2) Freeze the on-screen masterpiece + persist it to the gallery (frame is ready now).
+  let frozen = null;
+  try {
+    frozen = freezeFinalFrame();
+    const size = activeTryOnSize || currentUserSize || "—";
+    lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
+                                 activeItem && activeItem.id);
+  } catch (_) {}
+
+  // 3) Kill Decart billing immediately (tokens stop at LIVE_DURATION_MS) — but leave
+  //    the recorder, paint loop and countdown alive for the frozen-hold tail.
+  stopBilling();
+
+  // 4) Surface the frozen result for the remainder of the window; lock the control so
+  //    a mid-hold click can't start a second session before the clip finalizes.
+  card().classList.remove("show-live");
+  if (frozen) card().classList.add("show-result");
+  $("captureBtn").disabled = true;
+
+  // 5) Finalize the full-length clip after the hold tail (VIDEO_LENGTH_MS − billed window).
+  if (videoFinalizeTimer) clearTimeout(videoFinalizeTimer);
+  videoFinalizeTimer = setTimeout(finalizeVideoClip, Math.max(0, VIDEO_LENGTH_MS - LIVE_DURATION_MS));
+}
+
+/* Capture the current dressed frame into a fresh off-DOM canvas (the recorder repaints
+   it during the hold). Prefers the AI-edited feed; falls back to the mirrored webcam.
+   Returns null if nothing is paintable. */
+function captureHoldFrame() {
+  const ai = $("aiVideo"), webcam = $("webcam");
+  let src = null, mirror = false, w = 0, h = 0;
+  if (ai && ai.videoWidth > 0 && ai.style.display !== "none") {
+    src = ai; w = ai.videoWidth; h = ai.videoHeight;
+  } else if (webcam && webcam.videoWidth > 0) {
+    src = webcam; w = webcam.videoWidth; h = webcam.videoHeight; mirror = true;
+  }
+  if (!src || !w || !h) return null;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const c = cv.getContext("2d", { alpha: false });
+  c.save();
+  if (mirror) { c.translate(w, 0); c.scale(-1, 1); }
+  try { c.drawImage(src, 0, 0, w, h); } catch (_) { c.restore(); return null; }
+  c.restore();
+  return cv;
+}
+
+/* Stop ONLY the billable Decart session — a subset of teardown() that deliberately
+   leaves the recorder, paint loop, countdown and finalize timer running so the
+   frozen-hold tail can complete. Bumps sessionGen so any late SDK callback no-ops. */
+function stopBilling() {
+  if (liveDurationTimer) { clearTimeout(liveDurationTimer); liveDurationTimer = null; }
+  sessionGen++;                         // neutralise in-flight onRemoteStream/onConnectionChange
+  stopStatsMonitor();
+  if (rtClient) { try { rtClient.disconnect(); } catch (_) {} rtClient = null; }
+  if (inputThrottle) { try { inputThrottle.dispose(); } catch (_) {} inputThrottle = null; }
+  if (realtimeInput) { try { realtimeInput.getTracks().forEach((t) => t.stop()); } catch (_) {} realtimeInput = null; }
+  const ai = $("aiVideo");
+  if (ai) { ai.style.display = "none"; ai.srcObject = null; }
+  connState = "idle";
+  connecting = false;
+  setConn("idle");
+}
+
+/* Close out the frozen-hold: stop the recorder (flushes the full-length clip),
+   clear the hold state, and hand the UI back to the idle "Go Live" state. */
+function finalizeVideoClip() {
+  if (videoFinalizeTimer) { clearTimeout(videoFinalizeTimer); videoFinalizeTimer = null; }
+  hideLiveCountdown();
+  stopRecording();                      // stopPaintLoop + mediaRecorder.stop() → finalizeRecording
+  recordHold = false;
+  recordHoldSrc = null;
+  setLiveControls(false);
+  $("captureBtn").disabled = !localStream;
+  toast("⏱ הסרטון בן 5 שניות מוכן ✓");
 }
 
 /* Paint the final dressed frame onto the on-screen #resultCanvas at full capture
@@ -1903,8 +2004,8 @@ function tickLiveCountdown(sec) {
   if (numEl) numEl.textContent = String(sec);
   const el = $("liveCountdown");
   if (el) {
-    // sweep the conic ring from full → empty as the seconds drain
-    const total = Math.max(1, Math.round(LIVE_DURATION_MS / 1000));
+    // sweep the conic ring from full → empty as the seconds drain (full VIDEO_LENGTH_MS experience)
+    const total = Math.max(1, Math.round(VIDEO_LENGTH_MS / 1000));
     el.style.setProperty("--cd-frac", String(Math.max(0, sec) / total));
     el.classList.toggle("is-final", sec <= 1);
   }
@@ -2019,12 +2120,20 @@ function startRecording() {
 
   const paint = () => {
     if (!recordingActive) return;
-    const w = video.videoWidth, h = video.videoHeight;
-    if (w && h) {
-      if (recordCanvas.width !== w || recordCanvas.height !== h) {
-        recordCanvas.width = w; recordCanvas.height = h;
+    if (recordHold && recordHoldSrc) {
+      // FROZEN-HOLD phase: Decart is disconnected (billing stopped); keep repainting
+      // the captured final frame so canvas.captureStream keeps emitting and the clip
+      // grows to VIDEO_LENGTH_MS. beginRecorder() is idempotent — it covers the case
+      // where the first real frame only arrived right at the billing cap.
+      try { ctx.drawImage(recordHoldSrc, 0, 0, recordCanvas.width, recordCanvas.height); beginRecorder(); } catch (_) {}
+    } else {
+      const w = video.videoWidth, h = video.videoHeight;
+      if (w && h) {
+        if (recordCanvas.width !== w || recordCanvas.height !== h) {
+          recordCanvas.width = w; recordCanvas.height = h;
+        }
+        try { ctx.drawImage(video, 0, 0, w, h); beginRecorder(); } catch (_) {}
       }
-      try { ctx.drawImage(video, 0, 0, w, h); beginRecorder(); } catch (_) {}
     }
     recordRaf = requestAnimationFrame(paint);
   };
