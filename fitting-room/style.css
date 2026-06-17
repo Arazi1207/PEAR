@@ -1410,3 +1410,148 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   }
   body::before, body::after { animation: none; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ MOBILE EXPERIENCE LAYER — app-like phone UI + orchestrated motion
+   ─────────────────────────────────────────────────────────────────────────
+   Additive only. Extends the Monochrome Liquid-Glass identity for touch:
+   an immersive camera stage, a sticky/shrinking header, a swipeable catalog,
+   and a layer of tactile motion (scroll-reveal, ripple, spring presses, live
+   aura). Every existing id/class/state hook is preserved — JS logic untouched.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);   /* tactile overshoot */
+}
+
+/* ── scroll-reveal (mobile-ux.js adds .reveal-up, then .in-view) ──────────
+   The hidden state only exists once JS has tagged the element, so a no-JS or
+   reduced-motion visit renders every block fully visible. */
+.reveal-up {
+  opacity: 0; transform: translateY(26px) scale(.99);
+  transition: opacity .7s var(--ease), transform .8s var(--ease);
+  will-change: opacity, transform;
+}
+.reveal-up.in-view { opacity: 1; transform: none; }
+
+/* ── tap ripple (mobile-ux.js spawns .pear-ripple inside the pressed control) ── */
+.btn-capture, .btn-primary, .btn-watch, .btn-download,
+.pip-retake, .plb-btn, .pear-compare-bar, .btn-back { position: relative; overflow: hidden; }
+.btn-capture > *, .btn-primary > *, .btn-watch > *, .btn-download > *,
+.pip-retake > *, .plb-btn > *, .pear-compare-bar > * { position: relative; z-index: 1; }
+.pear-ripple {
+  position: absolute; z-index: 0; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(141,182,0,.55) 0%, rgba(255,255,255,.38) 42%, transparent 70%);
+  transform: scale(0); opacity: .85; mix-blend-mode: screen;
+  animation: pearRipple .62s var(--ease) forwards;
+}
+@keyframes pearRipple { to { transform: scale(2.5); opacity: 0; } }
+
+/* sticky header animates its compaction on every viewport */
+.app-header {
+  transition: padding .45s var(--ease), background .45s var(--ease),
+              box-shadow .45s var(--ease), border-color .45s var(--ease);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   PHONE  (≤ 768px)
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* sticky, frosted app chrome that compacts as you scroll into the stage */
+  .app-header {
+    position: sticky; top: 0; z-index: 40;
+    max-width: none; margin: 0;
+    padding: calc(14px + var(--safe-t)) clamp(16px, 5vw, 22px) 14px;
+    background: linear-gradient(180deg, rgba(247,247,246,.88), rgba(247,247,246,.30));
+    -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    border-bottom: 1px solid transparent;
+  }
+  .app-header.is-scrolled {
+    padding-top: calc(8px + var(--safe-t)); padding-bottom: 8px;
+    border-bottom-color: var(--glass-border);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .06);
+  }
+  /* in focus mode the .focus-bar already owns the sticky top slot — don't stack two */
+  .focus-bar:not([hidden]) ~ .app-header { position: static; }
+  .app-header__brand { font-size: 1.26rem; transition: font-size .45s var(--ease); }
+  .app-header.is-scrolled .app-header__brand { font-size: 1.1rem; }
+  .app-header__sub { font-size: .78rem; }
+
+  /* roomier, thumb-first body; keep the live control clear of the home indicator */
+  .fitting-container {
+    padding: 18px clamp(14px, 4.5vw, 22px) calc(36px + var(--safe-b));
+  }
+  .personal-title { font-size: 1.5rem; line-height: 1.18; margin: 6px 0 20px; }
+
+  /* ── immersive camera stage — near-full-bleed, deeper, alive ── */
+  .camera-card {
+    max-width: 100%;
+    border-radius: 30px;
+    box-shadow: 0 20px 54px rgba(0, 0, 0, .18), inset 0 0 0 1px rgba(255, 255, 255, .08);
+  }
+  /* a soft pear breath while idle (before the camera opens) so the stage never feels dead */
+  .camera-card:not(.live):not(.show-live):not(.show-result) {
+    animation: stageIdle 5.5s var(--ease) infinite;
+  }
+  @keyframes stageIdle {
+    0%, 100% { box-shadow: 0 20px 54px rgba(0,0,0,.18), inset 0 0 0 1px rgba(255,255,255,.08); }
+    50%      { box-shadow: 0 24px 64px rgba(0,0,0,.20), 0 0 30px rgba(141,182,0,.16),
+                           inset 0 0 0 1px rgba(141,182,0,.20); }
+  }
+  .camera-card__placeholder p { font-size: .96rem; }
+  .camera-card__icon { font-size: 3rem; }
+
+  /* ── big, tactile primary control ── */
+  .cam-controls { margin-top: 18px; gap: 12px; }
+  .btn-capture {
+    padding: 18px 24px; border-radius: 26px; min-height: 64px;
+    transition: transform .35s var(--spring), background .4s var(--ease),
+                border-color .4s var(--ease), box-shadow .4s var(--ease);
+  }
+  .btn-capture__icon  { font-size: 1.35rem; }
+  .btn-capture__label { font-size: 1.16rem; }
+  .btn-capture:active:not(:disabled) { transform: scale(.945); }
+  /* a clearer "ready" invite pulse on the phone */
+  .btn-capture:not(:disabled):not(.is-live) { animation: capInvite 2.4s ease-in-out infinite; }
+  @keyframes capInvite {
+    0%, 100% { box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.55); }
+    50%      { box-shadow: 0 14px 34px rgba(141,182,0,.30), 0 0 0 5px rgba(141,182,0,.10),
+                           inset 0 1px 0 rgba(255,255,255,.6); }
+  }
+
+  /* ── catalog → swipeable snap carousel (peek the next card) ── */
+  .catalog-panel { margin-top: 32px; }
+  .catalog-grid {
+    display: flex; grid-template-columns: none; gap: 12px;
+    overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; padding-bottom: 8px; scroll-padding-inline: 2px;
+  }
+  .catalog-grid::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  .cat-item { flex: 0 0 44vw; max-width: 172px; scroll-snap-align: start; }
+  .cat-item:active { transform: scale(.95); }
+
+  /* spacing rhythm for the remaining sections */
+  .complete-look { margin-top: 34px; }
+  .active-garment { padding: 13px; border-radius: var(--radius); margin-bottom: 18px; }
+  .pear-interaction-pod { margin-top: 32px; border-radius: 26px; }
+  .btn-back { margin: 26px auto calc(40px + var(--safe-b)); }
+
+  /* lift the toast above the home indicator */
+  .toast { bottom: calc(24px + var(--safe-b)); }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SMALL PHONE  (≤ 480px) — declutter + tune
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .personal-title { font-size: 1.34rem; }
+  .app-header__sub { display: none; }                  /* brand + engine dot is enough */
+  .camera-card { border-radius: 26px; }
+  .btn-capture { min-height: 60px; }
+  .cat-item { flex-basis: 52vw; }
+  .live-countdown { width: 58px; height: 58px; }
+  .live-countdown__num { font-size: 1.34rem; }
+}

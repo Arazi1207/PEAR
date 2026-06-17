@@ -2,7 +2,13 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#f3f3f2" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PEAR">
     <title>PEAR — חדר הלבשה וירטואלי · Lucy VTON</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -249,5 +255,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app.js"></script>
+<!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
+     header shrink. Pure enhancement — touches no app.js logic or state. -->
+<script src="mobile-ux.js" defer></script>
 </body>
 </html>
