@@ -60,8 +60,16 @@ const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
    without touching the 5-second on-screen window. */
 const LIVE_DURATION_MS    = 5000;   // strict live-session cap — EXACTLY 5 seconds, no token can leak past it
 const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview, low upload bitrate)
-const LIVE_INFERENCE_FPS  = 6;      // Decart-billed frame rate — 6fps × 5s ≈ 30 frames ≈ ~12 tokens/session (target 10-15).
-                                    //   NB: tokens scale with FRAMES (fps × seconds), NOT resolution. Raise→smoother/costlier, lower→cheaper.
+const LIVE_INFERENCE_FPS  = 6;      // Decart-billed frame rate — 6fps × 5s = 30 frames ≈ ~12 tokens/session (hard ceiling).
+                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 11.7 ≤ 12 "no matter what".
+                                    //   NB: tokens scale with FRAMES (fps × seconds), NOT resolution — see LIVE_W/LIVE_H below.
+
+/* Capture + inference resolution. LOWERED from 1088×624 to cut upload/encode time
+   AND per-frame neural-inference time → faster first dressed frame + lower in-feed
+   latency. Quality drops with the pixel count (the user's explicit speed-for-quality
+   trade); 768×440 keeps the original ~1.745 aspect so nothing gets letter-boxed.
+   This does NOT change the token count — only LIVE_INFERENCE_FPS / LIVE_DURATION_MS do. */
+const LIVE_W = 768, LIVE_H = 440;
 
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
    (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
@@ -710,11 +718,11 @@ async function startCamera() {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          // Optimized capture: matches the Decart inference size (1088×624) and
+          // Optimized capture: matches the Decart inference size (LIVE_W×LIVE_H) and
           // caps the rate at LIVE_FPS. A smaller, slower stream means less to
-          // encode + upload → faster connect/first-frame AND lower token spend.
-          width:  { ideal: 1088 },
-          height: { ideal: 624 },
+          // encode + upload → faster connect/first-frame AND lower in-feed latency.
+          width:  { ideal: LIVE_W },
+          height: { ideal: LIVE_H },
           frameRate: { ideal: LIVE_FPS, max: LIVE_FPS },
         },
         audio: false,
@@ -922,8 +930,8 @@ async function connectRealtime() {
         // THE billing knob — see LIVE_INFERENCE_FPS / LIVE_DURATION_MS up top.
         // 5s × 15fps ≈ ~29 tokens; drop LIVE_INFERENCE_FPS to ~4 for a ~10 cap.
         fps: { ideal: LIVE_INFERENCE_FPS, max: LIVE_INFERENCE_FPS },
-        width: 1088,
-        height: 624,
+        width: LIVE_W,
+        height: LIVE_H,
       },
       mirror: "auto",
       onRemoteStream: (editedStream) => {
@@ -1701,8 +1709,8 @@ function startRecording() {
   // Off-DOM canvas mirroring the remote VTON frames. Seed a sane size so the
   // captureStream track is valid immediately (real frames overwrite it at once).
   recordCanvas = document.createElement("canvas");
-  recordCanvas.width  = video.videoWidth  || 1088;
-  recordCanvas.height = video.videoHeight || 624;
+  recordCanvas.width  = video.videoWidth  || LIVE_W;
+  recordCanvas.height = video.videoHeight || LIVE_H;
   const ctx = recordCanvas.getContext("2d", { alpha: false });
 
   // iOS Safari only stabilised canvas.captureStream in 15.4 — if it's missing, bail
@@ -1797,119 +1805,133 @@ function injectReplayStyles() {
   const s = document.createElement("style");
   s.id = "pearReplayStyles";
   s.textContent = `
-    /* ── PEAR Replay Zone ──────────────────────────────────────────── */
+    /* ── PEAR Replay Zone — "Your Try-On" review card (pear-green theme) ── */
     #pearReplayZone {
-      margin-top: 18px;
-      border-radius: 16px;
-      background: rgba(18, 18, 26, 0.84);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(20,156,122,.3);
+      margin-top: 20px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(24,24,28,.93), rgba(11,11,13,.95));
+      -webkit-backdrop-filter: blur(22px) saturate(150%);
+      backdrop-filter: blur(22px) saturate(150%);
+      border: 1px solid rgba(141,182,0,.30);
       box-shadow:
-        inset 0 0 0 1px rgba(255,255,255,.04),
-        0 12px 40px rgba(0,0,0,.5);
-      padding: 16px 16px 14px;
+        inset 0 1px 0 rgba(255,255,255,.06),
+        inset 0 0 0 1px rgba(141,182,0,.06),
+        0 26px 64px rgba(0,0,0,.52);
+      padding: 16px 16px 15px;
       opacity: 0;
-      transform: translateY(10px);
-      transition: opacity .4s cubic-bezier(.4,0,.2,1),
-                  transform .4s cubic-bezier(.4,0,.2,1);
+      transform: translateY(14px) scale(.99);
+      transition: opacity .55s cubic-bezier(.16,1,.3,1),
+                  transform .55s cubic-bezier(.16,1,.3,1);
       display: none;
     }
     #pearReplayZone.is-visible { display: block; }
-    #pearReplayZone.is-ready   { opacity: 1; transform: translateY(0); }
+    #pearReplayZone.is-ready   { opacity: 1; transform: none; }
 
     .pear-rz-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
+      gap: 12px;
+      margin: 2px 4px 14px;
+    }
+    /* garment name — now the prominent title (left, in RTL flow) */
+    .pear-rz-title {
+      font-family: "Urbanist", sans-serif;
+      font-size: 1.06rem;
+      font-weight: 800;
+      letter-spacing: .005em;
+      color: #fff;
+      max-width: 58%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .pear-rz-badge {
       display: inline-flex;
       align-items: center;
       gap: 7px;
+      font-family: "Inter", sans-serif;
       font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .1em;
+      font-weight: 800;
+      letter-spacing: .12em;
       text-transform: uppercase;
-      color: #149c7a;
-      background: rgba(20,156,122,.12);
-      border: 1px solid rgba(20,156,122,.28);
-      border-radius: 99px;
-      padding: 4px 10px 4px 8px;
+      color: #b6e000;
+      background: rgba(141,182,0,.13);
+      border: 1px solid rgba(141,182,0,.36);
+      border-radius: 9999px;
+      padding: 5px 12px;
+      white-space: nowrap;
     }
     .pear-rz-badge::before {
-      content: '●';
-      font-size: 7px;
+      content: '';
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #8DB600;
+      box-shadow: 0 0 9px rgba(141,182,0,.7);
       animation: pearRzPulse 1.8s ease-in-out infinite;
     }
-    @keyframes pearRzPulse {
-      0%,100% { opacity:.9; } 50% { opacity:.22; }
-    }
-    .pear-rz-title {
-      font-size: 11px;
-      font-weight: 500;
-      color: rgba(255,255,255,.45);
-      letter-spacing: .02em;
-      max-width: 55%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-align: right;
-    }
+    @keyframes pearRzPulse { 0%,100% { opacity:1; } 50% { opacity:.25; } }
 
     #pearReplayVideo {
       width: 100%;
-      max-height: 480px;
-      border-radius: 10px;
+      max-height: 60vh;
+      border-radius: 16px;
       display: block;
       background: #000;
       object-fit: contain;
+      border: 1px solid rgba(255,255,255,.09);
+      box-shadow: 0 12px 32px rgba(0,0,0,.42);
     }
 
     .pear-rz-actions {
       display: flex;
-      gap: 9px;
-      margin-top: 12px;
+      gap: 10px;
+      margin-top: 14px;
     }
     .pear-rz-btn {
       flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      padding: 10px 14px;
-      border-radius: 10px;
-      font-size: 13px;
-      font-weight: 600;
+      gap: 8px;
+      padding: 13px 16px;
+      border-radius: 9999px;
+      font-family: "Urbanist", sans-serif;
+      font-size: .92rem;
+      font-weight: 800;
       cursor: pointer;
-      border: none;
-      transition: transform .13s ease, box-shadow .13s ease, background .13s ease;
+      border: 1px solid transparent;
       white-space: nowrap;
+      transition: transform .35s cubic-bezier(.16,1,.3,1),
+                  background .35s cubic-bezier(.16,1,.3,1),
+                  box-shadow .35s cubic-bezier(.16,1,.3,1);
     }
-    .pear-rz-btn:active { transform: scale(.96); }
+    .pear-rz-btn:hover  { transform: translateY(-2px); }
+    .pear-rz-btn:active { transform: translateY(0) scale(.97); }
     .pear-rz-btn__en {
-      font-size: 11px;
-      font-weight: 400;
-      opacity: .65;
+      font-size: .68rem;
+      font-weight: 700;
+      opacity: .6;
+      letter-spacing: .04em;
     }
     .pear-rz-btn--replay {
-      background: rgba(255,255,255,.07);
+      background: rgba(255,255,255,.08);
       color: #fff;
-      border: 1px solid rgba(255,255,255,.12);
+      border-color: rgba(255,255,255,.16);
     }
     .pear-rz-btn--replay:hover {
-      background: rgba(255,255,255,.12);
-      box-shadow: 0 0 0 1px rgba(255,255,255,.18);
+      background: rgba(255,255,255,.16);
+      box-shadow: 0 8px 22px rgba(0,0,0,.3);
     }
     .pear-rz-btn--dl {
-      background: #149c7a;
-      color: #fff;
+      background: #8DB600;
+      color: #0a0a0b;
+      box-shadow: 0 12px 36px rgba(141,182,0,.26);
     }
     .pear-rz-btn--dl:hover {
-      background: #12b389;
-      box-shadow: 0 4px 18px rgba(20,156,122,.38);
+      background: #9cca00;
+      box-shadow: 0 12px 30px rgba(141,182,0,.42);
     }
+    .pear-rz-btn--dl .pear-rz-btn__en { opacity: .55; }
   `;
   document.head.appendChild(s);
 }
@@ -1926,7 +1948,7 @@ function ensureReplayZone() {
     zone.setAttribute("aria-label", "Replay zone");
     zone.innerHTML =
       `<div class="pear-rz-header">` +
-        `<span class="pear-rz-badge">ההקלטה שלך · Your Try-On</span>` +
+        `<span class="pear-rz-badge">Your Try-On · ההקלטה שלך</span>` +
         `<span id="pearRzTitle" class="pear-rz-title"></span>` +
       `</div>` +
       `<video id="pearReplayVideo" class="pear-rz-video"` +
@@ -2487,6 +2509,9 @@ function toggleCompareSelect(ts) {
   else if (compareSel.size >= 2) { toast("ניתן להשוות שתי מדידות בלבד"); return; }
   else compareSel.add(ts);
   syncCompareUI();
+  // Open the split-screen comparison the instant a 2nd look is picked — no extra
+  // tap on the "Compare" pill (which now just acts as a re-open affordance).
+  if (compareSel.size === 2) openCompareOverlay();
 }
 function syncCompareUI() {
   document.querySelectorAll(".live-gallery-item").forEach((el) => {
