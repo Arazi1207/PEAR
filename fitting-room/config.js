@@ -46,13 +46,16 @@ export const CONFIG = Object.freeze({
      native-RTCPeerConnection hook in app.js because the SDK (LiveKit) owns the
      peer connection; app.js never sees the receiver or SDP directly. */
   PLAYOUT_DELAY_HINT: 0,            // seconds; 0 = decode+render immediately, no anti-jitter buffering (Chromium only)
-  PREFER_LOW_LATENCY_CODEC: true,   // SDP munge ON: codec reorder + b=AS:4000 / b=TIAS:4000000 bandwidth injection.
-  CODEC_PREFERENCE: Object.freeze(["VP8", "H264"]), // when the munge is ON, these are MOVED to the front of m=video (never removed)
+  PREFER_LOW_LATENCY_CODEC: true,   // SDP munge ON: codec reorder + b=AS / b=TIAS bandwidth injection.
+  // H264 is hardware-decoded on virtually all modern devices (iOS, Android, Windows, Mac);
+  // VP8 is software-decoded on most mobile — putting H264 first cuts decode CPU + latency.
+  CODEC_PREFERENCE: Object.freeze(["H264", "VP8"]),
 
-  /* Force a high video bitrate ceiling into BOTH descriptions' m=video section
-     (b=AS:<kbps> + b=TIAS:<bps>) so the network can't compress the HD camera /
-     VTON output down to a blurry low-bitrate stream. ADDITIVE only — it inserts a
-     bandwidth line, never touches payloads/codecs — so negotiation stays intact.
-     Set to 0 to disable. ~4 Mbps comfortably carries 1080p30. */
-  VIDEO_TARGET_BITRATE_KBPS: 4000,
+  /* Cap our OUTGOING camera bitrate to 2 Mbps (applied via b=AS / b=TIAS in
+     setLocalDescription only). Lower encode bitrate → less data per frame → faster
+     upload to Decart's servers → lower first-dressed-frame latency.
+     768×440 @ 2 Mbps is still sharp; 4 Mbps was overshooting for this resolution.
+     NOT applied to setRemoteDescription — Decart's send rate is determined server-side
+     via RTCP feedback; the b= line in an answer SDP doesn't override it. */
+  VIDEO_TARGET_BITRATE_KBPS: 2000,
 });

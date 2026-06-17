@@ -174,9 +174,10 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       } catch (_) {}
     });
 
-    // (2) SDP bandwidth munge (always ON) applied to both directions so the encoder
-    //     on both ends is given 4 Mbps headroom instead of the browser default (~600 kbps).
-    //     Codec-preference reorder is optional (gated by PREFER_LOW_LATENCY_CODEC).
+    // (2) SDP munge — applied to setLocalDescription ONLY (our offer / our camera bitrate cap).
+    //     The remote description is NOT munged: b=AS in an answer SDP doesn't override
+    //     Decart's send rate (the server determines that via RTCP feedback) and could
+    //     confuse SDP parsing. Codec-preference reorder is optional (PREFER_LOW_LATENCY_CODEC).
     const origSetLocal = pc.setLocalDescription.bind(pc);
     pc.setLocalDescription = function (desc) {
       if (desc && desc.sdp) {
@@ -187,14 +188,6 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
         } catch (_) {}
       }
       return origSetLocal(desc);
-    };
-
-    const origSetRemote = pc.setRemoteDescription.bind(pc);
-    pc.setRemoteDescription = function (desc) {
-      if (desc && desc.sdp) {
-        try { desc = { type: desc.type, sdp: mungeSdpBandwidth(desc.sdp) }; } catch (_) {}
-      }
-      return origSetRemote(desc);
     };
 
     return pc;
@@ -978,6 +971,11 @@ async function connectRealtime() {
         aiVideo.srcObject = editedStream;
         aiVideo.style.display = "block";   // make sure it's visible
         aiVideo.style.transform = "none";  // edited feed is already correctly oriented
+        // Force the video onto its own GPU compositing layer so the browser doesn't
+        // re-rasterize it in software on every frame repaint. translateZ(0) is the
+        // universal trigger; will-change is the spec-correct version.
+        aiVideo.style.willChange = "transform";
+        aiVideo.style.transform = "translateZ(0)";
         aiVideo.play().catch(() => {});
         // NOTE: recording is NOT started here — it is armed in goLive() at the exact
         // go-live instant so its duration matches the strict 5s window (see Feature 2).
