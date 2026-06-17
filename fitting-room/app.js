@@ -45,30 +45,37 @@ const {
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── Strict live-session lifecycle (token spend lives here) ──────────────────
-   The live window is hard-capped at LIVE_DURATION_MS and the capture/inference
-   rate at LIVE_FPS. Decart bills ≈ per processed frame (fps × seconds), so the
+   The live window is hard-capped at LIVE_DURATION_MS and the BILLED frame rate at
+   LIVE_INFERENCE_FPS. Decart bills ≈ per processed frame (fps × seconds), so the
    token cost of a try-on is governed ENTIRELY by these two numbers:
 
-      tokens ≈ LIVE_FPS × (LIVE_DURATION_MS / 1000) × ~0.39   (SDK per-frame est.)
+      tokens ≈ LIVE_INFERENCE_FPS × (LIVE_DURATION_MS / 1000) × ~0.39   (per-frame est.)
 
-   • 5s × 15fps ≈ 75 frames ≈ ~29 tokens  ← current setting (exact 5s, full 15fps)
-   • 5s ×  4fps ≈ 20 frames ≈ ~10 tokens  ← lower LIVE_INFERENCE_FPS to hit a ~10 cap
+   ⚠️ CRITICAL — the SDK does NOT honour model.fps / model.width / model.height on
+   Chromium. Its mirror path uses MediaStreamTrackProcessor (passes every frame
+   through, ignoring fps) and its LiveKit publisher hardcodes maxFramerate:30. So
+   the ONLY reliable throttle is OUR OWN: createThrottledInputStream() repaints the
+   camera onto a canvas at EXACTLY LIVE_INFERENCE_FPS / LIVE_W×LIVE_H and hands the
+   SDK that capture stream. The numbers below are therefore actually enforced.
 
-   LIVE_FPS is the LOCAL camera-capture rate (kept at 15 for a smooth preview and
-   low upload bandwidth). LIVE_INFERENCE_FPS is what the Decart MODEL actually
-   processes — the only knob that changes the bill. Dial it down to trim tokens
-   without touching the 5-second on-screen window. */
-const LIVE_DURATION_MS    = 5000;   // strict live-session cap — EXACTLY 5 seconds, no token can leak past it
-const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview, low upload bitrate)
-const LIVE_INFERENCE_FPS  = 6;      // Decart-billed frame rate — 6fps × 5s = 30 frames ≈ ~12 tokens/session (hard ceiling).
-                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 11.7 ≤ 12 "no matter what".
-                                    //   NB: tokens scale with FRAMES (fps × seconds), NOT resolution — see LIVE_W/LIVE_H below.
+   • 11fps × 3.5s ≈ 38.5 frames ≈ ~15 tokens  ← current setting (hard 15-token cap)
+   • 11 × 3.5 × 0.39 = 15.0 tokens MAX per session "no matter what".
 
-/* Capture + inference resolution. LOWERED from 1088×624 to cut upload/encode time
-   AND per-frame neural-inference time → faster first dressed frame + lower in-feed
-   latency. Quality drops with the pixel count (the user's explicit speed-for-quality
-   trade); 768×440 keeps the original ~1.745 aspect so nothing gets letter-boxed.
-   This does NOT change the token count — only LIVE_INFERENCE_FPS / LIVE_DURATION_MS do. */
+   LIVE_FPS is the LOCAL camera-capture rate (kept higher for a smooth preview);
+   LIVE_INFERENCE_FPS is what the throttler downsamples to before the SDK sees it —
+   the only knob that changes the bill. */
+const LIVE_DURATION_MS    = 3500;   // strict live-session cap — EXACTLY 3.5 seconds, no token can leak past it
+const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview; throttled down to LIVE_INFERENCE_FPS for billing)
+const LIVE_INFERENCE_FPS  = 11;     // Decart-billed frame rate — 11fps × 3.5s ≈ 38.5 frames ≈ ~15 tokens/session (hard ceiling).
+                                    //   ENFORCED client-side by createThrottledInputStream() — the SDK's own fps cap is a no-op on Chromium.
+                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 15.0 "no matter what".
+
+/* Capture + inference resolution. The SDK never forwards model.width/height to the
+   session, so resolution MUST be enforced at the track level too — the throttler
+   downscales the canvas to LIVE_W×LIVE_H before capture, so Decart receives this
+   size rather than the camera's native frame. 768×440 keeps the ~1.745 aspect so
+   nothing gets letter-boxed. Tokens scale with FRAMES, not pixels, so this trims
+   pipeline/encode overhead and upload time rather than the token count itself. */
 const LIVE_W = 768, LIVE_H = 440;
 
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
@@ -363,6 +370,11 @@ let _tokenCache = null; // { apiKey: string, expiresAt: number } | null
    stream (localStream) survives for the next try-on. */
 let sessionGen = 0;
 let realtimeInput = null;
+/* Active client-side FPS/resolution throttle wrapping the camera before the SDK.
+   { stream, dispose }; dispose() is called in teardown() so its paint loop, hidden
+   <video> and cloned source track are released with the session (see
+   createThrottledInputStream — this is what actually enforces the token budget). */
+let inputThrottle = null;
 
 /* Feature 2 — MediaRecorder capture of the REMOTE Lucy-VTON output.
    We do NOT record the raw remote WebRTC track directly (Chromium often encodes
@@ -869,6 +881,30 @@ function warmupSDKAndToken() {
 }
 
 /**
+ * Normalize whatever the proxy reports as the token expiry into an epoch-ms number.
+ * Decart may send it as ISO string, epoch milliseconds, OR epoch SECONDS. The old
+ * `new Date(raw).getTime()` read a seconds value as milliseconds → a 1970 date →
+ * the cache evaluated as permanently stale and re-minted on every go-live.
+ * @param {string|number|null|undefined} raw
+ * @returns {number} epoch ms; falls back to now + 5 min when absent/unparseable.
+ */
+function parseExpiry(raw) {
+  const FALLBACK = Date.now() + 5 * 60 * 1000;   // 5-min safety margin
+  if (raw == null) return FALLBACK;
+  // Numeric or all-digit string → epoch. Values below 1e12 are seconds (1e12 ms ≈
+  // year 2001), so scale them up to milliseconds.
+  if (typeof raw === "number" || /^\d+$/.test(String(raw).trim())) {
+    let n = Number(raw);
+    if (!Number.isFinite(n)) return FALLBACK;
+    if (n < 1e12) n *= 1000;                      // seconds → ms
+    return n;
+  }
+  // ISO / RFC date string.
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : FALLBACK;
+}
+
+/**
  * Mint a short-lived ek_ token from the secure proxy (TOKEN_ENDPOINT).
  * Called ONLY at go-live (never on page load) so no token is minted/wasted while
  * the user is just browsing. The permanent dct_ key stays server-side.
@@ -930,12 +966,11 @@ async function mintEphemeralToken() {
     "| model:", data.model || "(not in response)",
     "| expiresAt:", data.expiresAt || "(not in response)");
 
-  // Cache the fresh token for reuse within its TTL (5-min fallback if expiresAt absent).
+  // Cache the fresh token for reuse within its TTL. parseExpiry handles ISO strings,
+  // epoch-ms AND epoch-seconds (5-min fallback if expiresAt is absent/unparseable).
   _tokenCache = {
     apiKey: data.apiKey,
-    expiresAt: data.expiresAt
-      ? new Date(data.expiresAt).getTime()
-      : Date.now() + 5 * 60 * 1000,
+    expiresAt: parseExpiry(data.expiresAt),
   };
 
   return data.apiKey;
@@ -963,6 +998,101 @@ async function ensureOnline() {
   }
 }
 
+/* =============================================================================
+   Client-side FPS + resolution throttle — THE token-budget enforcer
+   ─────────────────────────────────────────────────────────────────────────────
+   WHY THIS EXISTS: @decartai/sdk@0.1.5 silently ignores model.fps and
+   model.width/height on Chromium:
+     • its mirror path (MediaStreamTrackProcessor → TransformStream) forwards EVERY
+       camera frame, never reading the fps we pass;
+     • its LiveKit publisher hardcodes maxFramerate:30 (defaultPublishFps);
+     • model.width/height are never wired into the published track at all.
+   Result: users were billed at the camera's native ~15–30fps instead of our cap.
+
+   THE FIX: don't hand the SDK the raw camera. Paint the camera onto an off-DOM
+   canvas at EXACTLY `fps` and `width`×`height`, and give the SDK canvas.captureStream
+   instead. captureStream(0) + manual requestFrame() gives precise, source-rate-
+   independent pacing, so Decart processes (and bills) at our rate, not the camera's.
+   We also flip horizontally here so the SDK's mirror:"auto" no-ops on the canvas
+   track (it has no facingMode) and the edited feed stays a correct selfie view.
+
+   Returns { stream, dispose }. dispose() MUST run in teardown() — it clears the
+   paint timer, stops the canvas track, and stops the cloned source track it owns.
+   ============================================================================= */
+function createThrottledInputStream(srcStream, { fps = LIVE_INFERENCE_FPS, width = LIVE_W, height = LIVE_H } = {}) {
+  const srcTrack = srcStream.getVideoTracks()[0];
+  // No video track (camera failed) — hand the stream back untouched; nothing to throttle.
+  if (!srcTrack) return { stream: srcStream, dispose: () => {} };
+
+  // Best-effort native constraint first — some devices honour it and trim work
+  // upstream. The canvas throttle below is the guarantee regardless of the result.
+  try {
+    srcTrack.applyConstraints({
+      frameRate: { ideal: fps, max: fps },
+      width:  { ideal: width },
+      height: { ideal: height },
+    }).catch(() => {});
+  } catch (_) {}
+
+  const video = document.createElement("video");
+  video.muted = true; video.playsInline = true; video.autoplay = true;
+  video.srcObject = new MediaStream([srcTrack]);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext("2d", { alpha: false });
+
+  // captureStream(0) → no automatic capture; each frame is emitted only when we call
+  // requestFrame(), so the output rate is EXACTLY our setInterval cadence.
+  const out = canvas.captureStream(0);
+  const outTrack = out.getVideoTracks()[0];
+  if (outTrack && "contentHint" in outTrack) outTrack.contentHint = "motion";
+
+  let disposed = false;
+  let timer = null;
+  const frameMs = 1000 / fps;
+
+  // Cover-fit + horizontal mirror: fill width×height (preserve aspect, center-crop)
+  // and flip X so the canvas track already carries the selfie orientation.
+  const drawFrame = () => {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+    const scale = Math.max(width / vw, height / vh);
+    const dw = vw * scale, dh = vh * scale;
+    const dx = (width - dw) / 2, dy = (height - dh) / 2;
+    ctx.save();
+    ctx.setTransform(-1, 0, 0, 1, width, 0);   // mirror horizontally
+    ctx.drawImage(video, dx, dy, dw, dh);
+    ctx.restore();
+  };
+
+  const tick = () => {
+    if (disposed) return;
+    try {
+      drawFrame();
+      if (outTrack && typeof outTrack.requestFrame === "function") outTrack.requestFrame();
+    } catch (_) {}
+  };
+
+  const start = () => { if (!disposed && !timer) timer = setInterval(tick, frameMs); };
+  video.play().then(start).catch(start);
+
+  return {
+    stream: out,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      if (timer) { clearInterval(timer); timer = null; }
+      try { outTrack && outTrack.stop(); } catch (_) {}
+      try { video.pause(); } catch (_) {}
+      video.srcObject = null;
+      // We OWN srcStream (always a clone passed by connectRealtime), so stop it here.
+      // The real preview camera (localStream) is a different stream and stays alive.
+      try { srcStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    },
+  };
+}
+
 /**
  * Mint an ephemeral ek_ token and open ONE Decart Lucy VTON realtime session
  * over WebRTC. Any stale/dropped client is disconnected first so no orphaned
@@ -980,7 +1110,12 @@ async function connectRealtime() {
     try { rtClient.disconnect(); } catch (_) {}
     rtClient = null;
   }
-  // Free the previous session's cloned camera tracks (if any) so they don't leak.
+  // Free the previous session's throttle (paint loop + canvas + cloned source) and
+  // its input stream (if any) so they don't leak into the new session.
+  if (inputThrottle) {
+    try { inputThrottle.dispose(); } catch (_) {}
+    inputThrottle = null;
+  }
   if (realtimeInput) {
     try { realtimeInput.getTracks().forEach((t) => t.stop()); } catch (_) {}
     realtimeInput = null;
@@ -1014,12 +1149,17 @@ async function connectRealtime() {
     const client = createDecartClient({ apiKey: ekToken });
     console.log("[PEAR] connectRealtime() — stage 4/4: opening WebRTC session (waiting for 'connected')…");
 
-    /* Bug 3 fix: hand the SDK a CLONE of the camera tracks. The realtime SDK
-       (LiveKit under the hood) stops the tracks it publishes when the session
-       disconnects; cloning means it stops its OWN copies, leaving localStream
-       (our persistent preview) alive and reusable for the next try-on. */
-    realtimeInput = new MediaStream(localStream.getTracks().map((t) => t.clone()));
-    realtimeInput.getVideoTracks().forEach((t) => { if ("contentHint" in t) t.contentHint = "motion"; });
+    /* Bug 3 fix: work off a CLONE of the camera tracks so disconnect/teardown never
+       stops localStream (our persistent preview). The clone is OWNED by the throttle,
+       which stops it on dispose().
+       BILLING FIX: route that clone through createThrottledInputStream() so the SDK
+       receives a canvas capture pinned to LIVE_INFERENCE_FPS / LIVE_W×LIVE_H — the
+       SDK's own fps/resolution caps are no-ops on Chromium (see the throttler note). */
+    const camClone = new MediaStream(localStream.getVideoTracks().map((t) => t.clone()));
+    inputThrottle = createThrottledInputStream(camClone, {
+      fps: LIVE_INFERENCE_FPS, width: LIVE_W, height: LIVE_H,
+    });
+    realtimeInput = inputThrottle.stream;
 
     /* ── connect realtime ─────────────────────────────────────────────────── */
     // FIX: model passed as a plain string, NOT via models.realtime()
@@ -1027,9 +1167,10 @@ async function connectRealtime() {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
-        // TOKEN COST: Decart bills per processed frame (≈ fps × seconds). This is
-        // THE billing knob — see LIVE_INFERENCE_FPS / LIVE_DURATION_MS up top.
-        // 5s × 15fps ≈ ~29 tokens; drop LIVE_INFERENCE_FPS to ~4 for a ~10 cap.
+        // NOTE: these are advisory only — the SDK ignores model.fps/width/height on
+        // Chromium. The REAL cap is enforced upstream by createThrottledInputStream()
+        // (canvas pinned to LIVE_INFERENCE_FPS / LIVE_W×LIVE_H). Kept in sync so any
+        // SDK build that DOES honour them agrees with the throttle.
         fps: { ideal: LIVE_INFERENCE_FPS, max: LIVE_INFERENCE_FPS },
         width: LIVE_W,
         height: LIVE_H,
@@ -1059,10 +1200,13 @@ async function connectRealtime() {
       },
     });
 
-    // If a teardown landed during connect(), immediately close this orphan.
+    // If a teardown landed during connect(), immediately close this orphan — and
+    // dispose the throttle so its paint loop / cloned camera track don't outlive it.
     if (gen !== sessionGen) {
       try { rtClient.disconnect(); } catch (_) {}
       rtClient = null;
+      if (inputThrottle) { try { inputThrottle.dispose(); } catch (_) {} inputThrottle = null; }
+      realtimeInput = null;
       return;
     }
 
@@ -1115,6 +1259,12 @@ function teardown() {
 
   // Bug 3 fix: stop this session's cloned camera tracks (the WebRTC sender side).
   // localStream — the real camera/preview — is intentionally left running.
+  // The throttle owns the canvas track AND the cloned source track, so dispose it
+  // first (stops the paint loop + both tracks), then null the input stream handle.
+  if (inputThrottle) {
+    try { inputThrottle.dispose(); } catch (_) {}
+    inputThrottle = null;
+  }
   if (realtimeInput) {
     try { realtimeInput.getTracks().forEach((t) => t.stop()); } catch (_) {}
     realtimeInput = null;
@@ -1661,7 +1811,7 @@ async function goLive() {
       autoStopAndFreeze();
     }, LIVE_DURATION_MS);
 
-    toast("✨ מדידה חיה · 5 שניות — לחץ עצור לסיום מוקדם");
+    toast("✨ מדידה חיה · 3.5 שניות — לחץ עצור לסיום מוקדם");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("[go-live] failed:", err?.message || String(err));
@@ -1709,7 +1859,7 @@ function stopLive() {
    frozen result — a thin wrapper over stopLive() so the manual Stop and the
    automatic 5s stop share ONE freeze → save → teardown path. */
 function autoStopAndFreeze() {
-  toast("⏱ 5 שניות הושלמו — הלוק הוקפא ונשמר");
+  toast("⏱ 3.5 שניות הושלמו — הלוק הוקפא ונשמר");
   stopLive();
 }
 
