@@ -1026,34 +1026,27 @@ async function fetchGarmentBlob(imgUrl) {
 
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
-  const payload = { prompt: buildPrompt(item), enhance: true };
 
-  if (item.img) {
-    const blob = await fetchGarmentBlob(item.img);
-    payload.image = blob ?? item.img;   // Blob avoids CORS; URL is the fallback
-  }
+  // Pass the image as a URL string — the SDK sends it as `image_ref` and the Decart
+  // server fetches it server-side.  This avoids encoding a 2–5 MB base64 blob into
+  // the WebSocket message, which caused "Image send timed out" on the demo key.
+  const payload = {
+    prompt: buildPrompt(item),
+    enhance: true,
+    ...(item.img ? { image: item.img } : {}),
+  };
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType})`);
   console.log("subType  :", item.subType, "| color:", item.color);
   console.log("img URL  :", item.img || "(none — VTON will have no garment reference)");
-  console.log("img via  :", payload.image instanceof Blob ? `Blob (${payload.image.size}B)` : (payload.image || "(none)"));
+  console.log("img via  : URL ref (image_ref)");
   console.log("prompt   :", payload.prompt);
   console.groupEnd();
 
   if (!item.img) console.warn("[PEAR] applyGarment() — no img URL; the model will rely on the text prompt only.");
 
-  try {
-    await rtClient.set(payload);
-  } catch (e) {
-    const msg = String(e?.message || e).toLowerCase();
-    if (msg.includes("timed out") || msg.includes("timeout")) {
-      console.warn("[PEAR] applyGarment() — image send timed out, retrying without image (prompt-only fallback)");
-      await rtClient.set({ prompt: payload.prompt, enhance: true });
-    } else {
-      throw e;
-    }
-  }
+  await rtClient.set(payload);
 }
 
 /**
@@ -1178,16 +1171,13 @@ async function applyLook(top, bottom) {
 
   const prompt = buildLookPrompt(top, bottom);
   const images = [top.img, bottom.img].filter(Boolean);   // both verified URLs
-
-  // Fetch the top garment image via proxy to avoid CDN CORS restrictions.
-  const primaryBlob = images[0] ? await fetchGarmentBlob(images[0]) : null;
-  const primaryImage = primaryBlob ?? images[0];   // Blob preferred, URL fallback
+  const primaryImage = images[0] ?? null;   // URL string — sent as image_ref, server fetches it
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
     enhance: true,
-    image: primaryImage,              // SDK single-image reference (the top)
+    image: primaryImage,              // SDK single-image reference (the top, as URL)
     images,                           // both verified URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
       { category: "top",    type: top.garmentType,    image: top.img,    color: top.color,    subType: top.subType,    name: top.name },
@@ -1198,16 +1188,9 @@ async function applyLook(top, bottom) {
   try {
     await rtClient.set(payload);
   } catch (e) {
-    const msg = String(e?.message || e).toLowerCase();
-    if (msg.includes("timed out") || msg.includes("timeout")) {
-      console.warn("[PEAR] applyLook() — image send timed out, retrying prompt-only fallback");
-      await rtClient.set({ prompt, enhance: true });
-    } else {
-      // A stricter SDK build could reject the enriched shape — retry with the minimal
-      // documented contract so a full look never breaks the live session.
-      console.warn("look payload rejected, retrying minimal:", e?.message || e);
-      await rtClient.set({ prompt, image: primaryImage, enhance: true });
-    }
+    // A stricter SDK build may reject the enriched shape — retry with the minimal contract.
+    console.warn("look payload rejected, retrying minimal:", e?.message || e);
+    await rtClient.set({ prompt, image: primaryImage, enhance: true });
   }
 }
 
@@ -1472,9 +1455,6 @@ async function goLive() {
 
     // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
     //    activeOutfit has both slots filled, else the single active garment. Same session.
-    // Short settle delay: after "connected", the WebRTC data channel may need a moment
-    // to stabilise before it can reliably accept large binary (image) messages.
-    await new Promise((r) => setTimeout(r, 800));
     await applyActive();               // rtClient.set({ prompt, image(s), enhance:false })
     // Log every garment being worn — both top AND bottom when a full look is active.
     const _trackSize = activeTryOnSize || currentUserSize;
