@@ -44,7 +44,7 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
-const LIVE_DURATION_MS = 5000;
+const LIVE_DURATION_MS = 1500;   // strict live-session cap — 1.5s @ 15fps ≈ 23 frames ≈ ~9 Decart tokens/try-on
 
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
    (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
@@ -897,7 +897,11 @@ async function connectRealtime() {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
-        fps: { ideal: 30, max: 30 },
+        // TOKEN COST: Decart bills per processed frame (≈ fps × seconds). Halving
+        // the input rate to 15fps roughly halves the spend (~1.5s × 15 ≈ 23 frames
+        // ≈ ~9 tokens/try-on, down from ~18) while keeping FULL resolution — so the
+        // dressed render stays just as sharp, only marginally less fluid.
+        fps: { ideal: 15, max: 15 },
         width: 1088,
         height: 624,
       },
@@ -1491,8 +1495,8 @@ async function goLive() {
     const timerGen = sessionGen;
     liveDurationTimer = setTimeout(() => {
       if (sessionGen !== timerGen) return;
-      console.log("[PEAR] 5s live limit reached — auto-stopping session");
-      toast("⏱ 5 שניות הסתיימו — המדידה הסתיימה אוטומטית");
+      console.log("[PEAR] 1.5s live limit reached — auto-stopping session");
+      toast("⏱ המדידה הסתיימה אוטומטית");
       stopLive();
     }, LIVE_DURATION_MS);
 
@@ -1596,19 +1600,6 @@ function startRecording() {
   recordCanvas.height = video.videoHeight || 624;
   const ctx = recordCanvas.getContext("2d", { alpha: false });
 
-  const paint = () => {
-    if (!recordingActive) return;
-    const w = video.videoWidth, h = video.videoHeight;
-    if (w && h) {
-      if (recordCanvas.width !== w || recordCanvas.height !== h) {
-        recordCanvas.width = w; recordCanvas.height = h;
-      }
-      try { ctx.drawImage(video, 0, 0, w, h); } catch (_) {}
-    }
-    recordRaf = requestAnimationFrame(paint);
-  };
-  paint();
-
   // iOS Safari only stabilised canvas.captureStream in 15.4 — if it's missing, bail
   // cleanly so the live try-on itself is unaffected (we just skip the downloadable clip).
   if (typeof recordCanvas.captureStream !== "function") {
@@ -1616,24 +1607,47 @@ function startRecording() {
     stopPaintLoop();
     return;
   }
-  const captured = recordCanvas.captureStream(30);   // 30 fps, video-only
-  try {
-    const mime = pickRecorderMime();
-    mediaRecorder = new MediaRecorder(captured, mime ? { mimeType: mime } : undefined);
-    // Record what the recorder ACTUALLY negotiated so the Blob/File + filename carry
-    // the true container (the browser may pick something other than our request).
-    recorderMime = (mediaRecorder.mimeType || mime || "").toLowerCase() || null;
-  } catch (e) {
-    console.warn("MediaRecorder unavailable:", e?.message || e);
-    stopPaintLoop();
-    return;
-  }
-  mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
-  mediaRecorder.onstop = finalizeRecording;          // fires after stop() flushes the buffer
-  // 200ms timeslice → proper WebM cluster timecodes, so the clip reports its TRUE
-  // (~5s) duration instead of the broken/inflated length a single-blob start() gives.
-  try { mediaRecorder.start(200); }
-  catch (e) { console.warn("recorder start failed:", e?.message || e); stopPaintLoop(); mediaRecorder = null; }
+
+  // BLACK-FRAME FIX: the Decart server takes ~1s to warm up before the first
+  // dressed frame arrives, but the live window is only ~1.5s. If we start the
+  // recorder at go-live, the clip begins with ~1s of solid black canvas, so any
+  // looped replay (gallery tile / main player) opens on a black screen. Instead
+  // we ARM the recorder lazily — only once the first REAL frame has been painted —
+  // so the saved Live Photo contains dressed frames exclusively.
+  const beginRecorder = () => {
+    if (mediaRecorder) return;
+    const captured = recordCanvas.captureStream(30);   // 30 fps, video-only
+    try {
+      const mime = pickRecorderMime();
+      mediaRecorder = new MediaRecorder(captured, mime ? { mimeType: mime } : undefined);
+      // Record what the recorder ACTUALLY negotiated so the Blob/File + filename carry
+      // the true container (the browser may pick something other than our request).
+      recorderMime = (mediaRecorder.mimeType || mime || "").toLowerCase() || null;
+    } catch (e) {
+      console.warn("MediaRecorder unavailable:", e?.message || e);
+      stopPaintLoop();
+      return;
+    }
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = finalizeRecording;          // fires after stop() flushes the buffer
+    // 200ms timeslice → proper WebM cluster timecodes, so the clip reports its TRUE
+    // duration instead of the broken/inflated length a single-blob start() gives.
+    try { mediaRecorder.start(200); }
+    catch (e) { console.warn("recorder start failed:", e?.message || e); stopPaintLoop(); mediaRecorder = null; }
+  };
+
+  const paint = () => {
+    if (!recordingActive) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (w && h) {
+      if (recordCanvas.width !== w || recordCanvas.height !== h) {
+        recordCanvas.width = w; recordCanvas.height = h;
+      }
+      try { ctx.drawImage(video, 0, 0, w, h); beginRecorder(); } catch (_) {}
+    }
+    recordRaf = requestAnimationFrame(paint);
+  };
+  paint();
 }
 
 /** Halt the canvas paint loop (does not touch the recorder). */
