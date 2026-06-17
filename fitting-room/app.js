@@ -1043,7 +1043,17 @@ async function applyGarment(item) {
 
   if (!item.img) console.warn("[PEAR] applyGarment() — no img URL; the model will rely on the text prompt only.");
 
-  await rtClient.set(payload);
+  try {
+    await rtClient.set(payload);
+  } catch (e) {
+    const msg = String(e?.message || e).toLowerCase();
+    if (msg.includes("timed out") || msg.includes("timeout")) {
+      console.warn("[PEAR] applyGarment() — image send timed out, retrying without image (prompt-only fallback)");
+      await rtClient.set({ prompt: payload.prompt, enhance: true });
+    } else {
+      throw e;
+    }
+  }
 }
 
 /**
@@ -1188,10 +1198,16 @@ async function applyLook(top, bottom) {
   try {
     await rtClient.set(payload);
   } catch (e) {
-    // A stricter SDK build could reject the enriched shape — retry with the minimal
-    // documented contract so a full look never breaks the live session.
-    console.warn("look payload rejected, retrying minimal:", e?.message || e);
-    await rtClient.set({ prompt, image: primaryImage, enhance: true });
+    const msg = String(e?.message || e).toLowerCase();
+    if (msg.includes("timed out") || msg.includes("timeout")) {
+      console.warn("[PEAR] applyLook() — image send timed out, retrying prompt-only fallback");
+      await rtClient.set({ prompt, enhance: true });
+    } else {
+      // A stricter SDK build could reject the enriched shape — retry with the minimal
+      // documented contract so a full look never breaks the live session.
+      console.warn("look payload rejected, retrying minimal:", e?.message || e);
+      await rtClient.set({ prompt, image: primaryImage, enhance: true });
+    }
   }
 }
 
@@ -1456,6 +1472,9 @@ async function goLive() {
 
     // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
     //    activeOutfit has both slots filled, else the single active garment. Same session.
+    // Short settle delay: after "connected", the WebRTC data channel may need a moment
+    // to stabilise before it can reliably accept large binary (image) messages.
+    await new Promise((r) => setTimeout(r, 800));
     await applyActive();               // rtClient.set({ prompt, image(s), enhance:false })
     // Log every garment being worn — both top AND bottom when a full look is active.
     const _trackSize = activeTryOnSize || currentUserSize;
