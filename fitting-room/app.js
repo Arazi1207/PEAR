@@ -45,15 +45,17 @@ const {
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
 /* ── Strict live-session lifecycle (token spend lives here) ──────────────────
-   Two DECOUPLED windows:
-     • LIVE_DURATION_MS — the BILLED Decart inference window. Tokens accrue ONLY
-       here; at the cap we disconnect Decart and freeze the last dressed frame.
-     • VIDEO_LENGTH_MS  — the on-screen experience + saved clip length. After the
-       billed window ends, the recorder keeps running on the FROZEN final frame so
-       the saved/replayed video reaches this length WITHOUT any extra billing.
+   Two windows, currently set EQUAL so the whole clip is genuine live motion:
+     • LIVE_DURATION_MS — the BILLED Decart inference window. Tokens accrue here.
+     • VIDEO_LENGTH_MS  — the on-screen experience + saved clip length.
+
+   When VIDEO_LENGTH_MS == LIVE_DURATION_MS the frozen-frame hold collapses to zero,
+   so the recorded video is the FULL live take — no freeze, no loop, no slow-mo. (To
+   bring the freeze tail back, set VIDEO_LENGTH_MS > LIVE_DURATION_MS; the recorder
+   then holds the final dressed frame for the difference at no extra billing.)
 
    Decart bills ≈ per processed frame (fps × seconds), so the token cost is governed
-   ENTIRELY by LIVE_INFERENCE_FPS and LIVE_DURATION_MS (NOT VIDEO_LENGTH_MS):
+   ENTIRELY by LIVE_INFERENCE_FPS and LIVE_DURATION_MS:
 
       tokens ≈ LIVE_INFERENCE_FPS × (LIVE_DURATION_MS / 1000) × ~0.39   (per-frame est.)
 
@@ -64,19 +66,18 @@ const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
    camera onto a canvas at EXACTLY LIVE_INFERENCE_FPS / LIVE_W×LIVE_H and hands the
    SDK that capture stream. The numbers below are therefore actually enforced.
 
-   • 11fps × 1.0s ≈ 11 frames ≈ ~4.3 tokens  ← current setting (well under a 12 cap)
-   • 11 × 1.0 × 0.39 = 4.29 tokens MAX per session "no matter what".
-   • The user still gets a VIDEO_LENGTH_MS (5s) clip via the frozen-frame hold.
+   • 10fps × 2.5s ≈ 25 frames ≈ ~9.75 tokens  ← current setting (≤ 15-token budget)
+   • 10 × 2.5 × 0.39 = 9.75 tokens per session — a real 2.5s live take, no freeze.
 
    LIVE_FPS is the LOCAL camera-capture rate (kept higher for a smooth preview);
    LIVE_INFERENCE_FPS is what the throttler downsamples to before the SDK sees it —
    the only knob that changes the bill. */
-const LIVE_DURATION_MS    = 1000;   // BILLED Decart inference window — EXACTLY 1 second, no token can leak past it
-const VIDEO_LENGTH_MS     = 5000;   // total on-screen + saved clip length (1s live + frozen-frame hold; NOT billed)
+const LIVE_DURATION_MS    = 2500;   // BILLED Decart inference window = full clip length → genuine live motion, no freeze
+const VIDEO_LENGTH_MS     = 2500;   // == LIVE_DURATION_MS → frozen-hold tail is zero; the 2.5s clip is all real live motion
 const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview; throttled down to LIVE_INFERENCE_FPS for billing)
-const LIVE_INFERENCE_FPS  = 11;     // Decart-billed frame rate — 11fps × 1s ≈ 11 frames ≈ ~4.3 tokens/session (hard ceiling).
+const LIVE_INFERENCE_FPS  = 10;     // Decart-billed frame rate — 10fps × 2.5s ≈ 25 frames ≈ ~9.75 tokens/session (≤15 budget).
                                     //   ENFORCED client-side by createThrottledInputStream() — the SDK's own fps cap is a no-op on Chromium.
-                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 4.29 "no matter what".
+                                    //   tokens = LIVE_INFERENCE_FPS × (LIVE_DURATION_MS/1000) × ~0.39 → 9.75 "no matter what".
 
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
@@ -1828,11 +1829,12 @@ async function goLive() {
     // carries the on-screen view + saved clip to VIDEO_LENGTH_MS with zero extra spend.
     liveDurationTimer = setTimeout(() => {
       if (sessionGen !== timerGen) return;   // a manual Stop already tore this session down
-      console.log("[PEAR] billed window reached (" + LIVE_DURATION_MS + "ms) — disconnecting Decart, holding frozen frame to " + VIDEO_LENGTH_MS + "ms");
+      console.log("[PEAR] billed window reached (" + LIVE_DURATION_MS + "ms) — ending live take" +
+        (VIDEO_LENGTH_MS > LIVE_DURATION_MS ? ", holding frozen frame to " + VIDEO_LENGTH_MS + "ms" : ""));
       beginFreezeHold();
     }, LIVE_DURATION_MS);
 
-    toast("✨ מדידה חיה · סרטון 5 שניות");
+    toast("✨ מדידה חיה · סרטון 2.5 שניות");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("[go-live] failed:", err?.message || String(err));
@@ -1961,7 +1963,7 @@ function finalizeVideoClip() {
   recordHoldSrc = null;
   setLiveControls(false);
   $("captureBtn").disabled = !localStream;
-  toast("⏱ הסרטון בן 5 שניות מוכן ✓");
+  toast("⏱ הסרטון בן 2.5 שניות מוכן ✓");
 }
 
 /* Paint the final dressed frame onto the on-screen #resultCanvas at full capture
