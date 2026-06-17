@@ -102,12 +102,16 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   // Move preferred (low-latency / hw-friendly) codecs to the front of the
   // m=video payload list. Conservative: codecs are only REORDERED, never
   // removed, so if the server ignores the hint the session still negotiates.
-  // Inject b=AS:4000 (kbps, RFC 4566) + b=TIAS:4000000 (bps, RFC 3890) into the
-  // m=video section, replacing any existing b= lines, to unlock 4 Mbps headroom.
-  // Always applied to both setLocalDescription and setRemoteDescription.
+  // Inject b=AS:<kbps> (RFC 4566) + b=TIAS:<bps> (RFC 3890) into the m=video
+  // section, replacing any existing b= lines, to CAP our outgoing camera
+  // bitrate at VIDEO_TARGET_BITRATE_KBPS. Applied to setLocalDescription only.
   function mungeSdpBandwidth(sdp) {
     try {
       if (typeof sdp !== "string") return sdp;
+      // 0 (or falsy) disables the bandwidth munge entirely — leave SDP untouched.
+      if (!VIDEO_TARGET_BITRATE_KBPS) return sdp;
+      const kbps = VIDEO_TARGET_BITRATE_KBPS;
+      const bps  = kbps * 1000;
       const lines = sdp.split(/\r\n|\n/);
       const mIdx = lines.findIndex((l) => l.startsWith("m=video"));
       if (mIdx === -1) return sdp;
@@ -122,7 +126,7 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       // Insert after m=video and any immediately following c= line.
       let at = mIdx + 1;
       if (at < lines.length && lines[at].startsWith("c=")) at++;
-      lines.splice(at, 0, "b=AS:4000", "b=TIAS:4000000");
+      lines.splice(at, 0, `b=AS:${kbps}`, `b=TIAS:${bps}`);
       return lines.join("\r\n");
     } catch (_) {
       return sdp;
@@ -163,6 +167,16 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   function Patched(...args) {
     const pc = new Native(...args);
 
+    // Register every peer connection the SDK creates so the live stats monitor
+    // (startStatsMonitor) can read inbound-rtp video stats off the receiving pc.
+    // Auto-evict on close so the registry never leaks dead connections.
+    try {
+      (window.__pearPCs || (window.__pearPCs = new Set())).add(pc);
+      pc.addEventListener("connectionstatechange", () => {
+        if (pc.connectionState === "closed") window.__pearPCs.delete(pc);
+      });
+    } catch (_) {}
+
     // (1) playoutDelayHint = 0 — flush the client jitter buffer immediately on every
     //     incoming video track. Chromium-only; the `in` guard silently no-ops elsewhere.
     pc.addEventListener("track", (e) => {
@@ -202,6 +216,64 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
     if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Patched;
   } catch (_) {}
 })();
+
+/* =============================================================================
+   WebRTC live-stats monitor — diagnostic ONLY (zero effect on the session/billing)
+   ─────────────────────────────────────────────────────────────────────────────
+   Polls getStats() once a second on every active peer connection while a session
+   is live and logs the inbound-rtp VIDEO numbers that reveal WHERE lag comes from:
+
+     • framesPerSecond / framesDecoded → is the EDITED feed actually arriving at
+       the inference fps, or stalling? (low = Decart stream or network bound)
+     • framesDropped                  → client CPU can't keep up decoding (raise
+       hw-decode: H264-first already does this)
+     • packetsLost / jitter           → network loss between us and Decart (TURN /
+       congestion). High jitter + playoutDelayHint:0 = visible stutter.
+     • bytesReceived (Δ → kbps)       → actual inbound bitrate of the edited stream
+
+   Read it in DevTools → Console while trying on. It is started in goLive() and
+   cleared in teardown(), so it can never run against a torn-down session.
+   ============================================================================= */
+let statsMonitorTimer = null;
+let _lastStatsSample = null;   // { ts, bytes, frames } from the previous tick, for deltas
+
+function startStatsMonitor() {
+  stopStatsMonitor();          // never stack two pollers
+  _lastStatsSample = null;
+  if (typeof window === "undefined" || !window.__pearPCs) return;
+
+  statsMonitorTimer = setInterval(async () => {
+    const pcs = window.__pearPCs ? Array.from(window.__pearPCs) : [];
+    for (const pc of pcs) {
+      if (!pc || typeof pc.getStats !== "function") continue;
+      // Only the receiving (subscriber) pc carries inbound video — others skip silently.
+      try {
+        const report = await pc.getStats();
+        report.forEach((s) => {
+          if (s.type !== "inbound-rtp" || s.kind !== "video") return;
+          const now   = { bytes: s.bytesReceived || 0, frames: s.framesDecoded || 0 };
+          let kbps = "—", fpsDelta = "—";
+          if (_lastStatsSample) {
+            kbps     = Math.round(((now.bytes  - _lastStatsSample.bytes)  * 8) / 1000);  // ~1s window
+            fpsDelta = now.frames - _lastStatsSample.frames;
+          }
+          _lastStatsSample = now;
+          console.log(
+            `[PEAR webrtc] in-video · ${kbps}kbps · decoded/s:${fpsDelta} · ` +
+            `fps:${s.framesPerSecond ?? "—"} · dropped:${s.framesDropped ?? 0} · ` +
+            `lost:${s.packetsLost ?? 0} · jitter:${s.jitter != null ? (s.jitter * 1000).toFixed(0) + "ms" : "—"} · ` +
+            `decode:${s.totalDecodeTime != null ? s.totalDecodeTime.toFixed(2) + "s" : "—"}`
+          );
+        });
+      } catch (_) {}
+    }
+  }, 1000);
+}
+
+function stopStatsMonitor() {
+  if (statsMonitorTimer) { clearInterval(statsMonitorTimer); statsMonitorTimer = null; }
+  _lastStatsSample = null;
+}
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
 const PEAR_CATALOG = [
@@ -1029,6 +1101,9 @@ function teardown() {
   // client we're about to disconnect become no-ops (see connectRealtime).
   sessionGen++;
 
+  // Stop the diagnostic stats poller before the pc is torn down.
+  stopStatsMonitor();
+
   // Feature 2 — flush the recorder while the edited tracks are still live, so the
   // download clip is finalized before disconnect ends the stream.
   stopRecording();
@@ -1204,6 +1279,14 @@ function getFitModifier(delta, garmentType) {
    Kept as a module constant so changing it in one place affects all call sites. */
 const QUALITY_SUFFIX = ", photorealistic real-world fabric texture, visible seams and stitching, micro-detailed weave, natural environmental lighting matching the user's room, cinematic shading, ultra-realistic physical garment appearance, strictly maintain flawless fabric integrity, continuous realistic 3D mesh, and natural material physics without any glitching, strange horizontal bands, tearing, or unnatural structural folds";
 
+/* Layer-isolation clauses. Lucy VTON regenerates the WHOLE frame every pass, so a
+   single-garment prompt that never mentions the opposite layer lets that layer
+   drift (e.g. trying a shirt silently restyles the user's real pants). These hard
+   "do not touch" instructions pin the untouched layer to the live camera so a
+   top swap edits ONLY the top, and a bottom swap edits ONLY the bottom. */
+const KEEP_BOTTOMS = " Keep the person's existing lower body exactly as it is in the live camera — do not change, recolor, restyle, or re-render the trousers, shorts, skirt, shoes, or anything below the waist.";
+const KEEP_TOP     = " Keep the person's existing upper body exactly as it is in the live camera — do not change, recolor, restyle, or re-render the shirt, top, jacket, or anything above the waist.";
+
 function buildPrompt(item) {
   const colorWord = colorName(item.color);
   const sub    = SUBTYPE_PROMPT[item.subType] || "";
@@ -1212,11 +1295,11 @@ function buildPrompt(item) {
   const fitMod = getFitModifier(delta, item.garmentType);
 
   if (item.garmentType === "lower_body") {
-    return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.`
+    return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_TOP}`
       .replace(/\s+/g, " ").trim();
   }
   const noun = SHIRT_NOUN[item.subType] || "top";
-  return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.`
+  return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_BOTTOMS}`
     .replace(/\s+/g, " ").trim();
 }
 
@@ -1553,6 +1636,7 @@ async function goLive() {
     card().classList.add("show-live");
     setLiveControls(true);
     startRecording();                  // Feature 2 — record while the session is live
+    startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
     // Strict 5-second session limit — auto-freezes + stops billing automatically.
     // Captures sessionGen so a manual Stop before expiry (which bumps the gen) makes
