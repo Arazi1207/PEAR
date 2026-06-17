@@ -1024,27 +1024,41 @@ async function fetchGarmentBlob(imgUrl) {
   }
 }
 
+/**
+ * Return an absolute URL that the Decart server can reliably fetch.
+ * Raw CDN URLs (suitsupply, magnific, etc.) can take 20-25 s for Decart's
+ * server to fetch, inflating billing from ~10 to ~60 tokens per session.
+ * Routing through /api/img-proxy (our own Vercel endpoint) is fast, public,
+ * and already sets Cache-Control so repeated fetches are instant.
+ * On localhost the proxy URL isn't reachable from Decart's servers, so we
+ * fall back to the raw CDN URL (acceptable for local dev only).
+ */
+function garmentImageRef(cdnUrl) {
+  if (!cdnUrl) return undefined;
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (isLocal) return cdnUrl;
+  return `${location.origin}/api/img-proxy?url=${encodeURIComponent(cdnUrl)}`;
+}
+
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
 
-  // Pass the image as a URL string — the SDK sends it as `image_ref` and the Decart
-  // server fetches it server-side.  This avoids encoding a 2–5 MB base64 blob into
-  // the WebSocket message, which caused "Image send timed out" on the demo key.
+  const imageRef = garmentImageRef(item.img);
   const payload = {
     prompt: buildPrompt(item),
     enhance: true,
-    ...(item.img ? { image: item.img } : {}),
+    ...(imageRef ? { image: imageRef } : {}),
   };
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType})`);
   console.log("subType  :", item.subType, "| color:", item.color);
-  console.log("img URL  :", item.img || "(none — VTON will have no garment reference)");
-  console.log("img via  : URL ref (image_ref)");
+  console.log("img URL  :", item.img || "(none)");
+  console.log("img ref  :", imageRef || "(none — prompt-only)");
   console.log("prompt   :", payload.prompt);
   console.groupEnd();
 
-  if (!item.img) console.warn("[PEAR] applyGarment() — no img URL; the model will rely on the text prompt only.");
+  if (!imageRef) console.warn("[PEAR] applyGarment() — no img URL; prompt-only.");
 
   await rtClient.set(payload);
 }
@@ -1170,8 +1184,7 @@ async function applyLook(top, bottom) {
   if (!rtClient) throw new Error("not connected");
 
   const prompt = buildLookPrompt(top, bottom);
-  const images = [top.img, bottom.img].filter(Boolean);   // both verified URLs
-  const primaryImage = images[0] ?? null;   // URL string — sent as image_ref, server fetches it
+  const primaryImage = garmentImageRef(top.img) ?? null;   // proxy URL — fast Decart-side fetch
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
