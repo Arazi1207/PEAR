@@ -307,6 +307,14 @@ app.get("/api/test-sheets", async (req, res) => {
   }
 });
 
+/* ── In-memory image cache — avoids re-fetching the same CDN image within a warm
+   Lambda container. Keyed by full URL; evicts oldest entry when the cap is hit.
+   Vercel's CDN also caches the HTTP response (via Cache-Control), so Decart's
+   server often hits the edge cache on repeat fetches — this cache additionally
+   cuts Lambda execution time for the first in-process hit. */
+const imgCache = new Map();
+const IMG_CACHE_MAX = 50;
+
 /* ── Image proxy — fetches garment images server-side to sidestep CORS restrictions
    on CDN hosts (cdn.suitsupply.com, img.magnific.com, etc.) that block browser
    cross-origin fetch.  The Decart SDK calls fetch(imageUrl) internally when you
@@ -327,6 +335,17 @@ app.get("/api/img-proxy", async (req, res) => {
     return res.status(400).json({ error: "invalid_url", message: "url must be an absolute http(s) URL" });
   }
 
+  const cacheKey = parsed.href;
+  if (imgCache.has(cacheKey)) {
+    const { buffer, contentType } = imgCache.get(cacheKey);
+    return res
+      .set("Content-Type", contentType)
+      .set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+      .set("Access-Control-Allow-Origin", "*")
+      .set("X-Cache", "HIT")
+      .send(buffer);
+  }
+
   try {
     const upstream = await fetch(parsed.href, {
       headers: { "User-Agent": "PEAR-VTON-Proxy/1.0" },
@@ -338,12 +357,17 @@ app.get("/api/img-proxy", async (req, res) => {
       });
     }
     const contentType = upstream.headers.get("content-type") || "image/jpeg";
-    const buffer = await upstream.arrayBuffer();
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+
+    // Populate in-process cache (oldest-first eviction at cap).
+    if (imgCache.size >= IMG_CACHE_MAX) imgCache.delete(imgCache.keys().next().value);
+    imgCache.set(cacheKey, { buffer, contentType });
+
     res
       .set("Content-Type", contentType)
       .set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
       .set("Access-Control-Allow-Origin", "*")
-      .send(Buffer.from(buffer));
+      .send(buffer);
   } catch (err) {
     console.error("[img-proxy] fetch failed:", err?.message || err);
     res.status(502).json({ error: "proxy_fetch_failed", message: err?.message || String(err) });

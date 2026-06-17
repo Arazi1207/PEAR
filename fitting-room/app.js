@@ -282,6 +282,10 @@ let connState = "idle";
 let connecting = false;
 let busy = false;
 
+/* Pre-minted ek_ token cache — populated by warmupSDKAndToken() on room entry so
+   mintEphemeralToken() can skip the network round-trip at go-live time. */
+let _tokenCache = null; // { apiKey: string, expiresAt: number } | null
+
 /* Bug 3 — consecutive-session state.
    `sessionGen` is a monotonic generation counter bumped on every connect and
    every teardown. The realtime SDK fires callbacks (onConnectionChange /
@@ -568,6 +572,9 @@ function enterRoom() {
   // Reset the size override to the Screen-1 recommendation and rebuild the selector UI.
   activeTryOnSize = currentUserSize;
   injectSizeSelector();
+
+  // Pre-warm SDK + token so the go-live path skips both round-trips.
+  warmupSDKAndToken();
 }
 
 function setActiveItem(item, opts = {}) {
@@ -786,6 +793,17 @@ async function loadSDK() {
 }
 
 /**
+ * Fire-and-forget pre-warm: loads the Decart SDK into the JS engine's import
+ * cache AND pre-mints an ek_ token so connectRealtime() skips both round-trips
+ * at go-live time. Saves ~0.5–1 s from the user-perceived click-to-live latency.
+ * Called once when the user enters the fitting room (enterRoom).
+ */
+function warmupSDKAndToken() {
+  loadSDK().catch(() => {}); // primes the browser's dynamic-import cache
+  mintEphemeralToken().catch(() => {}); // pre-mints ek_ token into _tokenCache
+}
+
+/**
  * Mint a short-lived ek_ token from the secure proxy (TOKEN_ENDPOINT).
  * Called ONLY at go-live (never on page load) so no token is minted/wasted while
  * the user is just browsing. The permanent dct_ key stays server-side.
@@ -793,6 +811,15 @@ async function loadSDK() {
  * @throws {Error} if the proxy is unreachable or returns no valid token.
  */
 async function mintEphemeralToken() {
+  // Fast path: reuse cached token if still valid (30s safety margin before expiry).
+  const now = Date.now();
+  if (_tokenCache && _tokenCache.expiresAt > now + 30_000) {
+    console.log("[PEAR] mintEphemeralToken() — cached ek_ token reused (expires in",
+      Math.round((_tokenCache.expiresAt - now) / 1000), "s)");
+    return _tokenCache.apiKey;
+  }
+  _tokenCache = null; // stale or absent — fetch fresh
+
   console.log("[PEAR] mintEphemeralToken() — POST", TOKEN_ENDPOINT);
   let resp;
   try {
@@ -837,6 +864,15 @@ async function mintEphemeralToken() {
   console.log("[PEAR] mintEphemeralToken() — token received, starts with:", preview + "…",
     "| model:", data.model || "(not in response)",
     "| expiresAt:", data.expiresAt || "(not in response)");
+
+  // Cache the fresh token for reuse within its TTL (5-min fallback if expiresAt absent).
+  _tokenCache = {
+    apiKey: data.apiKey,
+    expiresAt: data.expiresAt
+      ? new Date(data.expiresAt).getTime()
+      : Date.now() + 5 * 60 * 1000,
+  };
+
   return data.apiKey;
 }
 
@@ -1219,13 +1255,14 @@ async function applyLook(top, bottom) {
 
   const prompt = buildLookPrompt(top, bottom);
   const primaryImage = garmentImageRef(top.img) ?? null;   // proxy URL — fast Decart-side fetch
+  const images = [top.img, bottom.img].filter(Boolean).map(garmentImageRef).filter(Boolean);
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
     enhance: true,
     image: primaryImage,              // SDK single-image reference (the top, as URL)
-    images,                           // both verified URLs, bundled together
+    images,                           // both verified proxy URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
       { category: "top",    type: top.garmentType,    image: top.img,    color: top.color,    subType: top.subType,    name: top.name },
       { category: "bottom", type: bottom.garmentType, image: bottom.img, color: bottom.color, subType: bottom.subType, name: bottom.name },
@@ -1481,16 +1518,15 @@ async function goLive() {
   card().classList.remove("show-result");  // drop any frozen snapshot so the live feed isn't covered by #resultCanvas
 
   try {
-    // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
-    // NOTE: treated as a soft warning only — a failed probe (false-negative, e.g.
-    // the server is slow to respond) must NOT block the live session attempt.
-    // If the network is genuinely down the subsequent WebRTC / token steps will
-    // fail with a real error that is caught below and shown to the user.
-    const online = await ensureOnline();
-    if (!online) {
-      console.warn("[go-live] health probe returned offline — proceeding anyway (may be false negative)");
-      toast("בדיקת קישוריות לא הצליחה — ממשיכים בניסיון חיבור");
-    }
+    // Health probe is a soft warning only — fire-and-forget so it never serialises
+    // into the go-live path. If the network is down, WebRTC / token steps will fail
+    // with a real error that is caught and shown to the user.
+    ensureOnline().then(online => {
+      if (!online) {
+        console.warn("[go-live] health probe returned offline — proceeding anyway");
+        toast("בדיקת קישוריות לא הצליחה — ממשיכים בניסיון חיבור");
+      }
+    });
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
 
