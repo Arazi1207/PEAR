@@ -610,6 +610,43 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .camera-card.live .camera-card__guide { display: block; }
 .camera-card.show-result .camera-card__guide { display: none; }
 
+/* ── strict 5-second live countdown — the visible token kill-clock ──────────
+   A frosted disc whose conic ring drains pear-green → empty as the seconds tick,
+   flipping to a pulsing red in the final second. Driven by --cd-frac + .is-final
+   from app.js (showLiveCountdown / tickLiveCountdown). */
+.live-countdown {
+  position: absolute; top: 14px; inset-inline-end: 14px; z-index: 7;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 64px; height: 64px; border-radius: 50%;
+  color: #fff; text-align: center; pointer-events: none;
+  background:
+    radial-gradient(closest-side, rgba(8,8,10,.80) 69%, transparent 71%),
+    conic-gradient(var(--pear) calc(var(--cd-frac, 1) * 360deg), rgba(255,255,255,.18) 0);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  box-shadow: 0 6px 22px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,255,255,.16);
+  animation: cdPop .4s var(--ease) both;
+}
+.live-countdown[hidden] { display: none; }
+.live-countdown__num {
+  font-family: "Urbanist", sans-serif; font-weight: 900; font-size: 1.5rem; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.live-countdown__label {
+  font-family: "Inter", sans-serif; font-weight: 700; font-size: .5rem;
+  letter-spacing: .05em; opacity: .82; margin-top: 1px;
+}
+.live-countdown.is-final {
+  animation: cdPulse .9s var(--ease) infinite;
+  background:
+    radial-gradient(closest-side, rgba(40,8,8,.84) 69%, transparent 71%),
+    conic-gradient(#ff5a5a calc(var(--cd-frac, 0) * 360deg), rgba(255,255,255,.18) 0);
+}
+@keyframes cdPop  { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes cdPulse {
+  0%, 100% { box-shadow: 0 6px 22px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,90,90,.45), 0 0 0 0 rgba(255,90,90,.5); }
+  50%      { box-shadow: 0 6px 22px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,90,90,.75), 0 0 0 9px rgba(255,90,90,0); }
+}
+
 /* placeholder (camera off) — frosted glass */
 .camera-card__placeholder {
   position: absolute; inset: 0; z-index: 7;
@@ -1168,6 +1205,44 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 .pear-lightbox__close:hover { transform: scale(1.08); background: #fff; }
 .pear-lightbox__close:active { transform: scale(.94); }
+
+/* ── large interactive fit modal (Image 1): name + size badge + action row ── */
+.pear-lightbox__fig { gap: 14px; }
+.pear-lightbox__img, .pear-lightbox__video { max-height: 62vh; }   /* leave room for caption + actions */
+.pear-lightbox__cap {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+}
+.pear-lightbox__name {
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: 1.05rem; letter-spacing: .02em; color: #fff;
+}
+.pear-lightbox__size {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; height: 26px; padding: 0 10px;
+  border-radius: var(--pill); background: var(--pear); color: #0a0a0b;
+  font-family: "Urbanist", sans-serif; font-weight: 900; font-size: .82rem; letter-spacing: .04em;
+  box-shadow: var(--shadow-pear);
+}
+.pear-lightbox__actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.plb-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 11px 18px; border-radius: var(--pill); cursor: pointer;
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .9rem;
+  border: 1px solid rgba(255,255,255,.5);
+  background: rgba(255,255,255,.16);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: #fff; text-decoration: none;
+  transition: transform .35s var(--ease), background .35s var(--ease), box-shadow .35s var(--ease);
+}
+.plb-btn:hover  { transform: translateY(-2px); background: rgba(255,255,255,.28); }
+.plb-btn:active { transform: translateY(0) scale(.97); }
+.plb-btn[hidden] { display: none; }
+.plb-btn__icon { font-size: 1rem; line-height: 1; }
+.plb-btn__en   { font-size: .68rem; font-weight: 700; opacity: .72; letter-spacing: .04em; }
+.plb-btn--live {
+  background: var(--pear); color: #0a0a0b; border-color: transparent; box-shadow: var(--shadow-pear);
+}
+.plb-btn--live:hover { background: #9cca00; }
+.plb-btn--live .plb-btn__en { opacity: .6; }
 
 /* ── active replay glow — the tile currently playing in #aiVideo ── */
 .live-gallery-item.is-playing {

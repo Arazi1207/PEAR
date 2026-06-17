@@ -44,7 +44,24 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
-const LIVE_DURATION_MS = 1500;   // strict live-session cap — 1.5s @ 15fps ≈ 23 frames ≈ ~9 Decart tokens/try-on
+/* ── Strict live-session lifecycle (token spend lives here) ──────────────────
+   The live window is hard-capped at LIVE_DURATION_MS and the capture/inference
+   rate at LIVE_FPS. Decart bills ≈ per processed frame (fps × seconds), so the
+   token cost of a try-on is governed ENTIRELY by these two numbers:
+
+      tokens ≈ LIVE_FPS × (LIVE_DURATION_MS / 1000) × ~0.39   (SDK per-frame est.)
+
+   • 5s × 15fps ≈ 75 frames ≈ ~29 tokens  ← current setting (exact 5s, full 15fps)
+   • 5s ×  4fps ≈ 20 frames ≈ ~10 tokens  ← lower LIVE_INFERENCE_FPS to hit a ~10 cap
+
+   LIVE_FPS is the LOCAL camera-capture rate (kept at 15 for a smooth preview and
+   low upload bandwidth). LIVE_INFERENCE_FPS is what the Decart MODEL actually
+   processes — the only knob that changes the bill. Dial it down to trim tokens
+   without touching the 5-second on-screen window. */
+const LIVE_DURATION_MS    = 5000;   // strict live-session cap — EXACTLY 5 seconds, no token can leak past it
+const LIVE_FPS            = 15;     // local getUserMedia capture rate (smooth preview, low upload bitrate)
+const LIVE_INFERENCE_FPS  = 6;      // Decart-billed frame rate — 6fps × 5s ≈ 30 frames ≈ ~12 tokens/session (target 10-15).
+                                    //   NB: tokens scale with FRAMES (fps × seconds), NOT resolution. Raise→smoother/costlier, lower→cheaper.
 
 /* Mobile detection (Feature 2 / mobile download fix). Drives two choices:
    (1) the MediaRecorder container — phone galleries reliably ingest H.264 MP4 but
@@ -285,6 +302,7 @@ let recordRaf = 0;           // requestAnimationFrame handle for the paint loop
 let recordingActive = false; // guards the paint loop + single-start per session
 let replayActive = false;   // true while the user is watching the cached local replay
 let liveDurationTimer = null;  // auto-teardown handle for the strict 5s session limit
+let liveCountdownInterval = null;  // 1s tick handle driving the on-screen countdown overlay
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -692,9 +710,12 @@ async function startCamera() {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width:  { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 60 },
+          // Optimized capture: matches the Decart inference size (1088×624) and
+          // caps the rate at LIVE_FPS. A smaller, slower stream means less to
+          // encode + upload → faster connect/first-frame AND lower token spend.
+          width:  { ideal: 1088 },
+          height: { ideal: 624 },
+          frameRate: { ideal: LIVE_FPS, max: LIVE_FPS },
         },
         audio: false,
       });
@@ -897,11 +918,10 @@ async function connectRealtime() {
       model: {
         name: "lucy-vton-latest",
         urlPath: "/v1/stream",
-        // TOKEN COST: Decart bills per processed frame (≈ fps × seconds). Halving
-        // the input rate to 15fps roughly halves the spend (~1.5s × 15 ≈ 23 frames
-        // ≈ ~9 tokens/try-on, down from ~18) while keeping FULL resolution — so the
-        // dressed render stays just as sharp, only marginally less fluid.
-        fps: { ideal: 15, max: 15 },
+        // TOKEN COST: Decart bills per processed frame (≈ fps × seconds). This is
+        // THE billing knob — see LIVE_INFERENCE_FPS / LIVE_DURATION_MS up top.
+        // 5s × 15fps ≈ ~29 tokens; drop LIVE_INFERENCE_FPS to ~4 for a ~10 cap.
+        fps: { ideal: LIVE_INFERENCE_FPS, max: LIVE_INFERENCE_FPS },
         width: 1088,
         height: 624,
       },
@@ -960,6 +980,8 @@ function teardown() {
   // clearing first means the timer callback (which checks sessionGen) can never fire
   // concurrently with this teardown, even on the same tick.
   if (liveDurationTimer) { clearTimeout(liveDurationTimer); liveDurationTimer = null; }
+  // Same leak guard for the visual countdown ticker + overlay.
+  hideLiveCountdown();
 
   // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
   // client we're about to disconnect become no-ops (see connectRealtime).
@@ -1448,6 +1470,7 @@ async function goLive() {
   $("camError").hidden = true;
   exitClipReplay();                    // clear any history clip before a real session takes #aiVideo
   clearRecording();                    // Feature 2 — drop any previous clip + button
+  card().classList.remove("show-result");  // drop any frozen snapshot so the live feed isn't covered by #resultCanvas
 
   try {
     // Task 2 — graceful pre-use internet check, BEFORE opening any billable session.
@@ -1489,18 +1512,30 @@ async function goLive() {
     setLiveControls(true);
     startRecording();                  // Feature 2 — record while the session is live
 
-    // Strict 5-second session limit — stops billing and returns to standby automatically.
+    // Strict 5-second session limit — auto-freezes + stops billing automatically.
     // Captures sessionGen so a manual Stop before expiry (which bumps the gen) makes
-    // the callback a no-op, protecting any subsequent session from being torn down.
+    // both callbacks no-ops, protecting any subsequent session from being torn down.
     const timerGen = sessionGen;
+    const totalSec = Math.round(LIVE_DURATION_MS / 1000);
+
+    // Visual countdown overlay on the #aiVideo container — ticks 5→1 each second.
+    showLiveCountdown(totalSec);
+    let remaining = totalSec;
+    liveCountdownInterval = setInterval(() => {
+      if (sessionGen !== timerGen) { hideLiveCountdown(); return; }
+      remaining -= 1;
+      tickLiveCountdown(Math.max(remaining, 0));
+    }, 1000);
+
+    // Hard stop at EXACTLY LIVE_DURATION_MS — independent of tick drift, so no token
+    // can ever leak past the 5-second window even if the interval is throttled.
     liveDurationTimer = setTimeout(() => {
       if (sessionGen !== timerGen) return;
-      console.log("[PEAR] 1.5s live limit reached — auto-stopping session");
-      toast("⏱ המדידה הסתיימה אוטומטית");
-      stopLive();
+      console.log("[PEAR] 5s live limit reached — auto-freezing + stopping session");
+      autoStopAndFreeze();
     }, LIVE_DURATION_MS);
 
-    toast("✨ מדידה חיה — לחץ עצור לסיום");
+    toast("✨ מדידה חיה · 5 שניות — לחץ עצור לסיום מוקדם");
   } catch (err) {
     stopLive();                        // close any partial session — no idle billing
     console.error("[go-live] failed:", err?.message || String(err));
@@ -1524,14 +1559,84 @@ async function goLive() {
  * @returns {void}
  */
 function stopLive() {
-  // 🖼 Auto-save the current live look BEFORE teardown() detaches #aiVideo. Wrapped
+  // 🖼 Freeze the final dressed frame onto the on-screen #resultCanvas and save it
+  // as the high-quality "masterpiece" BEFORE teardown() detaches #aiVideo. Wrapped
   // so a capture hiccup can never delay the billing kill-switch below.
-  try { if (isLive()) addFitFromLive(); } catch (_) {}
+  let frozen = null;
+  try {
+    if (isLive()) {
+      frozen = freezeFinalFrame();                 // paints #resultCanvas, returns its dataURL
+      const size = activeTryOnSize || currentUserSize || "—";
+      lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
+                                   activeItem && activeItem.id);
+    }
+  } catch (_) {}
 
-  teardown();                          // rtClient.disconnect() → billing stops now
+  teardown();                          // rtClient.disconnect() → billing stops now (also hides #aiVideo)
   card().classList.remove("show-live");
+  if (frozen) card().classList.add("show-result");   // surface the frozen snapshot as the final result
   setLiveControls(false);
   $("captureBtn").disabled = !localStream;
+}
+
+/* Strict-5s auto-teardown. Freezes the final frame, kills billing, surfaces the
+   frozen result — a thin wrapper over stopLive() so the manual Stop and the
+   automatic 5s stop share ONE freeze → save → teardown path. */
+function autoStopAndFreeze() {
+  toast("⏱ 5 שניות הושלמו — הלוק הוקפא ונשמר");
+  stopLive();
+}
+
+/* Paint the final dressed frame onto the on-screen #resultCanvas at full capture
+   resolution and return its JPEG dataURL. Doubles as (1) the frozen "masterpiece"
+   shown via .show-result and (2) the high-quality poster saved to Previous Fits.
+   Prefers the AI-edited feed; falls back to the mirrored webcam. Returns null if
+   no frame is paintable — must NEVER throw into the teardown path. */
+function freezeFinalFrame() {
+  const ai = $("aiVideo");
+  const webcam = $("webcam");
+  let src = null, mirror = false, w = 0, h = 0;
+  if (ai && ai.videoWidth > 0 && ai.style.display !== "none") {
+    src = ai; w = ai.videoWidth; h = ai.videoHeight;            // already correctly oriented
+  } else if (webcam && webcam.videoWidth > 0) {
+    src = webcam; w = webcam.videoWidth; h = webcam.videoHeight; mirror = true;  // selfie-mirror
+  }
+  if (!src || !w || !h) return null;
+  const cv = $("resultCanvas");
+  if (!cv) return null;
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d", { alpha: false });
+  ctx.save();
+  if (mirror) { ctx.translate(w, 0); ctx.scale(-1, 1); }
+  try { ctx.drawImage(src, 0, 0, w, h); } catch (_) { ctx.restore(); return null; }
+  ctx.restore();
+  try { return cv.toDataURL("image/jpeg", 0.85); } catch (_) { return null; }
+}
+
+/* ── Live countdown overlay (the strict 5s window) ──────────────────────────
+   A circular pill on the #aiVideo container counts the session down to zero, so
+   the user always knows the live (billable) window is about to close. */
+function showLiveCountdown(sec) {
+  const el = $("liveCountdown");
+  if (!el) return;
+  el.hidden = false;
+  tickLiveCountdown(sec);
+}
+function tickLiveCountdown(sec) {
+  const numEl = $("liveCountdownNum");
+  if (numEl) numEl.textContent = String(sec);
+  const el = $("liveCountdown");
+  if (el) {
+    // sweep the conic ring from full → empty as the seconds drain
+    const total = Math.max(1, Math.round(LIVE_DURATION_MS / 1000));
+    el.style.setProperty("--cd-frac", String(Math.max(0, sec) / total));
+    el.classList.toggle("is-final", sec <= 1);
+  }
+}
+function hideLiveCountdown() {
+  if (liveCountdownInterval) { clearInterval(liveCountdownInterval); liveCountdownInterval = null; }
+  const el = $("liveCountdown");
+  if (el) { el.hidden = true; el.classList.remove("is-final"); }
 }
 
 /* Swap the single capture button between "Go Live" and "Stop" states. */
@@ -1609,11 +1714,11 @@ function startRecording() {
   }
 
   // BLACK-FRAME FIX: the Decart server takes ~1s to warm up before the first
-  // dressed frame arrives, but the live window is only ~1.5s. If we start the
-  // recorder at go-live, the clip begins with ~1s of solid black canvas, so any
-  // looped replay (gallery tile / main player) opens on a black screen. Instead
-  // we ARM the recorder lazily — only once the first REAL frame has been painted —
-  // so the saved Live Photo contains dressed frames exclusively.
+  // dressed frame arrives. If we start the recorder at go-live, the clip begins
+  // with ~1s of solid black canvas, so any looped replay (gallery tile / modal)
+  // opens on a black screen — this was the "Previous Fits black screen" symptom.
+  // Instead we ARM the recorder lazily — only once the first REAL frame has been
+  // painted — so the saved Live Photo contains dressed frames exclusively.
   const beginRecorder = () => {
     if (mediaRecorder) return;
     const captured = recordCanvas.captureStream(30);   // 30 fps, video-only
@@ -2300,11 +2405,14 @@ function currentLookName() {
 
 /* Public helper: push a look (poster) into history + persist + re-render.
    Returns the new entry's ts so the recorder can attach its clip afterwards. */
-function saveFitToGallery(imageSrc, garmentName, size) {
+function saveFitToGallery(imageSrc, garmentName, size, itemId) {
   if (!imageSrc) return null;
   const ts = Date.now();
   const arr = readGallery();
-  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "—", ts });
+  // itemId lets the gallery modal's "Try again live" restore the exact garment
+  // and open a fresh 5s session. null when the look isn't a single catalog item.
+  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "—", ts,
+             itemId: (itemId == null ? null : itemId) });
   while (arr.length > GALLERY_MAX) { const old = arr.shift(); dropClip(old.ts); }
   writeGallery(arr);
   renderGallery(arr);
@@ -2472,37 +2580,99 @@ function playClipInMainPlayer(url, idx, ts) {
   toast("▶ מציג מדידה קודמת");
 }
 
-/* Tap a thumbnail → full-size glass lightbox (looping clip if present, else poster). */
+/* The fit currently open in the large modal (so the delegated action buttons
+   know which history entry they act on). */
+let lightboxIt = null;
+
+/* Close the large fit modal: stop any inline clip + forget the open entry. */
+function closeFitLightbox() {
+  const lb = $("pearLightbox");
+  if (!lb) return;
+  lb.classList.remove("show");
+  const stage = lb.querySelector(".pear-lightbox__stage");
+  if (stage) stage.innerHTML = "";     // stop any playing clip on close
+  lightboxIt = null;
+}
+
+/* Tap a history card → the large interactive modal (Image 1 layout): the saved
+   high-quality snapshot/clip, garment name, size badge, and the action row:
+     • צפה שוב · Replay      — loop the saved clip for FREE (zero tokens)
+     • מדוד שוב · Try again live — restore the garment + open a fresh 5s session
+     • הורד · Download       — save the recorded clip (only when one exists) */
 function openFitLightbox(idx) {
   const it = readGallery()[idx];
   if (!it) return;
+  lightboxIt = it;
   let lb = $("pearLightbox");
   if (!lb) {
     lb = document.createElement("div");
     lb.id = "pearLightbox";
     lb.className = "pear-lightbox";
     lb.innerHTML =
-      `<div class="pear-lightbox__backdrop"></div>` +
+      `<div class="pear-lightbox__backdrop" data-lb-close></div>` +
       `<figure class="pear-lightbox__fig">` +
+        `<button class="pear-lightbox__close" type="button" aria-label="סגור" data-lb-close>×</button>` +
         `<div class="pear-lightbox__stage"></div>` +
-        `<figcaption class="pear-lightbox__cap"></figcaption>` +
-      `</figure>` +
-      `<button class="pear-lightbox__close" type="button" aria-label="סגור">×</button>`;
+        `<figcaption class="pear-lightbox__cap">` +
+          `<span class="pear-lightbox__name"></span>` +
+          `<span class="pear-lightbox__size"></span>` +
+        `</figcaption>` +
+        `<div class="pear-lightbox__actions">` +
+          `<button class="plb-btn plb-btn--replay" type="button" data-lb-replay hidden>` +
+            `<span class="plb-btn__icon" aria-hidden="true">↺</span><span>צפה שוב</span><span class="plb-btn__en">Replay</span></button>` +
+          `<button class="plb-btn plb-btn--live" type="button" data-lb-live>` +
+            `<span class="plb-btn__icon" aria-hidden="true">▶</span><span>מדוד שוב</span><span class="plb-btn__en">Try again live</span></button>` +
+          `<a class="plb-btn plb-btn--dl" data-lb-dl hidden download>` +
+            `<span class="plb-btn__icon" aria-hidden="true">⤓</span><span>הורד</span><span class="plb-btn__en">Download</span></a>` +
+        `</div>` +
+      `</figure>`;
     document.body.appendChild(lb);
     lb.addEventListener("click", (e) => {
-      if (e.target.closest(".pear-lightbox__backdrop") || e.target.closest(".pear-lightbox__close")) {
-        lb.classList.remove("show");
-        const stage = lb.querySelector(".pear-lightbox__stage");
-        if (stage) stage.innerHTML = "";     // stop any playing clip on close
+      if (e.target.closest("[data-lb-close]"))  { closeFitLightbox(); return; }
+      if (e.target.closest("[data-lb-replay]")) {
+        // FREE replay — loop the saved clip in the main player, then close the modal.
+        const cur = lightboxIt; const url = cur ? liveClips.get(cur.ts) : null;
+        if (url) { closeFitLightbox(); playClipInMainPlayer(url, readGallery().findIndex((g) => g.ts === cur.ts), cur.ts); }
+        return;
       }
+      if (e.target.closest("[data-lb-live]"))   { const cur = lightboxIt; closeFitLightbox(); replayFitLive(cur); return; }
+      // [data-lb-dl] is a plain <a download> — let the browser handle it.
     });
   }
   const clip = liveClips.get(it.ts);
   lb.querySelector(".pear-lightbox__stage").innerHTML = clip
     ? `<video class="pear-lightbox__video" src="${clip}" autoplay loop muted playsinline controls></video>`
-    : `<img class="pear-lightbox__img" src="${it.img}" alt="">`;
-  lb.querySelector(".pear-lightbox__cap").textContent = `${it.name} · ${it.size}`;
+    : `<img class="pear-lightbox__img" src="${it.img}" alt="${escHtml(it.name)}">`;
+  lb.querySelector(".pear-lightbox__name").textContent = it.name;
+  lb.querySelector(".pear-lightbox__size").textContent = it.size;
+
+  // Replay + Download only make sense when the in-memory clip still exists
+  // (it's gone after a reload — posters survive, blobs don't).
+  const replayBtn = lb.querySelector("[data-lb-replay]");
+  if (replayBtn) replayBtn.hidden = !clip;
+  const dlBtn = lb.querySelector("[data-lb-dl]");
+  if (dlBtn) {
+    if (clip) {
+      dlBtn.hidden = false; dlBtn.href = clip;
+      dlBtn.download = `PEAR-fit-${it.ts}.${(recorderMime && recorderMime.includes("mp4")) ? "mp4" : "webm"}`;
+      if (IS_MOBILE) dlBtn.target = "_blank";
+    } else { dlBtn.hidden = true; dlBtn.removeAttribute("href"); }
+  }
   lb.classList.add("show");
+}
+
+/* "Try again live" — restore the exact garment this fit was captured with (when
+   still in the catalog) and open a fresh, optimized 5-second live session. */
+function replayFitLive(it) {
+  if (isLive()) { toast("עצור מדידה חיה כדי להתחיל מחדש"); return; }
+  if (it && it.itemId != null) {
+    const p = PEAR_CATALOG.find((x) => x.id === it.itemId);
+    if (p) setActiveItem(toItem(p));               // sets active garment + resets to live standby
+  }
+  if (!activeItem) { toast("בחר בגד מהקטלוג כדי למדוד שוב"); return; }
+  const cc = $("cameraCard");
+  if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
+  goLive();                                         // fresh 5s WebRTC try-on (billing starts here)
 }
 
 /* Retake — stop a running session (auto-saving the look) or clear a frozen
@@ -2561,9 +2731,10 @@ function init() {
       const item = e.target.closest(".live-gallery-item");
       if (!item) return;
       const idx = Number(item.dataset.idx);
-      const url = item.dataset.videoSrc;        // present only on clip-bearing tiles
-      if (url) playClipInMainPlayer(url, idx, Number(item.dataset.ts));  // replay in #aiVideo
-      else openFitLightbox(idx);                 // poster-only (post-reload) → image view
+      // Always open the large interactive modal (Image 1): snapshot/clip + name +
+      // size badge + Replay (free) / Try again live / Download. The modal's own
+      // buttons drive the free clip replay and the fresh live session.
+      openFitLightbox(idx);
     });
   }
   const galleryClear = $("galleryClear");
@@ -2576,7 +2747,7 @@ function init() {
   if (compareOverlay) compareOverlay.addEventListener("click", (e) => {
     if (e.target.closest("[data-compare-close]")) closeCompare();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeCompare(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeCompare(); closeFitLightbox(); } });
 
   document.addEventListener("click", (e) => {
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the

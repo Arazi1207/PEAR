@@ -150,6 +150,13 @@
 
             <div class="camera-card__guide" id="alignGuide"></div>
 
+            <!-- strict 5-second live countdown — the visible token kill-clock.
+                 Shown only while .show-live; ticks 5→1 then auto-freezes. -->
+            <div class="live-countdown" id="liveCountdown" hidden aria-live="polite">
+                <span class="live-countdown__num" id="liveCountdownNum">5</span>
+                <span class="live-countdown__label">שניות · sec</span>
+            </div>
+
             <!-- luxury AI scanning overlay -->
             <div class="scan-overlay" id="scanOverlay" hidden>
                 <div class="scan-overlay__lines"></div>
