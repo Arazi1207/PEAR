@@ -611,21 +611,92 @@ function goToFitting() {
     .catch(err  => console.error("[analytics] fetch failed:", err));
 
 
-  try {
-    $("final-size-text").innerText = currentUserSize || "";
-    $("screen-calculator").classList.remove("active");
-    $("screen-fitting").classList.add("active");
-    window.scrollTo(0, 0);
-    enterRoom();
-  } catch (err) {
-    console.error("[goToFitting] screen transition failed:", err?.message || String(err), err);
-    // Force the screen switch even if enterRoom() threw so the user isn't left on Screen 1
+  // The actual screen swap — deferred to the mid-point of the Bitten-Pear
+  // transition so the change happens fully behind the opaque pear mask.
+  const commitSwap = () => {
     try {
+      $("final-size-text").innerText = currentUserSize || "";
       $("screen-calculator").classList.remove("active");
       $("screen-fitting").classList.add("active");
-    } catch (_) {}
-    toast("שגיאה בטעינת חדר המדידה — " + (err?.message || "נסה לרענן את הדף"));
-  }
+      window.scrollTo(0, 0);
+      enterRoom();
+    } catch (err) {
+      console.error("[goToFitting] screen transition failed:", err?.message || String(err), err);
+      // Force the screen switch even if enterRoom() threw so the user isn't left on Screen 1
+      try {
+        $("screen-calculator").classList.remove("active");
+        $("screen-fitting").classList.add("active");
+      } catch (_) {}
+      toast("שגיאה בטעינת חדר המדידה — " + (err?.message || "נסה לרענן את הדף"));
+    }
+  };
+
+  playPearTransition(commitSwap);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Bitten-Pear transition orchestrator — rAF-driven, promise-sequenced lifecycle.
+   Single source of truth for BOTH the Continue-button click and the Enter-key
+   path. All motion is GPU-composited (transform/opacity, see style.css); JS only
+   arms the overlay and decouples the heavy DOM screen-swap into the HOLD window,
+   executed on a real frame boundary so it never janks the 60/120fps run.
+
+     frame 0       ── arm overlay (next frame, after a clean style flush)
+     0–400ms       ── Phase 1 INTRO    (logo scales up + fades in)
+     400–700ms     ── Phase 2 FLOOD    (pear-green ellipse seals the viewport)
+       ↳ ~700ms    ──   commitSwap(): hide Screen 1 / show Screen 2 (100% covered)
+     700–1200ms    ── Phase 3 APERTURE (flood scales ×3.5 + fades → reveal room)
+     ~1200ms       ── sequence complete → resolve + tear the overlay down
+
+   Returns a Promise that resolves once the overlay has been torn down.
+   Honours prefers-reduced-motion (instant, correct swap, no theatre).
+   ───────────────────────────────────────────────────────────────────────── */
+function playPearTransition(commitSwap) {
+  const overlay = document.getElementById("pearTransition");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (!overlay || reduceMotion) { commitSwap(); return Promise.resolve(); }
+
+  const SWAP_AT_MS = 700;    // the flood has fully sealed the viewport by here
+  const END_MS     = 1200;   // total sequence length (matches the CSS keyframes)
+
+  overlay.hidden = false;
+  overlay.classList.remove("is-playing");
+
+  return new Promise((resolve) => {
+    // Double-rAF: flush the reset style on one frame, then start the keyframes on
+    // the next — guarantees a clean restart with no first-frame flash, and anchors
+    // our JS timeline to the same frame the animation begins.
+    requestAnimationFrame(() => {
+      requestAnimationFrame((startTs) => {
+        overlay.classList.add("is-playing");
+        let swapped = false;
+
+        const tick = (now) => {
+          const elapsed = now - startTs;
+
+          // Swap during the HOLD — never while the GPU is mid-render on the exit.
+          if (!swapped && elapsed >= SWAP_AT_MS) {
+            swapped = true;
+            commitSwap();
+          }
+
+          if (elapsed < END_MS) {
+            requestAnimationFrame(tick);
+          } else {
+            // Exit keyframes have finished at full opacity-0; tear down on the
+            // next frame so there is no visible cut between anim-end and hide.
+            requestAnimationFrame(() => {
+              overlay.classList.remove("is-playing");
+              overlay.hidden = true;
+              resolve();
+            });
+          }
+        };
+        requestAnimationFrame(tick);
+      });
+    });
+  });
 }
 
 function backToCalculator() {
@@ -793,7 +864,7 @@ function showPearLoader(label) {
   el.setAttribute("aria-hidden", "true");
   el.innerHTML =
     `<div class="pear-loader">` +
-      `<div class="pear-loader__fruit">🍐</div>` +
+      `<img class="pear-loader__fruit" src="./image_9d45b0.svg" alt="" width="46" height="58">` +
       `<div class="pear-loader__shadow"></div>` +
       (label ? `<div class="pear-loader__label">${label}</div>` : "") +
     `</div>`;
@@ -1567,8 +1638,8 @@ function injectSizeSelector() {
     const s = document.createElement("style");
     s.id = "pearSizeSelectorStyles";
     s.textContent = `
-      /* Liquid-glass size selector — matches the blue glass theme in style.css.
-         Light refractive pod, glass pill tiles, royal-blue active glow. */
+      /* Liquid-glass size selector — matches the liquid-glass theme in style.css.
+         Light refractive pod, glass pill tiles, pear-green active glow. */
       #pearSizeSelector {
         display: flex;
         align-items: center;
@@ -1603,7 +1674,7 @@ function injectSizeSelector() {
         border: 1px solid rgba(255,255,255,0.55);
         background: rgba(255,255,255,0.42);
         -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-        color: #1c2536;
+        color: #3a362f;
         font-size: 12px;
         font-weight: 700;
         letter-spacing: .04em;
@@ -2234,7 +2305,7 @@ function injectReplayStyles() {
       font-weight: 800;
       letter-spacing: .12em;
       text-transform: uppercase;
-      color: #b6e000;
+      color: #9cca00;
       background: rgba(141,182,0,.13);
       border: 1px solid rgba(141,182,0,.36);
       border-radius: 9999px;

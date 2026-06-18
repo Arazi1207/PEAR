@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#f3f3f2" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#efe8d8" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,6 +18,63 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<!-- ░░ Liquid-glass dynamic background — a soft mesh of blurred light that drifts
+     microscopically with the pointer / device tilt (lux-interactions.js applies an
+     inertial translate3d). Fixed, behind all content, pointer-events:none. ░░ -->
+<div class="liquid-mesh" aria-hidden="true"></div>
+
+<!-- ░░ Ambient editorial side rails — fill desktop/tablet margins; parallax to
+     scroll + pointer (lux-interactions.js). Decorative, pointer-events:none,
+     hidden on smaller viewports. ░░ -->
+<aside class="lux-rail lux-rail--left" aria-hidden="true">
+  <div class="lux-rail__grid"></div>
+  <span class="lux-rail__type">PEAR PREMIUM FIT ROOM // EST. 2026</span>
+  <span class="lux-rail__meta">№ 01 — MONOCHROME CAPSULE</span>
+</aside>
+<aside class="lux-rail lux-rail--right" aria-hidden="true">
+  <div class="lux-rail__grid"></div>
+  <span class="lux-rail__type">VIRTUAL TRY-ON // ALGORITHMIC FIT</span>
+  <span class="lux-rail__meta">LUCY VTON · REALTIME</span>
+</aside>
+
+<!-- ░░ Bitten-Pear screen transition overlay (Screen 1 → Screen 2) ░░ -->
+<!-- ░░ "Liquid Brand Aperture" transition (Screen 1 → Screen 2) ░░
+     Layers, painted bottom→top: glass backdrop · brand logo · pear-green flood.
+     The flood is a single GPU layer (viewport-sized ellipse) that scales up to
+     mask the screen, then scales out + fades like a camera aperture. NO clipping
+     paths, NO secondary "bite" shape — pure transform + opacity. -->
+<div class="pear-transition" id="pearTransition" aria-hidden="true" hidden>
+  <div class="pear-transition__bg"></div>
+  <!-- Authentic PEAR logo: a filled pear with the serif "P" + hanger knocked out
+       as negative space, exactly like the brand mark. -->
+  <svg class="pear-transition__shape" viewBox="0 0 120 152" role="presentation">
+    <defs>
+      <linearGradient id="luxPearGrad" x1="20%" y1="8%" x2="80%" y2="100%">
+        <stop offset="0%"   stop-color="#2a2a2c"/>
+        <stop offset="50%"  stop-color="#141416"/>
+        <stop offset="100%" stop-color="#0a0a0b"/>
+      </linearGradient>
+      <!-- STATIC mask (rasterised once, never animated) -->
+      <mask id="luxLogoMask">
+        <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z" fill="#fff"/>
+        <g stroke="#000" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M70 60 L70 126" stroke-width="6"/>
+          <path d="M70 62 H85 C93 62 99 68 99 77 C99 86 93 91 85 91 H70" stroke-width="5"/>
+          <path d="M59 112 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
+          <path d="M41 123 L59 110 L83 123" stroke-width="2.6"/>
+        </g>
+      </mask>
+    </defs>
+    <path class="pear-transition__stem" d="M61 31 C59 22 62 15 70 12" fill="none" stroke="#0a0a0b" stroke-width="3.4" stroke-linecap="round"/>
+    <path class="pear-transition__leaf" d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="#0a0a0b"/>
+    <path class="pear-transition__body"
+          d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"
+          fill="url(#luxPearGrad)" mask="url(#luxLogoMask)"/>
+  </svg>
+  <!-- the pear-green liquid flood / aperture (single GPU layer) -->
+  <div class="pear-transition__flood" aria-hidden="true"></div>
+</div>
 
 <!-- ════════════════════════════════════════════════════════════════════
      SCREEN 1 — Size / body-measurement calculator (REQUIRED FIRST STEP)
@@ -118,7 +175,7 @@
      ════════════════════════════════════════════════════════════════════ -->
 <div id="screen-fitting" class="screen">
 
-    <!-- Royal-blue product-isolation status bar (focus mode only) -->
+    <!-- Pear-green product-isolation status bar (focus mode only) -->
     <div class="focus-bar" id="focusBar" hidden>
         <span class="focus-bar__dot"></span>
         <span class="focus-bar__text">מדידת פריט ממוקדת: <strong id="focusItemName">—</strong></span>
@@ -126,8 +183,32 @@
     </div>
 
     <div class="app-header">
+        <!-- Authentic PEAR brand mark — inline SVG (pear · serif "P" · hanger),
+             so it is bulletproof on any host with no external path to 404.
+             The same artwork also ships as the relative asset ./image_9d45b0.svg
+             (used by the loaders); swap an <img src="./image_9d45b0.svg"> in here
+             if you prefer the external file. -->
+        <svg class="brand-mark" viewBox="0 0 120 152" fill="none" stroke="currentColor"
+             stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"/>
+            <path d="M61 31 C59 22 62 15 70 12"/>
+            <path d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="currentColor" stroke="none"/>
+            <path d="M70 58 L70 128" stroke-width="6"/>
+            <path d="M70 60 H86 C95 60 101 67 101 77 C101 87 95 93 86 93 H70" stroke-width="5"/>
+            <path d="M61 58 H79" stroke-width="5"/>
+            <path d="M61 128 H79" stroke-width="5"/>
+            <path d="M59 110 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
+            <path d="M40 122 L59 108 L84 122" stroke-width="2.6"/>
+        </svg>
         <span class="app-header__brand">PEAR</span>
         <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+        <button class="cart-btn" id="cartBtn" type="button" aria-label="סל קניות · Shopping cart">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 8h12l-1 11.5a1.5 1.5 0 0 1-1.5 1.4H8.5A1.5 1.5 0 0 1 7 19.5L6 8Z"></path>
+                <path d="M9 8V6.4a3 3 0 0 1 6 0V8"></path>
+            </svg>
+            <span class="cart-btn__count is-empty" id="cartCount">0</span>
+        </button>
         <span class="app-header__engine" id="engineBadge" title="מנוע">●</span>
     </div>
 
@@ -167,7 +248,7 @@
             <div class="scan-overlay" id="scanOverlay" hidden>
                 <div class="scan-overlay__lines"></div>
                 <div class="pear-loader" aria-hidden="true">
-                    <div class="pear-loader__fruit">🍐</div>
+                    <img class="pear-loader__fruit" src="./image_9d45b0.svg" alt="" width="48" height="60">
                     <div class="pear-loader__shadow"></div>
                 </div>
                 <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
@@ -191,6 +272,18 @@
                 <span class="btn-capture__en">Go Live</span>
             </button>
             <!-- #retakeBtn now lives inside the unified .pear-interaction-pod below -->
+        </div>
+
+        <!-- ░░ Add to Cart — high-end morphing action (spinner → fly → checkmark) ░░ -->
+        <div class="add-cart-row">
+            <button class="btn-add-cart" id="addToCartBtn" type="button" aria-label="הוסף לסל">
+                <span class="bac__label">
+                    <span class="bac__icon" aria-hidden="true">＋</span>
+                    הוסף לסל <span class="bac__en">· Add to Cart</span>
+                </span>
+                <span class="bac__spinner" aria-hidden="true"></span>
+                <span class="bac__check" aria-hidden="true">✓</span>
+            </button>
         </div>
 
         <!-- ░░ Catalog (only when entering WITHOUT a focused product) ░░ -->
@@ -258,5 +351,9 @@
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
      header shrink. Pure enhancement — touches no app.js logic or state. -->
 <script src="mobile-ux.js" defer></script>
+<!-- Luxury micro-interaction layer: Add-to-Cart fly, Bitten-Pear transition,
+     ambient side rails, magnetic buttons, floating labels. Additive only —
+     touches no app.js logic or state. -->
+<script src="lux-interactions.js" defer></script>
 </body>
 </html>

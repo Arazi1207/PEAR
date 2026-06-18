@@ -10,8 +10,8 @@
 
 :root {
   /* ── pear-green accent (the only colour) ── */
-  --pear:        #8DB600;   /* signature pear green — fills / borders / glow */
-  --pear-deep:   #5f7d00;   /* darker pear — text on light glass */
+  --pear:        #1a1a1c;   /* signature pear green — fills / borders / glow */
+  --pear-deep:   #0a0a0b;   /* darker pear — text on light glass */
   --pear-soft:   rgba(141, 182, 0, .12);
   --pear-tint:   rgba(141, 182, 0, .16);
   --pear-ring:   rgba(141, 182, 0, .22);
@@ -1555,3 +1555,458 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   .live-countdown { width: 58px; height: 58px; }
   .live-countdown__num { font-size: 1.34rem; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ LUXURY MICRO-INTERACTION LAYER  (iOS / macOS-grade polish)
+   ─────────────────────────────────────────────────────────────────────────
+   Paired with lux-interactions.js. Add-to-Cart fly · Bitten-Pear transition ·
+   ambient side rails · magnetic buttons · floating labels · spring cart toast ·
+   metallic skeleton. Pear-green accent, Monochrome Liquid-Glass language.
+   ════════════════════════════════════════════════════════════════════════ */
+:root { --power: cubic-bezier(0.25, 1, 0.5, 1); }   /* Apple signature power-ease */
+
+/* ── 1 · Header cart icon ──────────────────────────────────────────────── */
+.cart-btn {
+  position: relative; align-self: center; margin-inline-start: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--ink); cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.6);
+  transition: transform .5s var(--power), box-shadow .5s var(--power), background .35s var(--ease);
+}
+.cart-btn:hover  { transform: translateY(-2px); background: rgba(255,255,255,.85); box-shadow: var(--shadow); }
+.cart-btn:active { transform: scale(.92); }
+/* iOS-style jiggle when an item lands */
+.cart-btn.is-bounce { animation: cartJiggle .68s var(--power); }
+@keyframes cartJiggle {
+  0%   { transform: scale(1)    rotate(0); }
+  22%  { transform: scale(1.22) rotate(-8deg); }
+  44%  { transform: scale(.92)  rotate(6deg); }
+  64%  { transform: scale(1.08) rotate(-4deg); }
+  82%  { transform: scale(.98)  rotate(2deg); }
+  100% { transform: scale(1)    rotate(0); }
+}
+.cart-btn__count {
+  position: absolute; top: -4px; inset-inline-end: -4px;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: var(--pill);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  color: #fff; font-family: "Urbanist", sans-serif; font-weight: 900; font-size: .68rem;
+  line-height: 1; border: 1.5px solid rgba(255,255,255,.9);
+  box-shadow: 0 3px 10px rgba(141,182,0,.4);
+  transition: transform .5s var(--spring), opacity .35s var(--ease);
+}
+.cart-btn__count.is-empty { transform: scale(0); opacity: 0; }
+
+/* ── 1 · "Add to Cart" morphing button ─────────────────────────────────── */
+.add-cart-row { max-width: 470px; margin: 14px auto 0; }
+.btn-add-cart {
+  position: relative; overflow: hidden;
+  width: 100%; min-height: 56px; padding: 16px 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(141,182,0,.4); border-radius: var(--pill);
+  background: linear-gradient(135deg, rgba(141,182,0,.22), rgba(141,182,0,.10));
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--pear-deep); cursor: pointer;
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: 1.04rem; letter-spacing: .01em;
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.55);
+  transition: transform .45s var(--power), background .4s var(--ease),
+              border-color .4s var(--ease), box-shadow .4s var(--ease), color .3s var(--ease);
+}
+.btn-add-cart:hover  { transform: translateY(-2px); background: linear-gradient(135deg, rgba(141,182,0,.30), rgba(141,182,0,.14)); border-color: rgba(141,182,0,.6); box-shadow: 0 14px 34px rgba(141,182,0,.24), inset 0 1px 0 rgba(255,255,255,.6); }
+.btn-add-cart:active { transform: scale(.96); }
+.btn-add-cart:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--pear-ring), var(--shadow); }
+.bac__en   { font-weight: 600; font-size: .76rem; opacity: .68; letter-spacing: .04em; }
+.bac__icon { font-weight: 700; margin-inline-end: 2px; }
+.bac__label { display: inline-flex; align-items: center; gap: 7px; transition: opacity .3s var(--ease), transform .4s var(--power); }
+/* spinner + check are centred overlays so the button width never jumps */
+.bac__spinner, .bac__check {
+  position: absolute; top: 50%; left: 50%;
+  opacity: 0; pointer-events: none;
+}
+.bac__spinner {
+  width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  border: 2.5px solid rgba(141,182,0,.28);
+  border-top-color: var(--pear-deep); border-radius: 50%;
+  transform: scale(.5);
+}
+.bac__check {
+  margin: -0.62em 0 0 -0.42em;
+  font-size: 1.3rem; font-weight: 900; color: var(--pear-deep);
+  transform: scale(.4);
+}
+/* loading: label glides out, spinner fades in + spins, control "scales down" */
+.btn-add-cart.is-loading { transform: scale(.965); pointer-events: none; }
+.btn-add-cart.is-loading .bac__label { opacity: 0; transform: scale(.9); }
+.btn-add-cart.is-loading .bac__spinner { opacity: 1; transform: scale(1); animation: bacSpin .8s linear infinite; }
+@keyframes bacSpin { to { transform: scale(1) rotate(360deg); } }
+/* done: checkmark pops with an elastic overshoot */
+.btn-add-cart.is-done {
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  border-color: transparent; color: #fff;
+  box-shadow: var(--shadow-pear);
+}
+.btn-add-cart.is-done .bac__label   { opacity: 0; transform: scale(.9); }
+.btn-add-cart.is-done .bac__spinner { opacity: 0; animation: none; }
+.btn-add-cart.is-done .bac__check   { opacity: 1; color: #fff; animation: bacCheck .55s var(--spring) both; }
+@keyframes bacCheck {
+  0%   { opacity: 0; transform: scale(.2) rotate(-20deg); }
+  60%  { opacity: 1; transform: scale(1.25) rotate(4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+/* the mini garment clone that flies into the cart */
+.cart-fly {
+  position: fixed; z-index: 9998; width: 64px; height: 80px;
+  pointer-events: none; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+}
+.cart-fly img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cart-fly--dot {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #9cca00, var(--pear) 55%, var(--pear-deep));
+  box-shadow: 0 6px 18px var(--pear-glow), inset 0 1px 2px rgba(255,255,255,.5);
+}
+
+/* ── 4 · Top-center spring "cart" toast (glassmorphism) ────────────────── */
+.lux-cart-toast {
+  position: fixed; top: calc(18px + var(--safe-t, 0px)); left: 50%; z-index: 300;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 22px; border-radius: var(--pill);
+  background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.32));
+  -webkit-backdrop-filter: blur(24px) saturate(200%); backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  color: var(--ink); font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .92rem;
+  box-shadow: var(--shadow-lift), inset 0 1px 0 rgba(255,255,255,.6);
+  opacity: 0; pointer-events: none;
+  transform: translate(-50%, -130%);
+  transition: opacity .35s var(--ease), transform .55s var(--spring);
+  max-width: 90vw;
+}
+.lux-cart-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.lux-cart-toast__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  color: #fff; font-size: .8rem; font-weight: 900;
+  box-shadow: 0 3px 10px rgba(141,182,0,.4);
+}
+
+/* ── 2 · "LIQUID BRAND APERTURE" transition — GPU-ONLY (transform + opacity) ──
+   Hardware-acceleration protocol: NOTHING that triggers layout/paint is animated
+   (no width/height/clip-path/border-radius/SVG-r). Three composited layers:
+     · __bg    — heavy glass backdrop (opacity only)
+     · __shape — the brand logo        (transform scale + opacity)
+     · __flood — pear-green aperture    (transform scale + opacity)
+   The flood is ONE viewport-sized ellipse promoted to its own GPU layer; it
+   scales up to mask the screen, then scales out + fades like a camera aperture.
+   NO secondary "bite" shape exists any more — it was deleted entirely. */
+.pear-transition {
+  position: fixed; inset: 0; z-index: 9000;
+  display: grid; place-items: center; pointer-events: none;
+  transform: translate3d(0, 0, 0);          /* promote the overlay to a layer */
+  transform-style: preserve-3d;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+.pear-transition[hidden] { display: none; }
+.pear-transition__bg {
+  position: absolute; inset: 0; opacity: 0;
+  background:
+    radial-gradient(60% 50% at 50% 42%, rgba(120,104,72,.14), transparent 70%),
+    linear-gradient(180deg, rgba(244,238,225,.98), rgba(236,228,210,.98));
+  -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+  will-change: opacity;
+}
+.pear-transition__shape {
+  position: relative;
+  width: clamp(190px, 30vmin, 320px); height: auto;
+  transform-origin: 50% 52%;
+  transform: translate3d(0, 0, 0) scale(.15); opacity: 0;
+  filter: drop-shadow(0 24px 60px rgba(141,182,0,.4));
+  will-change: transform, opacity;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+/* The pear-green flood/aperture: a single viewport-sized ellipse (cheap layer)
+   scaled from the centre. transform + opacity only. */
+.pear-transition__flood {
+  position: fixed; inset: 0;
+  border-radius: 50%;                        /* static — never animated */
+  background:
+    radial-gradient(circle at 50% 42%, #a4d000 0%, var(--pear) 52%, var(--pear-deep) 100%);
+  transform-origin: 50% 50%;
+  transform: translate3d(0, 0, 0) scale(0);
+  opacity: 1;
+  will-change: transform, opacity;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+/* ── Cinematic 1200ms sequence — Intro → Flood → (swap) → Aperture reveal ────
+   Phase 1  INTRO    (0–400ms):   logo scales up + fades in over the glass bg.
+   Phase 2  FLOOD    (400–700ms): the pear-green ellipse scales up to fully mask
+            the viewport; the logo + bg fade out underneath, hidden by the flood.
+   Phase 3  SWAP     (≈700ms):    app.js swaps screens while 100% covered (rAF).
+   Phase 4  APERTURE (700–1200ms): the flood scales to ×3.5 and fades out on the
+            Apple curve — a luxury aperture opening onto the try-on room. */
+.pear-transition.is-playing .pear-transition__bg {
+  animation: apBg 1.2s linear both;
+}
+.pear-transition.is-playing .pear-transition__shape {
+  animation: apLogoIn .4s var(--power) both,
+             apLogoOut .2s linear .42s forwards;   /* fades just before the flood seals */
+}
+.pear-transition.is-playing .pear-transition__flood {
+  animation: apFloodIn .3s var(--power) .4s both,
+             apFloodOut .5s var(--ease) .7s forwards;   /* --ease = cubic-bezier(.16,1,.3,1) */
+}
+@keyframes apBg {
+  0%   { opacity: 0; }
+  12%  { opacity: 1; }   /* glass backdrop in by ~145ms */
+  56%  { opacity: 1; }   /* hold until the flood has sealed the viewport (~675ms) */
+  58%  { opacity: 0; }   /* then drop instantly, hidden behind the opaque flood */
+  100% { opacity: 0; }
+}
+@keyframes apLogoIn {
+  0%   { transform: translate3d(0,0,0) scale(.4)  rotate(-4deg); opacity: 0; }
+  60%  { transform: translate3d(0,0,0) scale(1.04) rotate(1deg); opacity: 1; }
+  100% { transform: translate3d(0,0,0) scale(1)   rotate(0deg);  opacity: 1; }
+}
+@keyframes apLogoOut { to { opacity: 0; } }   /* covered by the flood as it fades */
+@keyframes apFloodIn {        /* liquid flood — seals the viewport from the centre */
+  0%   { transform: translate3d(0,0,0) scale(0);   opacity: 1; }
+  100% { transform: translate3d(0,0,0) scale(1.7); opacity: 1; }   /* >diagonal → full cover */
+}
+@keyframes apFloodOut {       /* cinematic aperture — scale out + fade, Apple curve */
+  0%   { transform: translate3d(0,0,0) scale(1.7); opacity: 1; }
+  100% { transform: translate3d(0,0,0) scale(3.5); opacity: 0; }
+}
+
+/* ── 3 · Ambient editorial side rails ──────────────────────────────────── */
+.lux-rail {
+  position: fixed; top: 0; bottom: 0; z-index: 0;   /* strictly BEHIND content (.screen = z-index 1) */
+  width: clamp(40px, 4vw, 64px);
+  display: none;                              /* shown only on wide viewports with real margin */
+  flex-direction: column; align-items: center; justify-content: space-between;
+  padding: 48px 0; pointer-events: none; user-select: none;
+  will-change: transform;
+}
+.lux-rail--left  { inset-inline-start: 0; }
+.lux-rail--right { inset-inline-end: 0; }
+.lux-rail__grid {
+  position: absolute; inset: 0;
+  background-image: linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px);
+  background-size: 14px 100%;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
+          mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
+  opacity: .6;
+}
+.lux-rail--left .lux-rail__grid  { border-inline-end: 1px solid rgba(0,0,0,.07); }
+.lux-rail--right .lux-rail__grid { border-inline-start: 1px solid rgba(0,0,0,.07); }
+.lux-rail__type, .lux-rail__meta {
+  position: relative; writing-mode: vertical-rl;
+  font-family: "Inter", sans-serif; text-transform: uppercase;
+  white-space: nowrap; line-height: 1;
+}
+.lux-rail__type {
+  font-size: .68rem; font-weight: 700; letter-spacing: .42em; color: rgba(10,10,11,.34);
+}
+.lux-rail__meta {
+  font-size: .58rem; font-weight: 600; letter-spacing: .3em; color: var(--pear-deep); opacity: .55;
+}
+.lux-rail--left .lux-rail__type, .lux-rail--left .lux-rail__meta { transform: rotate(180deg); }
+/* only surface once there is genuine margin beyond the 1180px content shell, so
+   the rails stay ambient and never crowd the interactive layout */
+@media (min-width: 1340px) { .lux-rail { display: flex; } }
+
+/* ── 4 · Floating-label fields ─── base only; the magnetic micro-inertia
+   behaviour (label glides toward the cursor) is defined in the palette section
+   below so it can use the --lblx/--lbly custom properties set by JS. ───────── */
+.lux-field { position: relative; }
+
+/* ── 4 · Metallic skeleton shimmer ─────────────────────────────────────── */
+.lux-skeleton { position: relative; overflow: hidden; }
+.lux-skeleton::after {
+  content: ""; position: absolute; inset: 0; z-index: 2;
+  background: linear-gradient(110deg,
+    rgba(230,230,232,.55) 0%, rgba(248,248,250,.9) 18%,
+    rgba(255,255,255,.95) 30%, rgba(248,248,250,.9) 42%, rgba(230,230,232,.55) 60%);
+  background-size: 220% 100%;
+  animation: luxShimmer 1.5s var(--ease) infinite;
+}
+@keyframes luxShimmer { from { background-position: 180% 0; } to { background-position: -60% 0; } }
+
+/* ── 4 · Magnetic buttons — animate the inner content drift smoothly ───── */
+.lux-magnetic > * { transition: transform .45s var(--power); }
+.lux-magnetic:active > * { transition-duration: .12s; }
+
+/* ── accessibility: collapse the heavier theatre under reduced-motion ──── */
+@media (prefers-reduced-motion: reduce) {
+  .pear-transition { display: none !important; }
+  .cart-btn.is-bounce, .btn-add-cart.is-done .bac__check, .lux-skeleton::after { animation: none; }
+  .lux-rail { transform: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ BRAND PALETTE — logo-matched ivory + crisp black + PEAR-GREEN accent
+   ─────────────────────────────────────────────────────────────────────────
+   Strictly three colours, derived from the brand assets:
+     • Canvas      — warm luxury IVORY (the logo's cream ground).
+     • Type / lines— crisp luxury BLACK (the logo's line-art ink).
+     • Accent      — vibrant PEAR GREEN (#8DB600), reserved for interactive,
+                     active and highlight moments only (buttons, focus, live,
+                     active tiles, results, progress). NO other accent colours.
+   This block lives LAST so it is the single source of truth for the palette.
+   ════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* warm ivory canvas */
+  --bg:        #efe8d8;
+  --bg-soft:   rgba(255, 252, 244, .5);
+
+  /* crisp luxury black ink scale (slightly warm, from the logo) */
+  --ink:    #0a0a0b;
+  --text:   #161512;
+  --muted:  #6c665b;
+  --muted-2:#a89f8d;
+
+  /* PEAR-GREEN accent family — the one sanctioned accent */
+  --pear:      #8DB600;
+  --pear-deep: #5f7d00;
+  --pear-soft: rgba(141, 182, 0, .10);
+  --pear-tint: rgba(141, 182, 0, .14);
+  --pear-ring: rgba(141, 182, 0, .22);
+  --pear-glow: rgba(141, 182, 0, .50);
+  --shadow-pear: 0 12px 36px rgba(141, 182, 0, .26);
+
+  /* warm frosted ivory "Liquid Glass" (blur + saturation already in --blur) */
+  --glass:        rgba(255, 252, 244, .55);
+  --glass-strong: rgba(255, 252, 244, .72);
+  --glass-soft:   rgba(255, 252, 244, .40);
+  --glass-border: rgba(255, 255, 255, .60);
+  --glass-line:   rgba(22, 19, 12, .13);
+}
+
+/* ivory canvas + soft warm light with a faint pear-green brand wash */
+body {
+  background:
+    radial-gradient(1100px 760px at 84% -10%, rgba(141, 182, 0, .10), transparent 60%),
+    radial-gradient(900px 700px  at -8% 14%,  rgba(22, 19, 12, .05),  transparent 58%),
+    radial-gradient(900px 900px  at 50% 118%, rgba(141, 182, 0, .06), transparent 60%),
+    linear-gradient(180deg, #f4eee1 0%, #ece4d2 52%, #f1ebdd 100%);
+  background-attachment: fixed;
+}
+/* ambient orbs: one warm sand, one faint pear-green — subtle, never an accent */
+body::before { background: radial-gradient(circle at 30% 30%, rgba(141, 182, 0, .26), transparent 65%); }
+body::after  { background: radial-gradient(circle at 60% 40%, rgba(150, 132, 92, .22), transparent 65%); }
+
+/* the brand mark stays crisp black line-art, exactly like the logo */
+.brand-mark {
+  width: 30px; height: auto; flex-shrink: 0; align-self: center;
+  color: var(--ink); margin-inline-end: 4px;
+}
+
+/* ── ADD-TO-CART CTA — pear-green physical-glass feedback ────────────────── */
+.btn-add-cart {
+  border-color: rgba(141, 182, 0, .40);
+  background: linear-gradient(135deg, rgba(141, 182, 0, .20), rgba(141, 182, 0, .08));
+  color: var(--pear-deep);
+}
+.btn-add-cart:hover {
+  background: linear-gradient(135deg, rgba(141, 182, 0, .30), rgba(141, 182, 0, .13));
+  border-color: rgba(141, 182, 0, .60);
+  box-shadow: 0 14px 34px rgba(141, 182, 0, .26), inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+.btn-add-cart:focus-visible { box-shadow: 0 0 0 4px var(--pear-ring), var(--shadow); }
+.bac__spinner { border-color: rgba(141, 182, 0, .28); border-top-color: var(--pear-deep); }
+.bac__check   { color: var(--pear-deep); }
+.btn-add-cart.is-done {                      /* satisfying success fill */
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  border-color: transparent; color: #fff;
+  box-shadow: var(--shadow-pear);
+}
+.btn-add-cart.is-done .bac__check { color: #fff; }
+
+.cart-btn__count {
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  box-shadow: 0 3px 10px rgba(141, 182, 0, .45);
+}
+.cart-fly--dot {
+  background: radial-gradient(circle at 34% 30%, #b6e000, var(--pear) 55%, var(--pear-deep));
+  box-shadow: 0 6px 18px var(--pear-glow), inset 0 1px 2px rgba(255, 255, 255, .5);
+}
+.lux-cart-toast__icon {
+  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  box-shadow: 0 3px 10px rgba(141, 182, 0, .40);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ OVERFLOW ISOLATION — content can never collide with the ambient rails
+   ─────────────────────────────────────────────────────────────────────────
+   The rails are fixed at the viewport edges (z-index 0, strictly behind the
+   content). The only at-risk element is the full-bleed sticky focus bar, whose
+   long RTL string used to run under the side tracks (see edited-image.png).
+   We (a) reserve a safe gutter wider than the rails on large screens and
+   (b) let the focused-item line truncate cleanly instead of crossing them.
+   ════════════════════════════════════════════════════════════════════════ */
+.focus-bar { gap: 12px; }
+.focus-bar__text {
+  min-width: 0; flex: 1 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.focus-bar__badge { flex-shrink: 0; }
+/* once the rails appear (≥1340px) keep every full-width bar inside the gutter */
+@media (min-width: 1340px) {
+  .focus-bar { padding-inline: clamp(84px, 7vw, 150px); }
+}
+
+/* ── Real-logo loaders (./image_9d45b0.svg) — replace the emoji pear ──────── */
+img.pear-loader__fruit { width: 46px; height: auto; object-fit: contain; }
+/* the loader sits on the DARK scan overlay → render the black logo as white */
+.scan-overlay img.pear-loader__fruit {
+  filter: brightness(0) invert(1) drop-shadow(0 8px 12px rgba(0, 0, 0, .30));
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ LIQUID-GLASS DYNAMIC BACKGROUND — mouse/tilt-reactive ambient mesh
+   A single GPU layer (transform/opacity only) of blurred light blobs. JS gives
+   it an inertial translate3d so it reads like light moving under liquid glass.
+   ════════════════════════════════════════════════════════════════════════ */
+.liquid-mesh {
+  position: fixed; inset: -14%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(38% 38% at 22% 26%, rgba(141, 182, 0, .16), transparent 70%),
+    radial-gradient(42% 42% at 82% 20%, rgba(150, 132, 92, .18), transparent 72%),
+    radial-gradient(48% 48% at 70% 84%, rgba(141, 182, 0, .10), transparent 72%),
+    radial-gradient(40% 40% at 14% 80%, rgba(22, 19, 12, .06),  transparent 72%);
+  filter: blur(64px) saturate(160%);
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) { .liquid-mesh { transform: none !important; } }
+
+/* ── Tactile Add-to-Cart: soft pear-green "fluid glow" pulse while working ── */
+.btn-add-cart.is-loading { animation: bacGlow 1.5s var(--ease) infinite; }
+@keyframes bacGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(141, 182, 0, 0), var(--shadow); }
+  50%      { box-shadow: 0 0 0 6px rgba(141, 182, 0, .12), 0 10px 30px rgba(141, 182, 0, .30); }
+}
+
+/* ── Micro-inertia floating label — glides magnetically toward the cursor ── */
+.lux-field > label {
+  transform-origin: center;
+  transform: translate3d(var(--lblx, 0px), var(--lbly, 0px), 0);
+  transition: transform .2s var(--ease), color .3s var(--ease), letter-spacing .3s var(--ease);
+  will-change: transform;
+}
+.lux-field.is-focus > label,
+.lux-field.is-filled > label {
+  transform: translate3d(var(--lblx, 0px), calc(var(--lbly, 0px) - 3px), 0) scale(.92);
+  color: var(--pear-deep); letter-spacing: .01em;
+}
+.lux-field.is-focus > label { color: var(--pear); }
