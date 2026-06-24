@@ -370,40 +370,39 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ── Local JSON persistence via fs.promises (NO external service, NO creds) ────
-   sessions.json in the project root is the single source of truth. Every POST
-   appends to it and every GET reads straight from it, so data persists across
-   logouts AND server restarts. */
+/* ── Local JSON persistence via fs.promises ───────────────────────────────────
+   Writes go to a WRITABLE directory: the project root in local dev, but /tmp on
+   Vercel — its deployment dir (/var/task) is READ-ONLY, so writing there throws
+   EROFS. Reads never try to CREATE the file, so a read can never error.
+   ⚠ On Vercel, /tmp is per-instance + ephemeral: rows persist within a warm
+   instance but reset on cold starts and aren't shared across instances. For
+   durable, shared storage on the live site use Vercel KV (see note in chat). */
 const fsp = fs.promises;
-const SESSIONS_FILE = path.join(__dirname, "sessions.json");
+const DATA_DIR      = process.env.VERCEL ? "/tmp" : __dirname;   // /var/task is read-only on Vercel
+const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 
-// Requirement 1b/5 — make sure sessions.json exists; if not, initialise it as [].
-async function ensureSessionsFile() {
-  try {
-    await fsp.access(SESSIONS_FILE);          // throws if it doesn't exist
-  } catch {
-    await fsp.writeFile(SESSIONS_FILE, "[]");
-    console.log("[sessions] created new sessions.json at", SESSIONS_FILE);
-  }
-}
+// Best-effort startup init — create the file ONLY if absent. Never throws
+// (EEXIST when present, EROFS on a read-only FS are both swallowed).
+fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" })
+  .then(() => console.log("[sessions] initialised", SESSIONS_FILE))
+  .catch(() => {});
 
-// Read all logs from disk. Strips a UTF-8 BOM (PowerShell/editors add one, which
-// would otherwise break JSON.parse) and tolerates an empty/corrupt file.
+// Read all logs from disk. Missing file → []. Strips a UTF-8 BOM (PowerShell/
+// editors add one, which would otherwise break JSON.parse). NEVER throws.
 async function readSessionLogs() {
-  await ensureSessionsFile();
   try {
     let raw = await fsp.readFile(SESSIONS_FILE, "utf8");
-    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);   // strip UTF-8 BOM (PowerShell/editors add one)
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);   // strip UTF-8 BOM
     raw = raw.trim();
     const arr = JSON.parse(raw || "[]");
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    console.warn("[sessions] read/parse failed:", err?.message);
-    return [];
+    if (err.code !== "ENOENT") console.warn("[sessions] read/parse failed:", err?.message);
+    return [];   // no file yet, or unreadable → empty list (no error to the client)
   }
 }
 
-// Append one log and write the whole array back. Returns the new total.
+// Append one log and write the whole array back to the writable path.
 async function saveSessionLog(entry) {
   const all = await readSessionLogs();
   all.push(entry);
@@ -454,8 +453,6 @@ async function getSessions(_req, res) {
     res.status(500).json({ ok: false, error: err?.message, sessions: [], count: 0 });
   }
 }
-
-ensureSessionsFile();   // initialise the file at startup
 
 /* Canonical routes the dashboard uses. */
 app.post("/api/sessions", saveSession);
