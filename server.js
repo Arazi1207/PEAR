@@ -25,7 +25,8 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
-import { logTryOn, appendSessionLog, readSessionLogs } from "./lib/sheets.js";
+import { logTryOn } from "./lib/sheets.js";
+import { addSession, getSessionsList } from "./lib/store.js";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -394,7 +395,7 @@ async function saveSession(req, res) {
   };
 
   try {
-    await appendSessionLog(entry);
+    addSession(entry);            // credential-free store (lib/store.js)
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] persist failed:", err?.message);
@@ -405,14 +406,9 @@ async function saveSession(req, res) {
 /* ── GET: retrieve sessions (password-gated) ─────────────────────────────────
    Returns the shared session array ONLY when the correct password/token is
    presented (header OR ?password= query param — see requireAdmin). */
-async function getSessions(_req, res) {
-  try {
-    const sessions = await readSessionLogs();
-    res.json({ ok: true, count: sessions.length, sessions });
-  } catch (err) {
-    console.error("[sessions] read failed:", err?.message);
-    res.status(502).json({ error: "read_failed", message: err?.message || "Could not read session log." });
-  }
+function getSessions(_req, res) {
+  const sessions = getSessionsList();   // credential-free store (lib/store.js)
+  res.json({ ok: true, count: sessions.length, sessions });
 }
 
 /* Canonical routes the dashboard uses. */
