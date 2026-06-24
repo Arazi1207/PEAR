@@ -26,7 +26,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
-import { put, list } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -381,21 +381,27 @@ const fsp = fs.promises;
 const DATA_DIR      = process.env.VERCEL ? "/tmp" : __dirname;
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || "";
-const USE_BLOB   = !!BLOB_TOKEN;          // auto-on once the Blob store is linked (Vercel)
-const BLOB_NAME  = "sessions.json";
-const STORAGE    = USE_BLOB ? "Vercel Blob (private)" : `file:${SESSIONS_FILE}`;
+const BLOB_TOKEN  = process.env.BLOB_READ_WRITE_TOKEN || "";
+const USE_BLOB    = !!BLOB_TOKEN;         // auto-on once the Blob store is linked (Vercel)
+const BLOB_PREFIX = "sessions/log";       // each write → sessions/log-<random>.json
+const STORAGE     = USE_BLOB ? "Vercel Blob (private)" : `file:${SESSIONS_FILE}`;
 console.log("[sessions] storage backend:", STORAGE);
 
 // Local dev only: seed an empty file (best-effort, never throws).
 if (!USE_BLOB) fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" }).catch(() => {});
 
-/* ── Vercel Blob helpers (private → authenticated reads) ── */
+/* ── Vercel Blob helpers (private → authenticated reads) ───────────────────────
+   Each save writes a NEW uniquely-named blob (addRandomSuffix) and deletes the
+   old ones. Reading the newest blob therefore always hits a brand-new URL, which
+   sidesteps Blob's content cache (min 60s) — so reads are never stale. */
+async function listSessionBlobs() {
+  const { blobs } = await list({ prefix: BLOB_PREFIX, token: BLOB_TOKEN });
+  return blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)); // newest first
+}
 async function readBlobSessions() {
-  const { blobs } = await list({ prefix: BLOB_NAME, token: BLOB_TOKEN });
-  const blob = blobs.find((b) => b.pathname === BLOB_NAME);
-  if (!blob) return [];
-  const resp = await fetch(blob.url, {
+  const blobs = await listSessionBlobs();
+  if (!blobs.length) return [];
+  const resp = await fetch(blobs[0].url, {
     headers: { Authorization: "Bearer " + BLOB_TOKEN },   // private blob requires the token
     cache: "no-store",
   });
@@ -404,14 +410,16 @@ async function readBlobSessions() {
   return Array.isArray(arr) ? arr : [];
 }
 async function writeBlobSessions(arr) {
-  await put(BLOB_NAME, JSON.stringify(arr, null, 2), {
+  const stale = await listSessionBlobs();   // everything that exists BEFORE this write
+  await put(`${BLOB_PREFIX}.json`, JSON.stringify(arr, null, 2), {
     access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
+    addRandomSuffix: true,                  // unique URL each write → fresh reads
     contentType: "application/json",
     cacheControlMaxAge: 60,
     token: BLOB_TOKEN,
   });
+  // Clean up the now-superseded blobs (keep only the one just written).
+  await Promise.all(stale.map((b) => del(b.url, { token: BLOB_TOKEN }).catch(() => {})));
 }
 
 /* ── Local file helper (BOM-tolerant, never throws) ── */
