@@ -112,15 +112,28 @@
             "x-admin-key":   key,               // belt-and-braces header
           },
         });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message || ("Server error " + res.status));
+
+        // Capture the RAW body first so we can always log exactly what the
+        // server sent — invaluable for debugging empty/error responses.
+        const rawText = await res.text();
+        let data;
+        try { data = JSON.parse(rawText); } catch { data = null; }
+        console.log("[admin] GET /api/sessions →", res.status, res.ok ? "OK" : "ERROR", "| raw:", rawText);
+
+        if (!res.ok || !data || data.ok === false) {
+          console.warn("[admin] server returned an error/invalid payload:", rawText);
+          throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
         }
-        const { sessions = [] } = await res.json();
+
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        if (sessions.length === 0) {
+          console.log("[admin] fetch succeeded but 0 sessions returned. Raw response was:", rawText);
+        }
         renderStats(sessions);
         renderInsights(sessions);
         renderRows(sessions);
       } catch (err) {
+        console.error("[admin] loadSessions failed:", err);
         if (errEl) {
           errEl.textContent = "Could not load data: " + (err.message || err);
           errEl.hidden = false;

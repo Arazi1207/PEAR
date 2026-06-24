@@ -183,6 +183,17 @@
     </div>
 
     <div class="app-header">
+        <!-- Back to Store — breaks out of any iframe (target="_top") and returns
+             to the storefront homepage. -->
+        <a class="back-to-store" href="/" target="_top" aria-label="חזרה לחנות · Back to store">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 9.5 5.4 4h13.2L20 9.5"/>
+                <path d="M4.5 9.5h15V19a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1V9.5Z"/>
+                <path d="M10 20v-5h4v5"/>
+            </svg>
+            <span>חזרה לחנות</span>
+        </a>
         <!-- Authentic PEAR brand mark — inline SVG (pear · serif "P" · hanger),
              so it is bulletproof on any host with no external path to 404.
              The same artwork also ships as the relative asset ./image_9d45b0.svg

@@ -370,44 +370,49 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ── Local JSON persistence (native fs — NO external service, NO credentials) ──
+/* ── Local JSON persistence via fs.promises (NO external service, NO creds) ────
    sessions.json in the project root is the single source of truth. Every POST
    appends to it and every GET reads straight from it, so data persists across
    logouts AND server restarts. */
+const fsp = fs.promises;
 const SESSIONS_FILE = path.join(__dirname, "sessions.json");
 
-// Requirement 5 — create sessions.json with an empty array if it's missing.
-function ensureSessionsFile() {
+// Requirement 1b/5 — make sure sessions.json exists; if not, initialise it as [].
+async function ensureSessionsFile() {
   try {
-    if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, "[]\n");
-  } catch (err) {
-    console.warn("[sessions] could not create sessions.json:", err?.message);
+    await fsp.access(SESSIONS_FILE);          // throws if it doesn't exist
+  } catch {
+    await fsp.writeFile(SESSIONS_FILE, "[]");
+    console.log("[sessions] created new sessions.json at", SESSIONS_FILE);
   }
 }
-ensureSessionsFile();   // run once at startup
 
-// Read the whole array fresh from disk (tolerates a missing/empty/corrupt file).
-function readSessions() {
+// Read all logs from disk. Strips a UTF-8 BOM (PowerShell/editors add one, which
+// would otherwise break JSON.parse) and tolerates an empty/corrupt file.
+async function readSessionLogs() {
+  await ensureSessionsFile();
   try {
-    ensureSessionsFile();
-    const raw = fs.readFileSync(SESSIONS_FILE, "utf8");
+    let raw = await fsp.readFile(SESSIONS_FILE, "utf8");
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);   // strip UTF-8 BOM (PowerShell/editors add one)
+    raw = raw.trim();
     const arr = JSON.parse(raw || "[]");
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    console.warn("[sessions] read failed:", err?.message);
+    console.warn("[sessions] read/parse failed:", err?.message);
     return [];
   }
 }
 
-// Overwrite sessions.json with the given array (pretty-printed).
-function writeSessions(arr) {
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(arr, null, 2));
+// Append one log and write the whole array back. Returns the new total.
+async function saveSessionLog(entry) {
+  const all = await readSessionLogs();
+  all.push(entry);
+  await fsp.writeFile(SESSIONS_FILE, JSON.stringify(all, null, 2));   // no BOM
+  return all.length;
 }
 
-/* ── POST: save a session → appends to sessions.json ─────────────────────────
-   The fitting room POSTs an anonymized session at calculator submit. Each field
-   is sanitised + clamped, then the row is appended to the file on disk. */
-function saveSession(req, res) {
+/* ── POST: save a session → appends to sessions.json ─────────────────────── */
+async function saveSession(req, res) {
   const b = req.body || {};
   const m = b.measurements || {};   // tolerate either nested {measurements} or flat fields
   const str = (v, max = 80) => (v == null ? "" : String(v).slice(0, max));
@@ -428,9 +433,8 @@ function saveSession(req, res) {
   };
 
   try {
-    const all = readSessions();   // read current file
-    all.push(entry);              // append the new row
-    writeSessions(all);           // write back to disk → persists across restarts
+    const total = await saveSessionLog(entry);
+    console.log(`[sessions] saved session → ${SESSIONS_FILE} (total now ${total})`);
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] persist failed:", err?.message);
@@ -438,13 +442,20 @@ function saveSession(req, res) {
   }
 }
 
-/* ── GET: retrieve sessions (password-gated) → reads sessions.json ───────────
-   Returns the array ONLY when the correct password/token is presented (header
-   OR ?password= query param — see requireAdmin). Reads straight from disk. */
-function getSessions(_req, res) {
-  const sessions = readSessions().reverse();   // newest first
-  res.json({ ok: true, count: sessions.length, sessions });
+/* ── GET: retrieve sessions (password-gated) → reads sessions.json ─────────── */
+async function getSessions(_req, res) {
+  try {
+    const sessions = (await readSessionLogs()).reverse();   // newest first
+    // Requirement 1c — explicit debug log of WHERE we read and HOW MANY we found.
+    console.log(`[admin/sessions] reading ${SESSIONS_FILE} → ${sessions.length} session(s) found`);
+    res.json({ ok: true, count: sessions.length, sessions });
+  } catch (err) {
+    console.error("[admin/sessions] read failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message, sessions: [], count: 0 });
+  }
 }
+
+ensureSessionsFile();   // initialise the file at startup
 
 /* Canonical routes the dashboard uses. */
 app.post("/api/sessions", saveSession);
