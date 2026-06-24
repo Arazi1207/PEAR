@@ -11,3 +11,7 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 .vercel
+
+# local session store (test data — not committed)
+sessions.json
+data/

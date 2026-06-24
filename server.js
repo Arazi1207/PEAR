@@ -26,7 +26,6 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
-import { addSession, getSessionsList } from "./lib/store.js";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -371,11 +370,44 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ── POST: save a session ───────────────────────────────────────────────────
-   Public ingest — the fitting room POSTs an anonymized session at calculator
-   submit. Every field is sanitised + clamped, then each becomes its own column
-   so the admin table can show explicit columns. */
-async function saveSession(req, res) {
+/* ── Local JSON persistence (native fs — NO external service, NO credentials) ──
+   sessions.json in the project root is the single source of truth. Every POST
+   appends to it and every GET reads straight from it, so data persists across
+   logouts AND server restarts. */
+const SESSIONS_FILE = path.join(__dirname, "sessions.json");
+
+// Requirement 5 — create sessions.json with an empty array if it's missing.
+function ensureSessionsFile() {
+  try {
+    if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, "[]\n");
+  } catch (err) {
+    console.warn("[sessions] could not create sessions.json:", err?.message);
+  }
+}
+ensureSessionsFile();   // run once at startup
+
+// Read the whole array fresh from disk (tolerates a missing/empty/corrupt file).
+function readSessions() {
+  try {
+    ensureSessionsFile();
+    const raw = fs.readFileSync(SESSIONS_FILE, "utf8");
+    const arr = JSON.parse(raw || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch (err) {
+    console.warn("[sessions] read failed:", err?.message);
+    return [];
+  }
+}
+
+// Overwrite sessions.json with the given array (pretty-printed).
+function writeSessions(arr) {
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(arr, null, 2));
+}
+
+/* ── POST: save a session → appends to sessions.json ─────────────────────────
+   The fitting room POSTs an anonymized session at calculator submit. Each field
+   is sanitised + clamped, then the row is appended to the file on disk. */
+function saveSession(req, res) {
   const b = req.body || {};
   const m = b.measurements || {};   // tolerate either nested {measurements} or flat fields
   const str = (v, max = 80) => (v == null ? "" : String(v).slice(0, max));
@@ -392,10 +424,13 @@ async function saveSession(req, res) {
     size:        str(b.size, 8),
     garmentId:   str(b.garmentId, 64),
     garmentName: str(b.garmentName, 80),
+    ts:          new Date().toISOString(),
   };
 
   try {
-    addSession(entry);            // credential-free store (lib/store.js)
+    const all = readSessions();   // read current file
+    all.push(entry);              // append the new row
+    writeSessions(all);           // write back to disk → persists across restarts
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] persist failed:", err?.message);
@@ -403,11 +438,11 @@ async function saveSession(req, res) {
   }
 }
 
-/* ── GET: retrieve sessions (password-gated) ─────────────────────────────────
-   Returns the shared session array ONLY when the correct password/token is
-   presented (header OR ?password= query param — see requireAdmin). */
+/* ── GET: retrieve sessions (password-gated) → reads sessions.json ───────────
+   Returns the array ONLY when the correct password/token is presented (header
+   OR ?password= query param — see requireAdmin). Reads straight from disk. */
 function getSessions(_req, res) {
-  const sessions = getSessionsList();   // credential-free store (lib/store.js)
+  const sessions = readSessions().reverse();   // newest first
   res.json({ ok: true, count: sessions.length, sessions });
 }
 
