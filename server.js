@@ -486,6 +486,7 @@ async function saveSession(req, res) {
 
 /* ── GET: retrieve sessions (password-gated) → reads sessions.json ─────────── */
 async function getSessions(_req, res) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");   // never cache session data
   try {
     const sessions = (await readSessionLogs()).reverse();   // newest first
     // Requirement 1c — explicit debug log of WHERE we read and HOW MANY we found.

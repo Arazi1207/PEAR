@@ -106,7 +106,11 @@
       if (errEl) errEl.hidden = true;
 
       try {
-        const res = await fetch("/api/sessions?password=" + encodeURIComponent(key), {
+        // Cache-buster (&_=) + no-store so the browser/CDN can never hand back a
+        // stale or empty response.
+        const url = "/api/sessions?password=" + encodeURIComponent(key) + "&_=" + Date.now();
+        const res = await fetch(url, {
+          cache: "no-store",
           headers: {
             "Authorization": "Bearer " + key,   // password sent as the credential
             "x-admin-key":   key,               // belt-and-braces header
@@ -119,6 +123,13 @@
         let data;
         try { data = JSON.parse(rawText); } catch { data = null; }
         console.log("[admin] GET /api/sessions →", res.status, res.ok ? "OK" : "ERROR", "| raw:", rawText);
+
+        // A stale/invalid stored key → re-key with the real password and retry once.
+        if (res.status === 401 && key !== PASSWORD) {
+          console.warn("[admin] 401 with stored key — retrying with password");
+          setKey(PASSWORD);
+          return loadSessions();
+        }
 
         if (!res.ok || !data || data.ok === false) {
           console.warn("[admin] server returned an error/invalid payload:", rawText);
