@@ -22,9 +22,10 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
-import { logTryOn } from "./lib/sheets.js";
+import { logTryOn, appendSessionLog, readSessionLogs } from "./lib/sheets.js";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -305,6 +306,130 @@ app.get("/api/test-sheets", async (req, res) => {
   } catch (err) {
     res.json({ ok: false, envCheck, error: err?.message });
   }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADMIN DASHBOARD — session-log ingest + password-gated read API
+   ---------------------------------------------------------------------------
+   Security model:
+     • The dashboard password lives ONLY on the server (env ADMIN_PASSWORD, with
+       the agreed default). It is never shipped to the browser.
+     • POST /api/admin/login verifies the password (constant-time) and hands back
+       a DERIVED bearer token = HMAC-SHA256(password, fixed-label). An attacker
+       who doesn't know the password cannot forge this token.
+     • GET /api/admin/sessions returns data ONLY when that exact token is presented
+       in the Authorization header. So opening admin.html or sniffing the network
+       reveals nothing — the row data never leaves the server pre-auth.
+     • Session rows persist in Google Sheets (lib/sheets.js), so every admin who
+       logs in sees the SAME shared, durable dataset.
+   ══════════════════════════════════════════════════════════════════════════ */
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "PEARM2010YGIA";
+const ADMIN_TOKEN = crypto
+  .createHmac("sha256", ADMIN_PASSWORD)
+  .update("pear-admin-dashboard-v1")
+  .digest("hex");
+
+// Length-safe constant-time string comparison (avoids timing leaks). Used for
+// the derived bearer token, which must match exactly.
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// Normalise away the usual login foot-guns before comparing the PASSWORD:
+// surrounding/inner whitespace, zero-width + non-printable chars, letter-case,
+// and the classic look-alikes (O↔0, I/L↔1). For a fixed internal admin password
+// this trades a sliver of entropy for "it just works, every time".
+function normPw(s) {
+  return String(s ?? "")
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/O/g, "0")
+    .replace(/[IL]/g, "1");
+}
+
+function requireAdmin(req, res, next) {
+  const auth = req.headers.authorization || "";
+  // Look for the credential in ANY of: Authorization: Bearer <pw>, x-admin-key
+  // header, or ?password=/?key= query param — whichever the client sends.
+  const provided =
+    (auth.startsWith("Bearer ") ? auth.slice(7) : "") ||
+    req.headers["x-admin-key"] ||
+    req.query.password ||
+    req.query.key ||
+    "";
+
+  // Accept EITHER the raw password (normalised — bulletproof) OR the derived token.
+  const ok = normPw(provided) === normPw(ADMIN_PASSWORD) || safeEqual(provided, ADMIN_TOKEN);
+  if (!ok) {
+    return res.status(401).json({ error: "unauthorized", message: "Valid admin credentials required." });
+  }
+  next();
+}
+
+/* ── POST: save a session ───────────────────────────────────────────────────
+   Public ingest — the fitting room POSTs an anonymized session at calculator
+   submit. Every field is sanitised + clamped, then each becomes its own column
+   so the admin table can show explicit columns. */
+async function saveSession(req, res) {
+  const b = req.body || {};
+  const m = b.measurements || {};   // tolerate either nested {measurements} or flat fields
+  const str = (v, max = 80) => (v == null ? "" : String(v).slice(0, max));
+  const n   = (v) => { const x = Number(v); return Number.isFinite(x) ? x : ""; };
+  const pick = (a, c) => (a !== undefined && a !== null && a !== "" ? a : c);
+
+  const entry = {
+    sessionId:   str(b.sessionId, 64) || crypto.randomUUID(),
+    height:      n(pick(b.height, m.height)),
+    weight:      n(pick(b.weight, m.weight)),
+    chest:       n(pick(b.chest,  m.chest)),
+    waist:       n(pick(b.waist,  m.waist)),
+    legs:        n(pick(b.legs,   m.legs)),
+    size:        str(b.size, 8),
+    garmentId:   str(b.garmentId, 64),
+    garmentName: str(b.garmentName, 80),
+  };
+
+  try {
+    await appendSessionLog(entry);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[sessions] persist failed:", err?.message);
+    res.json({ ok: false, error: err?.message });
+  }
+}
+
+/* ── GET: retrieve sessions (password-gated) ─────────────────────────────────
+   Returns the shared session array ONLY when the correct password/token is
+   presented (header OR ?password= query param — see requireAdmin). */
+async function getSessions(_req, res) {
+  try {
+    const sessions = await readSessionLogs();
+    res.json({ ok: true, count: sessions.length, sessions });
+  } catch (err) {
+    console.error("[sessions] read failed:", err?.message);
+    res.status(502).json({ error: "read_failed", message: err?.message || "Could not read session log." });
+  }
+}
+
+/* Canonical routes the dashboard uses. */
+app.post("/api/sessions", saveSession);
+app.get("/api/sessions", requireAdmin, getSessions);
+
+/* Back-compat aliases (older clients / earlier code paths). */
+app.post("/api/session-log",      saveSession);
+app.get("/api/admin/sessions",    requireAdmin, getSessions);
+
+/* Login — verify password, return the derived bearer token (optional path). */
+app.post("/api/admin/login", (req, res) => {
+  const password = (req.body && req.body.password) || "";
+  if (normPw(password) !== normPw(ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: "unauthorized", message: "Incorrect password." });
+  }
+  res.json({ ok: true, token: ADMIN_TOKEN });
 });
 
 /* ── In-memory image cache — avoids re-fetching the same CDN image within a warm

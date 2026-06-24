@@ -610,6 +610,14 @@ function goToFitting() {
     .then(data => { if (!data.ok) console.error("[analytics] sheet write failed:", data.error); })
     .catch(err  => console.error("[analytics] fetch failed:", err));
 
+  // Admin dashboard — capture measurements + intent HERE, at the size-calculator
+  // submit, BEFORE the camera ever starts. This records users who size up even if
+  // they never go live. Garment comes from the store handoff; size is the
+  // calculated recommendation.
+  logSessionMeasurements(
+    { id: _handoff?.id ?? "", name: _handoff?.name ?? "" },
+    currentUserSize
+  );
 
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
@@ -1805,6 +1813,58 @@ function logTryOnAnalytics(item, size) {
       return r.json().then(body => console.log("[analytics] response body:", JSON.stringify(body)));
     })
     .catch(err => console.error("[analytics] /api/track-tryon fetch failed:", err));
+}
+
+/* =============================================================================
+   Admin dashboard — anonymized session log
+   One stable, anonymous id per browser session (NO name/email/PII). It lets the
+   admin dashboard group multiple try-ons by the same visitor without ever
+   identifying who they are.
+   ============================================================================= */
+const PEAR_SESSION_ID = (() => {
+  const rnd = () =>
+    (crypto?.randomUUID?.() ||
+     "s-" + Date.now().toString(36) + "-" + Math.random().toString(16).slice(2));
+  try {
+    let v = sessionStorage.getItem("pear_session_id");
+    if (!v) { v = rnd(); sessionStorage.setItem("pear_session_id", v); }
+    return v;
+  } catch { return rnd(); }
+})();
+
+/**
+ * Send the visitor's measurements + the garment + calculated size to the admin
+ * store. Fired when the size calculator is submitted (see goToFitting), so we
+ * capture intent even if the user never starts the camera. Optional measurements
+ * are sent as null when blank.
+ * @param {object|null} item — the garment (id/name read off it)
+ * @param {string}      size — the CALCULATED size (S/M/L/XL…)
+ */
+function logSessionMeasurements(item, size) {
+  const num = (id) => { const el = $(id); return el && el.value ? parseFloat(el.value) : null; };
+  // All entered measurements, grouped into one object per the payload spec.
+  const measurements = {
+    height: num("height"),
+    weight: num("weight"),
+    chest:  num("chest"),
+    waist:  num("waist"),
+    legs:   num("legs"),
+  };
+  const payload = {
+    sessionId:   PEAR_SESSION_ID,
+    garmentId:   item?.id   || "",
+    garmentName: item?.name || "",
+    size:        size       || "",   // calculated size
+    measurements,                    // ← object with ALL entered measurements
+    ...measurements,                 // ← flat fields kept for the Sheets schema
+  };
+  console.log("[session-log] firing /api/sessions →", payload);
+  fetch("/api/sessions", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(payload),
+    keepalive: true,
+  }).catch(err => console.warn("[session-log] fetch failed:", err));
 }
 
 /* =============================================================================
