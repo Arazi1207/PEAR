@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
+import { put, list } from "@vercel/blob";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -370,26 +371,51 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ── Local JSON persistence via fs.promises ───────────────────────────────────
-   Writes go to a WRITABLE directory: the project root in local dev, but /tmp on
-   Vercel — its deployment dir (/var/task) is READ-ONLY, so writing there throws
-   EROFS. Reads never try to CREATE the file, so a read can never error.
-   ⚠ On Vercel, /tmp is per-instance + ephemeral: rows persist within a warm
-   instance but reset on cold starts and aren't shared across instances. For
-   durable, shared storage on the live site use Vercel KV (see note in chat). */
+/* ── Session persistence ──────────────────────────────────────────────────────
+   DURABLE on the live site via Vercel Blob (a PRIVATE store — body measurements
+   are never publicly accessible; reads are authenticated with the server-only
+   BLOB_READ_WRITE_TOKEN). Survives cold starts, redeploys, and is shared across
+   instances + both admin logins. Falls back to a local sessions.json file for
+   offline dev when no token is present. */
 const fsp = fs.promises;
-const DATA_DIR      = process.env.VERCEL ? "/tmp" : __dirname;   // /var/task is read-only on Vercel
+const DATA_DIR      = process.env.VERCEL ? "/tmp" : __dirname;
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 
-// Best-effort startup init — create the file ONLY if absent. Never throws
-// (EEXIST when present, EROFS on a read-only FS are both swallowed).
-fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" })
-  .then(() => console.log("[sessions] initialised", SESSIONS_FILE))
-  .catch(() => {});
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || "";
+const USE_BLOB   = !!BLOB_TOKEN;          // auto-on once the Blob store is linked (Vercel)
+const BLOB_NAME  = "sessions.json";
+const STORAGE    = USE_BLOB ? "Vercel Blob (private)" : `file:${SESSIONS_FILE}`;
+console.log("[sessions] storage backend:", STORAGE);
 
-// Read all logs from disk. Missing file → []. Strips a UTF-8 BOM (PowerShell/
-// editors add one, which would otherwise break JSON.parse). NEVER throws.
-async function readSessionLogs() {
+// Local dev only: seed an empty file (best-effort, never throws).
+if (!USE_BLOB) fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" }).catch(() => {});
+
+/* ── Vercel Blob helpers (private → authenticated reads) ── */
+async function readBlobSessions() {
+  const { blobs } = await list({ prefix: BLOB_NAME, token: BLOB_TOKEN });
+  const blob = blobs.find((b) => b.pathname === BLOB_NAME);
+  if (!blob) return [];
+  const resp = await fetch(blob.url, {
+    headers: { Authorization: "Bearer " + BLOB_TOKEN },   // private blob requires the token
+    cache: "no-store",
+  });
+  if (!resp.ok) { console.warn("[sessions] blob fetch HTTP", resp.status); return []; }
+  const arr = await resp.json();
+  return Array.isArray(arr) ? arr : [];
+}
+async function writeBlobSessions(arr) {
+  await put(BLOB_NAME, JSON.stringify(arr, null, 2), {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+    cacheControlMaxAge: 60,
+    token: BLOB_TOKEN,
+  });
+}
+
+/* ── Local file helper (BOM-tolerant, never throws) ── */
+async function readFileSessions() {
   try {
     let raw = await fsp.readFile(SESSIONS_FILE, "utf8");
     if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);   // strip UTF-8 BOM
@@ -397,16 +423,25 @@ async function readSessionLogs() {
     const arr = JSON.parse(raw || "[]");
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    if (err.code !== "ENOENT") console.warn("[sessions] read/parse failed:", err?.message);
-    return [];   // no file yet, or unreadable → empty list (no error to the client)
+    if (err.code !== "ENOENT") console.warn("[sessions] file read failed:", err?.message);
+    return [];
   }
 }
 
-// Append one log and write the whole array back to the writable path.
+/* ── Unified API ── */
+async function readSessionLogs() {
+  try {
+    return USE_BLOB ? await readBlobSessions() : await readFileSessions();
+  } catch (err) {
+    console.warn("[sessions] read failed:", err?.message);
+    return [];
+  }
+}
 async function saveSessionLog(entry) {
   const all = await readSessionLogs();
   all.push(entry);
-  await fsp.writeFile(SESSIONS_FILE, JSON.stringify(all, null, 2));   // no BOM
+  if (USE_BLOB) await writeBlobSessions(all);
+  else await fsp.writeFile(SESSIONS_FILE, JSON.stringify(all, null, 2));
   return all.length;
 }
 
@@ -433,7 +468,7 @@ async function saveSession(req, res) {
 
   try {
     const total = await saveSessionLog(entry);
-    console.log(`[sessions] saved session → ${SESSIONS_FILE} (total now ${total})`);
+    console.log(`[sessions] saved session → ${STORAGE} (total now ${total})`);
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] persist failed:", err?.message);
@@ -446,7 +481,7 @@ async function getSessions(_req, res) {
   try {
     const sessions = (await readSessionLogs()).reverse();   // newest first
     // Requirement 1c — explicit debug log of WHERE we read and HOW MANY we found.
-    console.log(`[admin/sessions] reading ${SESSIONS_FILE} → ${sessions.length} session(s) found`);
+    console.log(`[admin/sessions] reading ${STORAGE} → ${sessions.length} session(s) found`);
     res.json({ ok: true, count: sessions.length, sessions });
   } catch (err) {
     console.error("[admin/sessions] read failed:", err?.message);
