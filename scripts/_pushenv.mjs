@@ -1,5 +1,7 @@
-// One-off: copy Google Sheets credentials from local .env into Vercel env vars.
-// Values are piped to `vercel env add` via stdin — never echoed to the console.
+// One-shot: copy Google Sheets credentials from local .env into Vercel, then
+// redeploy production so the admin dashboard can read/write the sheet.
+// Run it yourself:   node scripts/_pushenv.mjs
+// Values are piped to `vercel env add` via stdin — never printed to screen.
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -15,14 +17,19 @@ function val(key) {
 const keys = ["GOOGLE_SHEET_ID", "GOOGLE_SHEET_TAB", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"];
 const envs = ["production", "preview", "development"];
 
+console.log("→ Copying Google credentials from .env into Vercel…\n");
 for (const k of keys) {
   const v = val(k);
   if (!v) { console.log(`skip ${k} (empty)`); continue; }
   for (const e of envs) {
-    // Remove any stale copy first (ignore "not found"), then add fresh.
-    spawnSync("vercel", ["env", "rm", k, e, "-y"], { stdio: "ignore", shell: true });
+    spawnSync("vercel", ["env", "rm", k, e, "-y"], { stdio: "ignore", shell: true }); // remove stale (ignore "not found")
     const r = spawnSync("vercel", ["env", "add", k, e], { input: v, encoding: "utf8", shell: true });
     console.log(`${k} → ${e}: ${r.status === 0 ? "OK" : "FAIL " + String(r.stderr || "").slice(0, 140)}`);
   }
 }
-console.log("done");
+
+console.log("\n→ Redeploying production so the new env vars take effect…\n");
+const d = spawnSync("vercel", ["--prod", "--yes"], { stdio: "inherit", shell: true });
+console.log(d.status === 0
+  ? "\n✓ Done. Hard-refresh /admin (Ctrl+Shift+R) on your live site."
+  : "\n⚠ Env vars set, but redeploy didn't run. Redeploy manually: Vercel → Deployments → ⋯ → Redeploy.");
