@@ -394,32 +394,53 @@ if (!USE_BLOB) fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" }).catch(() => {}
    Each save writes a NEW uniquely-named blob (addRandomSuffix) and deletes the
    old ones. Reading the newest blob therefore always hits a brand-new URL, which
    sidesteps Blob's content cache (min 60s) — so reads are never stale. */
+let _lastBlobUrl = null;   // URL this warm instance last wrote — a read fallback
+
 async function listSessionBlobs() {
   const { blobs } = await list({ prefix: BLOB_PREFIX, token: BLOB_TOKEN });
-  return blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)); // newest first
+  return (blobs || []).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)); // newest first
 }
+
+/* Read the newest VALID blob. Tries newest → older (so a just-deleted blob that
+   list() still reports can't make us return empty), then this instance's own last
+   write. Every blob has a UNIQUE url, so its content is never a stale cache hit. */
 async function readBlobSessions() {
-  const blobs = await listSessionBlobs();
-  if (!blobs.length) return [];
-  const resp = await fetch(blobs[0].url, {
-    headers: { Authorization: "Bearer " + BLOB_TOKEN },   // private blob requires the token
-    cache: "no-store",
-  });
-  if (!resp.ok) { console.warn("[sessions] blob fetch HTTP", resp.status); return []; }
-  const arr = await resp.json();
-  return Array.isArray(arr) ? arr : [];
+  let urls = [];
+  try { urls = (await listSessionBlobs()).map((b) => b.url); }
+  catch (err) { console.warn("[sessions] blob list failed:", err?.message); }
+  if (_lastBlobUrl && !urls.includes(_lastBlobUrl)) urls.push(_lastBlobUrl);
+
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, { headers: { Authorization: "Bearer " + BLOB_TOKEN }, cache: "no-store" });
+      if (resp.ok) {
+        const arr = await resp.json();
+        return Array.isArray(arr) ? arr : [];
+      }
+    } catch { /* fall through to the next candidate */ }
+  }
+  return [];   // genuinely nothing yet
 }
+
+/* Write a NEW uniquely-named blob (fresh url → never cache-stale), then lazily
+   delete only the OLDER blobs — keeping the few most recent so a concurrent read
+   always has a valid blob to fetch. This removes the "data disappeared" race. */
 async function writeBlobSessions(arr) {
-  const stale = await listSessionBlobs();   // everything that exists BEFORE this write
-  await put(`${BLOB_PREFIX}.json`, JSON.stringify(arr, null, 2), {
+  let existing = [];
+  try { existing = await listSessionBlobs(); } catch {}
+  const r = await put(`${BLOB_PREFIX}.json`, JSON.stringify(arr, null, 2), {
     access: "private",
-    addRandomSuffix: true,                  // unique URL each write → fresh reads
+    addRandomSuffix: true,                  // unique url every write
     contentType: "application/json",
     cacheControlMaxAge: 60,
     token: BLOB_TOKEN,
   });
-  // Clean up the now-superseded blobs (keep only the one just written).
-  await Promise.all(stale.map((b) => del(b.url, { token: BLOB_TOKEN }).catch(() => {})));
+  _lastBlobUrl = r.url;
+  // Keep the 3 newest prior blobs as a safety margin; delete anything older.
+  const toDelete = existing.slice(3);
+  if (toDelete.length) {
+    Promise.allSettled(toDelete.map((b) => del(b.url, { token: BLOB_TOKEN }))).catch(() => {});
+  }
 }
 
 /* ── Local file helper (BOM-tolerant, never throws) ── */
