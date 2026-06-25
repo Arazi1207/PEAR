@@ -99,6 +99,26 @@
     if (logoutBtn)  logoutBtn.addEventListener("click", () => { clearKey(); showLogin(); });
     if (refreshBtn) refreshBtn.addEventListener("click", () => loadSessions());
 
+    const clearBtn = $("clearBtn");
+    if (clearBtn) clearBtn.addEventListener("click", async () => {
+      if (!confirm("Delete ALL session data permanently? This cannot be undone.")) return;
+      const key = getKey() || PASSWORD;
+      clearBtn.disabled = true;
+      try {
+        const res = await fetch("/api/sessions?password=" + encodeURIComponent(key), {
+          method: "DELETE",
+          headers: { "Authorization": "Bearer " + key, "x-admin-key": key },
+        });
+        if (!res.ok) throw new Error("Server error " + res.status);
+        await loadSessions();
+      } catch (err) {
+        const errEl = $("dashError");
+        if (errEl) { errEl.textContent = "Clear failed: " + (err.message || err); errEl.hidden = false; }
+      } finally {
+        clearBtn.disabled = false;
+      }
+    });
+
     /* ── data load + render ─────────────────────────────────────────────── */
     async function loadSessions() {
       const key   = getKey() || PASSWORD;   // fall back to the password if needed

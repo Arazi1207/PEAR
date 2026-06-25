@@ -473,6 +473,15 @@ async function saveSessionLog(entry) {
   else await fsp.writeFile(SESSIONS_FILE, JSON.stringify(all, null, 2));
   return all.length;
 }
+async function clearSessionLogs() {
+  if (USE_BLOB) {
+    const blobs = await listSessionBlobs();
+    await Promise.allSettled(blobs.map((b) => del(b.url, { token: BLOB_TOKEN })));
+    _lastBlobUrl = null;
+  } else {
+    await fsp.writeFile(SESSIONS_FILE, "[]");
+  }
+}
 
 /* ── POST: save a session → appends to sessions.json ─────────────────────── */
 async function saveSession(req, res) {
@@ -519,13 +528,27 @@ async function getSessions(_req, res) {
   }
 }
 
+/* DELETE: wipe all sessions (password-gated). */
+async function clearSessions(_req, res) {
+  try {
+    await clearSessionLogs();
+    console.log(`[sessions] cleared all → ${STORAGE}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[sessions] clear failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+}
+
 /* Canonical routes the dashboard uses. */
 app.post("/api/sessions", saveSession);
 app.get("/api/sessions", requireAdmin, getSessions);
+app.delete("/api/sessions", requireAdmin, clearSessions);
 
 /* Back-compat aliases (older clients / earlier code paths). */
 app.post("/api/session-log",      saveSession);
 app.get("/api/admin/sessions",    requireAdmin, getSessions);
+app.delete("/api/admin/sessions", requireAdmin, clearSessions);
 
 /* Login — verify password, return the derived bearer token (optional path). */
 app.post("/api/admin/login", (req, res) => {
