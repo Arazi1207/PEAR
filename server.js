@@ -310,66 +310,12 @@ app.get("/api/test-sheets", async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ADMIN DASHBOARD — session-log ingest + password-gated read API
+   ADMIN DASHBOARD — session-log ingest + read API (OPEN ACCESS)
    ---------------------------------------------------------------------------
-   Security model:
-     • The dashboard password lives ONLY on the server (env ADMIN_PASSWORD, with
-       the agreed default). It is never shipped to the browser.
-     • POST /api/admin/login verifies the password (constant-time) and hands back
-       a DERIVED bearer token = HMAC-SHA256(password, fixed-label). An attacker
-       who doesn't know the password cannot forge this token.
-     • GET /api/admin/sessions returns data ONLY when that exact token is presented
-       in the Authorization header. So opening admin.html or sniffing the network
-       reveals nothing — the row data never leaves the server pre-auth.
-     • Session rows persist in Google Sheets (lib/sheets.js), so every admin who
-       logs in sees the SAME shared, durable dataset.
+   The password/login gate has been removed: the admin endpoints below respond
+   directly with no auth header required. Session rows persist in Supabase
+   (lib/supabase.js), shared and durable across all server instances.
    ══════════════════════════════════════════════════════════════════════════ */
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "PEARM2010YGIA";
-const ADMIN_TOKEN = crypto
-  .createHmac("sha256", ADMIN_PASSWORD)
-  .update("pear-admin-dashboard-v1")
-  .digest("hex");
-
-// Length-safe constant-time string comparison (avoids timing leaks). Used for
-// the derived bearer token, which must match exactly.
-function safeEqual(a, b) {
-  const ba = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  if (ba.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ba, bb);
-}
-
-// Normalise away the usual login foot-guns before comparing the PASSWORD:
-// surrounding/inner whitespace, zero-width + non-printable chars, letter-case,
-// and the classic look-alikes (O↔0, I/L↔1). For a fixed internal admin password
-// this trades a sliver of entropy for "it just works, every time".
-function normPw(s) {
-  return String(s ?? "")
-    .normalize("NFKC")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .replace(/O/g, "0")
-    .replace(/[IL]/g, "1");
-}
-
-function requireAdmin(req, res, next) {
-  const auth = req.headers.authorization || "";
-  // Look for the credential in ANY of: Authorization: Bearer <pw>, x-admin-key
-  // header, or ?password=/?key= query param — whichever the client sends.
-  const provided =
-    (auth.startsWith("Bearer ") ? auth.slice(7) : "") ||
-    req.headers["x-admin-key"] ||
-    req.query.password ||
-    req.query.key ||
-    "";
-
-  // Accept EITHER the raw password (normalised — bulletproof) OR the derived token.
-  const ok = normPw(provided) === normPw(ADMIN_PASSWORD) || safeEqual(provided, ADMIN_TOKEN);
-  if (!ok) {
-    return res.status(401).json({ error: "unauthorized", message: "Valid admin credentials required." });
-  }
-  next();
-}
 
 /* ── Session persistence ──────────────────────────────────────────────────────
    Durable storage via Supabase (Postgres). Survives cold starts, redeploys,
@@ -480,7 +426,7 @@ async function getUserByDevice(req, res) {
   }
 }
 
-/* GET /api/admin/users — password-gated. Returns every user with their total
+/* GET /api/admin/users — open access. Returns every user with their total
    measurement (session) count, newest user first. */
 async function getUsersWithCounts(_req, res) {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -516,7 +462,7 @@ async function saveSession(req, res) {
   const b = req.body || {};
   const m = b.measurements || {};   // tolerate either nested {measurements} or flat fields
   const str = (v, max = 80) => (v == null ? "" : String(v).slice(0, max));
-  const n   = (v) => { const x = Number(v); return Number.isFinite(x) ? x : ""; };
+  const n   = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
   const pick = (a, c) => (a !== undefined && a !== null && a !== "" ? a : c);
 
   const entry = {
@@ -545,7 +491,7 @@ async function saveSession(req, res) {
   }
 }
 
-/* ── GET: retrieve sessions (password-gated) → reads sessions.json ─────────── */
+/* ── GET: retrieve sessions (open access) → reads from Supabase ───────────── */
 async function getSessions(_req, res) {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
@@ -558,7 +504,7 @@ async function getSessions(_req, res) {
   }
 }
 
-/* DELETE: wipe all sessions (password-gated). */
+/* DELETE: wipe all sessions (open access). */
 async function clearSessions(_req, res) {
   try {
     await clearSessionLogs();
@@ -570,29 +516,20 @@ async function clearSessions(_req, res) {
   }
 }
 
-/* Canonical routes the dashboard uses. */
+/* Canonical routes the dashboard uses (open access — no auth). */
 app.post("/api/sessions", saveSession);
-app.get("/api/sessions", requireAdmin, getSessions);
-app.delete("/api/sessions", requireAdmin, clearSessions);
+app.get("/api/sessions", getSessions);
+app.delete("/api/sessions", clearSessions);
 
 /* Back-compat aliases (older clients / earlier code paths). */
 app.post("/api/session-log",      saveSession);
-app.get("/api/admin/sessions",    requireAdmin, getSessions);
-app.delete("/api/admin/sessions", requireAdmin, clearSessions);
+app.get("/api/admin/sessions",    getSessions);
+app.delete("/api/admin/sessions", clearSessions);
 
 /* User identity routes (returning-visitor recognition). */
 app.post("/api/users",            createUser);
 app.get("/api/users/:deviceId",   getUserByDevice);
-app.get("/api/admin/users",       requireAdmin, getUsersWithCounts);
-
-/* Login — verify password, return the derived bearer token (optional path). */
-app.post("/api/admin/login", (req, res) => {
-  const password = (req.body && req.body.password) || "";
-  if (normPw(password) !== normPw(ADMIN_PASSWORD)) {
-    return res.status(401).json({ error: "unauthorized", message: "Incorrect password." });
-  }
-  res.json({ ok: true, token: ADMIN_TOKEN });
-});
+app.get("/api/admin/users",       getUsersWithCounts);
 
 /* ── In-memory image cache — avoids re-fetching the same CDN image within a warm
    Lambda container. Keyed by full URL; evicts oldest entry when the cap is hit.

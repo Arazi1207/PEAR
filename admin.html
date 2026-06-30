@@ -14,54 +14,8 @@
 </head>
 <body>
 
-  <!-- ░░ STATE 1 — LOGIN VIEW (the only thing visible by default) ░░ -->
-  <main id="loginView" class="admin-login login-view">
-    <form id="loginForm" class="login-card" autocomplete="off">
-      <div class="login-brand">
-        <span class="login-brand__mark">PEAR</span>
-        <span class="login-brand__sub">Admin Console</span>
-      </div>
-
-      <h1 class="login-title">Secure Access</h1>
-      <p class="login-hint">Enter the dashboard password to view session analytics.</p>
-
-      <label class="login-field">
-        <span class="login-field__label">Password</span>
-        <div class="login-field__wrap">
-          <input id="passwordInput" type="password" inputmode="text"
-                 placeholder="••••••••••••" autocomplete="current-password" required>
-          <button id="togglePw" type="button" class="pw-toggle"
-                  aria-label="Show password" aria-pressed="false">
-            <svg class="pw-toggle__eye" viewBox="0 0 24 24" width="20" height="20" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            <svg class="pw-toggle__off" viewBox="0 0 24 24" width="20" height="20" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 3l18 18"></path>
-              <path d="M10.6 6.2A10.8 10.8 0 0 1 12 6c6.5 0 10 6 10 6a17.6 17.6 0 0 1-3.4 4M6.6 6.6A17.6 17.6 0 0 0 2 12s3.5 7 10 7a10.8 10.8 0 0 0 3.4-.5"></path>
-              <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
-            </svg>
-          </button>
-        </div>
-      </label>
-
-      <button id="loginBtn" type="submit" class="login-btn">
-        <span class="login-btn__label">Unlock Dashboard</span>
-        <span class="login-btn__spinner" aria-hidden="true"></span>
-      </button>
-
-      <p id="loginError" class="login-error" role="alert" hidden></p>
-
-      <button id="skipBtn" type="button" class="login-skip">Skip for now →</button>
-    </form>
-
-    <p class="login-foot">PEAR Virtual Fitting Room · Decart Lucy VTON</p>
-  </main>
-
-  <!-- ░░ STATE 2 — DATA DASHBOARD VIEW (rendered ONLY after auth) ░░ -->
-  <main id="dashboardView" class="admin-dash dashboard-view" hidden>
+  <!-- ░░ DATA DASHBOARD VIEW (open access — loads directly, no login) ░░ -->
+  <main id="dashboardView" class="admin-dash dashboard-view">
     <header class="dash-top">
       <div class="dash-top__brand">
         <span class="dash-top__mark">PEAR</span>
@@ -70,7 +24,6 @@
       <div class="dash-top__actions">
         <button id="refreshBtn" class="dash-btn dash-btn--ghost" type="button">Refresh</button>
         <button id="clearBtn"   class="dash-btn dash-btn--ghost" type="button">Clear all</button>
-        <button id="logoutBtn"  class="dash-btn" type="button">Log out</button>
       </div>
     </header>
 
@@ -121,6 +74,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=10"></script>
+  <script src="admin.js?v=11"></script>
 </body>
 </html>
