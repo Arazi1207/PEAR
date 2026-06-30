@@ -26,7 +26,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDecartClient } from "@decartai/sdk";
 import { logTryOn } from "./lib/sheets.js";
-import { put, list, del } from "@vercel/blob";
+import { supabase } from "./lib/supabase.js";
 
 logTryOn({ garmentName: "Local Test Shirt", size: "XL" }).catch(e => console.error("Sheets test failed:", e.message));
 
@@ -372,115 +372,34 @@ function requireAdmin(req, res, next) {
 }
 
 /* ── Session persistence ──────────────────────────────────────────────────────
-   DURABLE on the live site via Vercel Blob (a PRIVATE store — body measurements
-   are never publicly accessible; reads are authenticated with the server-only
-   BLOB_READ_WRITE_TOKEN). Survives cold starts, redeploys, and is shared across
-   instances + both admin logins. Falls back to a local sessions.json file for
-   offline dev when no token is present. */
-const fsp = fs.promises;
-const DATA_DIR      = process.env.VERCEL ? "/tmp" : __dirname;
-const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
+   Durable storage via Supabase (Postgres). Survives cold starts, redeploys,
+   and is shared across all server instances. Requires the `sessions` table
+   created by supabase_setup.sql and two env vars:
+     SUPABASE_URL              — from Supabase Dashboard → Settings → API
+     SUPABASE_SERVICE_ROLE_KEY — from Supabase Dashboard → Settings → API
+   ──────────────────────────────────────────────────────────────────────────── */
+console.log("[sessions] storage backend: Supabase");
 
-const BLOB_TOKEN  = process.env.BLOB_READ_WRITE_TOKEN || "";
-const USE_BLOB    = !!BLOB_TOKEN;         // auto-on once the Blob store is linked (Vercel)
-const BLOB_PREFIX = "sessions/log";       // each write → sessions/log-<random>.json
-const STORAGE     = USE_BLOB ? "Vercel Blob (private)" : `file:${SESSIONS_FILE}`;
-console.log("[sessions] storage backend:", STORAGE);
-
-// Local dev only: seed an empty file (best-effort, never throws).
-if (!USE_BLOB) fsp.writeFile(SESSIONS_FILE, "[]", { flag: "wx" }).catch(() => {});
-
-/* ── Vercel Blob helpers (private → authenticated reads) ───────────────────────
-   Each save writes a NEW uniquely-named blob (addRandomSuffix) and deletes the
-   old ones. Reading the newest blob therefore always hits a brand-new URL, which
-   sidesteps Blob's content cache (min 60s) — so reads are never stale. */
-let _lastBlobUrl = null;   // URL this warm instance last wrote — a read fallback
-
-async function listSessionBlobs() {
-  const { blobs } = await list({ prefix: BLOB_PREFIX, token: BLOB_TOKEN });
-  return (blobs || []).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)); // newest first
-}
-
-/* Read the newest VALID blob. Tries newest → older (so a just-deleted blob that
-   list() still reports can't make us return empty), then this instance's own last
-   write. Every blob has a UNIQUE url, so its content is never a stale cache hit. */
-async function readBlobSessions() {
-  let urls = [];
-  try { urls = (await listSessionBlobs()).map((b) => b.url); }
-  catch (err) { console.warn("[sessions] blob list failed:", err?.message); }
-  if (_lastBlobUrl && !urls.includes(_lastBlobUrl)) urls.push(_lastBlobUrl);
-
-  for (const url of urls) {
-    try {
-      const resp = await fetch(url, { headers: { Authorization: "Bearer " + BLOB_TOKEN }, cache: "no-store" });
-      if (resp.ok) {
-        const arr = await resp.json();
-        return Array.isArray(arr) ? arr : [];
-      }
-    } catch { /* fall through to the next candidate */ }
-  }
-  return [];   // genuinely nothing yet
-}
-
-/* Write a NEW uniquely-named blob (fresh url → never cache-stale), then lazily
-   delete only the OLDER blobs — keeping the few most recent so a concurrent read
-   always has a valid blob to fetch. This removes the "data disappeared" race. */
-async function writeBlobSessions(arr) {
-  let existing = [];
-  try { existing = await listSessionBlobs(); } catch {}
-  const r = await put(`${BLOB_PREFIX}.json`, JSON.stringify(arr, null, 2), {
-    access: "private",
-    addRandomSuffix: true,                  // unique url every write
-    contentType: "application/json",
-    cacheControlMaxAge: 60,
-    token: BLOB_TOKEN,
-  });
-  _lastBlobUrl = r.url;
-  // Keep the 3 newest prior blobs as a safety margin; delete anything older.
-  const toDelete = existing.slice(3);
-  if (toDelete.length) {
-    Promise.allSettled(toDelete.map((b) => del(b.url, { token: BLOB_TOKEN }))).catch(() => {});
-  }
-}
-
-/* ── Local file helper (BOM-tolerant, never throws) ── */
-async function readFileSessions() {
-  try {
-    let raw = await fsp.readFile(SESSIONS_FILE, "utf8");
-    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);   // strip UTF-8 BOM
-    raw = raw.trim();
-    const arr = JSON.parse(raw || "[]");
-    return Array.isArray(arr) ? arr : [];
-  } catch (err) {
-    if (err.code !== "ENOENT") console.warn("[sessions] file read failed:", err?.message);
-    return [];
-  }
-}
-
-/* ── Unified API ── */
 async function readSessionLogs() {
-  try {
-    return USE_BLOB ? await readBlobSessions() : await readFileSessions();
-  } catch (err) {
-    console.warn("[sessions] read failed:", err?.message);
-    return [];
-  }
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data || [];
 }
+
 async function saveSessionLog(entry) {
-  const all = await readSessionLogs();
-  all.push(entry);
-  if (USE_BLOB) await writeBlobSessions(all);
-  else await fsp.writeFile(SESSIONS_FILE, JSON.stringify(all, null, 2));
-  return all.length;
+  const { error } = await supabase.from("sessions").insert([entry]);
+  if (error) throw new Error(error.message);
+  // Return approximate total count without a separate COUNT query.
+  return null;
 }
+
 async function clearSessionLogs() {
-  if (USE_BLOB) {
-    const blobs = await listSessionBlobs();
-    await Promise.allSettled(blobs.map((b) => del(b.url, { token: BLOB_TOKEN })));
-    _lastBlobUrl = null;
-  } else {
-    await fsp.writeFile(SESSIONS_FILE, "[]");
-  }
+  // Delete every row. Supabase requires a filter for safety; `neq` on id covers all rows.
+  const { error } = await supabase.from("sessions").delete().neq("id", 0);
+  if (error) throw new Error(error.message);
 }
 
 /* ── POST: save a session → appends to sessions.json ─────────────────────── */
@@ -492,21 +411,23 @@ async function saveSession(req, res) {
   const pick = (a, c) => (a !== undefined && a !== null && a !== "" ? a : c);
 
   const entry = {
-    sessionId:   str(b.sessionId, 64) || crypto.randomUUID(),
-    height:      n(pick(b.height, m.height)),
-    weight:      n(pick(b.weight, m.weight)),
-    chest:       n(pick(b.chest,  m.chest)),
-    waist:       n(pick(b.waist,  m.waist)),
-    legs:        n(pick(b.legs,   m.legs)),
-    size:        str(b.size, 8),
-    garmentId:   str(b.garmentId, 64),
-    garmentName: str(b.garmentName, 80),
-    ts:          new Date().toISOString(),
+    session_id:    str(b.sessionId,    64) || crypto.randomUUID(),
+    height:        n(pick(b.height,    m.height)),
+    weight:        n(pick(b.weight,    m.weight)),
+    chest:         n(pick(b.chest,     m.chest)),
+    waist:         n(pick(b.waist,     m.waist)),
+    legs:          n(pick(b.legs,      m.legs)),
+    size:          str(b.size,         8),
+    garment_id:    str(b.garmentId,    64),
+    garment_name:  str(b.garmentName,  80),
+    garment_type:  str(b.garmentType,  40),
+    sleeve_type:   str(b.sleeveType,   40),
+    pants_fit:     str(b.pantsFit,     40),
   };
 
   try {
-    const total = await saveSessionLog(entry);
-    console.log(`[sessions] saved session → ${STORAGE} (total now ${total})`);
+    await saveSessionLog(entry);
+    console.log("[sessions] saved session → Supabase");
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] persist failed:", err?.message);
@@ -516,11 +437,10 @@ async function saveSession(req, res) {
 
 /* ── GET: retrieve sessions (password-gated) → reads sessions.json ─────────── */
 async function getSessions(_req, res) {
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate");   // never cache session data
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
-    const sessions = (await readSessionLogs()).reverse();   // newest first
-    // Requirement 1c — explicit debug log of WHERE we read and HOW MANY we found.
-    console.log(`[admin/sessions] reading ${STORAGE} → ${sessions.length} session(s) found`);
+    const sessions = await readSessionLogs();   // already newest-first from Supabase ORDER BY
+    console.log(`[admin/sessions] Supabase → ${sessions.length} session(s) found`);
     res.json({ ok: true, count: sessions.length, sessions });
   } catch (err) {
     console.error("[admin/sessions] read failed:", err?.message);
@@ -532,7 +452,7 @@ async function getSessions(_req, res) {
 async function clearSessions(_req, res) {
   try {
     await clearSessionLogs();
-    console.log(`[sessions] cleared all → ${STORAGE}`);
+    console.log("[sessions] cleared all → Supabase");
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] clear failed:", err?.message);

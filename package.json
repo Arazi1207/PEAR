@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@decartai/sdk": "^0.1.5",
-    "@vercel/blob": "^2.4.1",
+    "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "googleapis": "^144.0.0"
