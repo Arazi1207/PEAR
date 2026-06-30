@@ -122,6 +122,24 @@
         <h2>התאמת מידה אישית</h2>
         <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
 
+        <!-- ░░ Identity gate — shown ONCE for a first-time visitor (app.js).
+             On return visits the browser is remembered (localStorage device id)
+             and this form is skipped entirely, going straight to measurements. ░░ -->
+        <form id="identityForm" autocomplete="off" hidden>
+            <div class="form-group">
+                <label for="userName"><span class="required">*</span>שם מלא:</label>
+                <input type="text" id="userName" autocomplete="name" placeholder="לדוגמה: דנה כהן">
+            </div>
+            <div class="form-group">
+                <label for="userPhone"><span class="required">*</span>טלפון:</label>
+                <input type="tel" id="userPhone" autocomplete="tel" inputmode="tel" placeholder="לדוגמה: 050-1234567">
+            </div>
+            <div class="result-actions" id="identityActions">
+                <button id="btn-identity-continue" type="button" class="btn-primary">המשך →</button>
+                <p id="identityError" class="login-error" role="alert" hidden></p>
+            </div>
+        </form>
+
         <form id="sizeForm" autocomplete="off">
             <!-- ░░ Mandatory inputs — always visible (idle state) ░░ -->
             <div class="form-group">

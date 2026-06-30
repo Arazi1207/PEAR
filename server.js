@@ -402,6 +402,115 @@ async function clearSessionLogs() {
   if (error) throw new Error(error.message);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   USER IDENTITY — first-time visitors enter name + phone once; the browser is
+   then remembered via a client-generated device_id (localStorage 'pear_device_id').
+   On return visits the client looks the user up by device_id and skips the form,
+   so new measurements just attach to the existing profile via sessions.user_id.
+   ══════════════════════════════════════════════════════════════════════════ */
+async function findUserByDeviceId(deviceId) {
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("device_id", deviceId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/* POST /api/users — create a user, or return the existing one for this device_id
+   (upsert-by-device_id: never creates a duplicate, never overwrites the original
+   name/phone). Returns { ok, user }. */
+async function createUser(req, res) {
+  const b = req.body || {};
+  const str = (v, max = 80) => (v == null ? "" : String(v).trim().slice(0, max));
+  const deviceId = str(b.deviceId, 64);
+  const name     = str(b.name, 80);
+  const phone    = str(b.phone, 40);
+
+  if (!deviceId || !name || !phone) {
+    return res.status(400).json({
+      error: "missing_fields",
+      message: "deviceId, name and phone are all required.",
+    });
+  }
+
+  try {
+    // Already known device → return the existing profile, don't duplicate.
+    const existing = await findUserByDeviceId(deviceId);
+    if (existing) {
+      console.log(`[users] device "${deviceId}" already known → returning existing user`);
+      return res.json({ ok: true, user: existing, existed: true });
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .insert([{ device_id: deviceId, name, phone }])
+      .select()
+      .single();
+
+    if (error) {
+      // Race: another request inserted the same device_id between our check and
+      // insert. Fall back to fetching the now-existing row.
+      const raced = await findUserByDeviceId(deviceId);
+      if (raced) return res.json({ ok: true, user: raced, existed: true });
+      throw new Error(error.message);
+    }
+
+    console.log(`[users] created user ${data.id} (device "${deviceId}")`);
+    res.json({ ok: true, user: data, existed: false });
+  } catch (err) {
+    console.error("[users] create failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+}
+
+/* GET /api/users/:deviceId — return the user for this device_id, or 404. */
+async function getUserByDevice(req, res) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  const deviceId = String(req.params.deviceId || "").trim();
+  if (!deviceId) return res.status(400).json({ error: "missing_device_id" });
+  try {
+    const user = await findUserByDeviceId(deviceId);
+    if (!user) return res.status(404).json({ ok: false, error: "not_found" });
+    res.json({ ok: true, user });
+  } catch (err) {
+    console.error("[users] lookup failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+}
+
+/* GET /api/admin/users — password-gated. Returns every user with their total
+   measurement (session) count, newest user first. */
+async function getUsersWithCounts(_req, res) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const [{ data: users, error: uErr }, { data: rows, error: sErr }] = await Promise.all([
+      supabase.from("users").select("*").order("created_at", { ascending: false }),
+      supabase.from("sessions").select("user_id"),
+    ]);
+    if (uErr) throw new Error(uErr.message);
+    if (sErr) throw new Error(sErr.message);
+
+    // Tally sessions per user_id in one pass.
+    const counts = new Map();
+    for (const r of rows || []) {
+      if (!r.user_id) continue;
+      counts.set(r.user_id, (counts.get(r.user_id) || 0) + 1);
+    }
+
+    const withCounts = (users || []).map((u) => ({
+      ...u,
+      session_count: counts.get(u.id) || 0,
+    }));
+
+    res.json({ ok: true, count: withCounts.length, users: withCounts });
+  } catch (err) {
+    console.error("[admin/users] read failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message, users: [], count: 0 });
+  }
+}
+
 /* ── POST: save a session → appends to sessions.json ─────────────────────── */
 async function saveSession(req, res) {
   const b = req.body || {};
@@ -412,6 +521,7 @@ async function saveSession(req, res) {
 
   const entry = {
     session_id:    str(b.sessionId,    64) || crypto.randomUUID(),
+    user_id:       b.userId || null,   // links the session to a remembered user (users.id)
     height:        n(pick(b.height,    m.height)),
     weight:        n(pick(b.weight,    m.weight)),
     chest:         n(pick(b.chest,     m.chest)),
@@ -469,6 +579,11 @@ app.delete("/api/sessions", requireAdmin, clearSessions);
 app.post("/api/session-log",      saveSession);
 app.get("/api/admin/sessions",    requireAdmin, getSessions);
 app.delete("/api/admin/sessions", requireAdmin, clearSessions);
+
+/* User identity routes (returning-visitor recognition). */
+app.post("/api/users",            createUser);
+app.get("/api/users/:deviceId",   getUserByDevice);
+app.get("/api/admin/users",       requireAdmin, getUsersWithCounts);
 
 /* Login — verify password, return the derived bearer token (optional path). */
 app.post("/api/admin/login", (req, res) => {

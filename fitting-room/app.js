@@ -1832,6 +1832,125 @@ const PEAR_SESSION_ID = (() => {
   } catch { return rnd(); }
 })();
 
+/* =============================================================================
+   RETURNING-USER IDENTITY
+   -----------------------------------------------------------------------------
+   First-time visitors enter name + phone ONCE. We generate a persistent device
+   id (localStorage 'pear_device_id') and create a user server-side. On every
+   later visit we find that device id, load the profile, and skip the form — new
+   measurements just attach to the existing user via sessions.user_id.
+   ============================================================================= */
+const PEAR_DEVICE_KEY = "pear_device_id";
+let PEAR_USER_ID = null;   // users.id once known — stamped onto each saved session
+
+function getDeviceId() {
+  try { return localStorage.getItem(PEAR_DEVICE_KEY) || ""; } catch { return ""; }
+}
+function setDeviceId(v) {
+  try { localStorage.setItem(PEAR_DEVICE_KEY, v); } catch {}
+}
+function newUuid() {
+  return (crypto?.randomUUID?.() ||
+    "d-" + Date.now().toString(36) + "-" + Math.random().toString(16).slice(2));
+}
+
+/* Reveal the measurement form (and recompute, so a returning user with prefilled
+   data sees the result immediately). */
+function showSizeForm() {
+  const idForm = $("identityForm");
+  const sizeForm = $("sizeForm");
+  if (idForm) idForm.hidden = true;
+  if (sizeForm) sizeForm.hidden = false;
+  try { calculateSize(); } catch {}
+}
+
+/* Decide whether to gate on name/phone. Runs at startup BEFORE the user can fill
+   measurements. Pure-localStorage decision (synchronous) avoids a form flash. */
+async function setupIdentityGate() {
+  const idForm   = $("identityForm");
+  const sizeForm = $("sizeForm");
+  const deviceId = getDeviceId();
+
+  // Returning visitor → skip the gate immediately, confirm the profile in the
+  // background. Even if the lookup fails we still let them proceed.
+  if (deviceId) {
+    showSizeForm();
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.user?.id) {
+          PEAR_USER_ID = data.user.id;
+          console.log("[identity] returning user:", data.user.name);
+        }
+      } else if (res.status === 404) {
+        console.warn("[identity] device id not found server-side — keeping local id, user can re-register on next session");
+      }
+    } catch (err) {
+      console.warn("[identity] profile lookup failed (proceeding anyway):", err?.message || err);
+    }
+    return;
+  }
+
+  // First-time visitor → show the name/phone gate, hide measurements until done.
+  if (idForm)   idForm.hidden = false;
+  if (sizeForm) sizeForm.hidden = true;
+
+  const btn   = $("btn-identity-continue");
+  const errEl = $("identityError");
+  if (btn) {
+    btn.addEventListener("click", () => submitIdentity());
+  }
+  // Enter inside the identity fields submits the gate.
+  ["userName", "userPhone"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submitIdentity(); }
+    });
+  });
+  if (errEl) errEl.hidden = true;
+}
+
+/* Validate, create the user, persist the device id, then reveal measurements. */
+async function submitIdentity() {
+  const nameEl  = $("userName");
+  const phoneEl = $("userPhone");
+  const btn     = $("btn-identity-continue");
+  const errEl   = $("identityError");
+
+  const name  = (nameEl  && nameEl.value  || "").trim();
+  const phone = (phoneEl && phoneEl.value || "").trim();
+
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
+
+  if (name.length < 2)  return showErr("נא להזין שם מלא.");
+  if (phone.replace(/\D/g, "").length < 7) return showErr("נא להזין מספר טלפון תקין.");
+  if (errEl) errEl.hidden = true;
+
+  const deviceId = newUuid();
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/users", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ deviceId, name, phone }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      throw new Error((data && (data.message || data.error)) || ("server " + res.status));
+    }
+    setDeviceId(deviceId);                 // remember this browser from now on
+    PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
+    console.log("[identity] registered user:", data.user?.name, "→", PEAR_USER_ID);
+    showSizeForm();
+  } catch (err) {
+    console.error("[identity] registration failed:", err?.message || err);
+    showErr("שמירת הפרטים נכשלה — נסה/י שוב.");
+    if (btn) btn.disabled = false;
+  }
+}
+
 /**
  * Send the visitor's measurements + the garment + calculated size to the admin
  * store. Fired when the size calculator is submitted (see goToFitting), so we
@@ -1852,6 +1971,7 @@ function logSessionMeasurements(item, size) {
   };
   const payload = {
     sessionId:   PEAR_SESSION_ID,
+    userId:      PEAR_USER_ID,        // links this session to the remembered user
     garmentId:   item?.id   || "",
     garmentName: item?.name || "",
     size:        size       || "",   // calculated size
@@ -3238,6 +3358,10 @@ function init() {
     const hint = $("focusCalcHint");
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
+
+  // Returning-user gate: first-timers fill name/phone once; returning visitors
+  // skip straight to measurements. Runs before the user can touch the form.
+  setupIdentityGate();
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
     i.addEventListener("input", calculateSize);
