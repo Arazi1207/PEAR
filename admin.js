@@ -63,8 +63,7 @@
 
         const sessions = Array.isArray(data.sessions) ? data.sessions : [];
         renderStats(sessions);
-        renderInsights(sessions);
-        renderUsageStats(sessions);   // most-worn garment + most-requested size
+        renderUsageStats(sessions);   // most-worn garments + most-requested sizes
         renderRows(sessions);
         loadUsers();                  // users + per-user measurement counts
       } catch (err) {
@@ -83,58 +82,6 @@
       set("statTotal",    sessions.length);     // Total Sessions
       set("statVisitors", visitors.size);       // Unique Visitors (unique IDs)
       set("statGarments", garments.size);       // Garments Sized
-    }
-
-    /* Insights — group rows by garment, tally the calculated sizes within each.
-       Renders cards like:  "Mono Slim"  →  5× L · 2× M · 1× S
-       All computed dynamically from the fetched logs. */
-    function renderInsights(sessions) {
-      const grid  = $("insightsGrid");
-      const empty = $("insightsEmpty");
-      if (!grid) return;
-      grid.innerHTML = "";
-
-      // garment_name -> { total, sizes: { L: 5, M: 2, … } }
-      const byGarment = new Map();
-      for (const s of sessions) {
-        const name = (s.garment_name || "").trim() || "Unspecified garment";
-        const size = (s.size || "").trim().toUpperCase() || "—";
-        if (!byGarment.has(name)) byGarment.set(name, { total: 0, sizes: {} });
-        const g = byGarment.get(name);
-        g.total += 1;
-        g.sizes[size] = (g.sizes[size] || 0) + 1;
-      }
-
-      if (byGarment.size === 0) { if (empty) empty.hidden = false; return; }
-      if (empty) empty.hidden = true;
-
-      // Stable size ordering for the tally chips.
-      const ORDER = ["XS", "S", "M", "L", "XL", "XXL", "—"];
-      const sortSizes = (a, b) => {
-        const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
-        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-      };
-
-      // Most-sized garment first.
-      const cards = [...byGarment.entries()].sort((a, b) => b[1].total - a[1].total);
-
-      const frag = document.createDocumentFragment();
-      for (const [name, g] of cards) {
-        const tally = Object.keys(g.sizes).sort(sortSizes).map((sz) =>
-          `<span class="size-tally"><b>${g.sizes[sz]}×</b> ${esc(sz)}</span>`
-        ).join("");
-
-        const card = document.createElement("div");
-        card.className = "insight-card";
-        card.innerHTML =
-          `<div class="insight-card__head">` +
-            `<span class="insight-card__name">${esc(name)}</span>` +
-            `<span class="insight-card__count">${g.total} sized</span>` +
-          `</div>` +
-          `<div class="insight-card__tally">${tally}</div>`;
-        frag.appendChild(card);
-      }
-      grid.appendChild(frag);
     }
 
     // A measurement value with its unit, or a dash when the field was left blank.
@@ -204,102 +151,71 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    /* Lazily create (once) a dash-insights section appended to the dashboard,
-       reusing the EXACT existing CSS classes. Returns its inner grid element. */
-    function ensureInsightSection(id, title) {
-      let grid = $(id + "-grid");
-      if (grid) return grid;
-      const sec = document.createElement("section");
-      sec.className = "dash-insights";
-      sec.id = id;
-      sec.innerHTML =
-        `<h2 class="dash-section-title">${esc(title)}</h2>` +
-        `<div class="insights-grid" id="${id}-grid"></div>` +
-        `<p class="dash-empty" id="${id}-empty" hidden>No data yet.</p>`;
-      dashView.appendChild(sec);
-      return $(id + "-grid");
+    /* Render a ranked list into a static container (#garmentsList / #sizesList).
+       Each row carries a proportional bar behind it so relative magnitude reads
+       at a glance. `items` = [{ label, sub, count }] already sorted desc. */
+    function renderRankList(gridId, emptyId, items, unit) {
+      const grid  = $(gridId);
+      const empty = $(emptyId);
+      if (!grid) return;
+      grid.innerHTML = "";
+      if (!items.length) { if (empty) empty.hidden = false; return; }
+      if (empty) empty.hidden = true;
+
+      const max = items[0].count || 1;
+      const frag = document.createDocumentFragment();
+      items.forEach((it, i) => {
+        const pct = Math.max(6, Math.round((it.count / max) * 100));
+        const row = document.createElement("div");
+        row.className = "rank-item";
+        row.innerHTML =
+          `<span class="rank-item__bar" style="width:${pct}%"></span>` +
+          `<span class="rank-item__main">` +
+            `<span class="rank-item__rank">${i + 1}</span>` +
+            `<span class="rank-item__label">${esc(it.label)}` +
+              (it.sub ? ` <span class="rank-item__sub">· ${esc(it.sub)}</span>` : "") +
+            `</span>` +
+          `</span>` +
+          `<span class="rank-item__count">${it.count} ${esc(unit)}</span>`;
+        frag.appendChild(row);
+      });
+      grid.appendChild(frag);
     }
 
-    /* Most-worn garment (top 5, grouped by type + name) and most-requested size,
-       both computed live from the fetched session rows. Rendered with the same
-       insight-card / size-tally markup the existing Insights section uses. */
+    /* Most-worn garments (top 5, grouped by garment_type + garment_name) and
+       most-requested sizes — both computed live from the fetched session rows. */
     function renderUsageStats(sessions) {
-      /* ── Most-worn garment — group by garment_type + garment_name ── */
-      const garmentGrid = ensureInsightSection("usageGarments", "Most-Worn Garments · Top 5");
-      const gEmpty = $("usageGarments-empty");
+      /* ── Most-worn garments — group by garment_type + garment_name ── */
       const byGarment = new Map();
       for (const s of sessions) {
         const name = String(s.garment_name || "Unspecified garment").trim();
         const type = String(s.garment_type || "").trim();
         const key  = type ? `${name}|${type}` : name;
-        if (!byGarment.has(key)) byGarment.set(key, { name, type, count: 0 });
+        if (!byGarment.has(key)) byGarment.set(key, { label: name, sub: type, count: 0 });
         byGarment.get(key).count += 1;
       }
       const topGarments = [...byGarment.values()].sort((a, b) => b.count - a.count).slice(0, 5);
-      garmentGrid.innerHTML = "";
-      if (!topGarments.length) { if (gEmpty) gEmpty.hidden = false; }
-      else {
-        if (gEmpty) gEmpty.hidden = true;
-        const frag = document.createDocumentFragment();
-        for (const g of topGarments) {
-          const card = document.createElement("div");
-          card.className = "insight-card";
-          card.innerHTML =
-            `<div class="insight-card__head">` +
-              `<span class="insight-card__name">${esc(g.name)}${g.type ? ` · ${esc(g.type)}` : ""}</span>` +
-              `<span class="insight-card__count">${g.count} worn</span>` +
-            `</div>`;
-          frag.appendChild(card);
-        }
-        garmentGrid.appendChild(frag);
-      }
+      renderRankList("garmentsList", "garmentsEmpty", topGarments, "worn");
 
-      /* ── Most-requested size — group by calculated size, count desc ── */
-      const sizeGrid = ensureInsightSection("usageSizes", "Most-Requested Sizes");
-      const sEmpty = $("usageSizes-empty");
+      /* ── Most-requested sizes — group by calculated size, count desc ── */
       const bySize = new Map();
       for (const s of sessions) {
         const size = String(s.size || "").trim().toUpperCase();
         if (!size) continue;
         bySize.set(size, (bySize.get(size) || 0) + 1);
       }
-      const sizes = [...bySize.entries()].sort((a, b) => b[1] - a[1]);
-      sizeGrid.innerHTML = "";
-      if (!sizes.length) { if (sEmpty) sEmpty.hidden = false; }
-      else {
-        if (sEmpty) sEmpty.hidden = true;
-        const card = document.createElement("div");
-        card.className = "insight-card";
-        const tally = sizes.map(([sz, n]) =>
-          `<span class="size-tally"><b>${n}×</b> ${esc(sz)}</span>`).join("");
-        card.innerHTML =
-          `<div class="insight-card__head">` +
-            `<span class="insight-card__name">By calculated size</span>` +
-            `<span class="insight-card__count">${sizes.length} size(s)</span>` +
-          `</div>` +
-          `<div class="insight-card__tally">${tally}</div>`;
-        sizeGrid.appendChild(card);
-      }
+      const sizes = [...bySize.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => ({ label, sub: "", count }));
+      renderRankList("sizesList", "sizesEmpty", sizes, "requests");
     }
 
-    /* Users + total measurement count — fetched live from /api/admin/users,
-       rendered into a dash-table appended once (reuses existing table styling). */
+    /* Users + total measurement count — fetched live from /api/admin/users and
+       rendered into the static Users table. The endpoint returns snake_case keys
+       (name, phone, created_at) plus the derived session_count. */
     async function loadUsers() {
-      let tbody = $("usersRows");
-      if (!tbody) {
-        const sec = document.createElement("section");
-        sec.className = "dash-table-wrap";
-        sec.id = "usersTableWrap";
-        sec.innerHTML =
-          `<h2 class="dash-section-title">Users · Measurement Count</h2>` +
-          `<table class="dash-table">` +
-            `<thead><tr><th>Name</th><th>Phone</th><th>Measurements</th><th>Joined</th></tr></thead>` +
-            `<tbody id="usersRows"></tbody>` +
-          `</table>` +
-          `<p id="usersEmpty" class="dash-empty" hidden>No users yet.</p>`;
-        dashView.appendChild(sec);
-        tbody = $("usersRows");
-      }
+      const tbody = $("usersRows");
+      if (!tbody) return;
 
       try {
         const url = "/api/admin/users?_=" + Date.now();
@@ -318,10 +234,10 @@
         for (const u of users) {
           const tr = document.createElement("tr");
           tr.innerHTML =
-            `<td data-label="Name">${esc(u.name || "—")}</td>` +
-            `<td data-label="Phone">${esc(u.phone || "—")}</td>` +
-            `<td data-label="Measurements"><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
-            `<td data-label="Joined" class="cell-time">${esc(timeCell(u.created_at))}</td>`;
+            `<td>${esc(u.name || "—")}</td>` +
+            `<td>${esc(u.phone || "—")}</td>` +
+            `<td><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
+            `<td class="cell-time">${esc(timeCell(u.created_at))}</td>`;
           frag.appendChild(tr);
         }
         tbody.appendChild(frag);
