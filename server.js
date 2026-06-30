@@ -324,7 +324,21 @@ app.get("/api/test-sheets", async (req, res) => {
      SUPABASE_URL              — from Supabase Dashboard → Settings → API
      SUPABASE_SERVICE_ROLE_KEY — from Supabase Dashboard → Settings → API
    ──────────────────────────────────────────────────────────────────────────── */
-console.log("[sessions] storage backend: Supabase");
+console.log(`[sessions] storage backend: ${supabase ? "Supabase" : "DISABLED (env vars missing)"}`);
+
+/* Guard for Supabase-backed routes. When the client is null (env vars missing)
+   we return a clear 503 instead of dereferencing null and crashing. Returns true
+   when it has already sent the error response, so the caller should `return`. */
+function storageUnavailable(res) {
+  if (supabase) return false;
+  res.status(503).json({
+    ok: false,
+    error: "storage_unconfigured",
+    message: "Database not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing). " +
+             "Session and user features are temporarily unavailable.",
+  });
+  return true;
+}
 
 async function readSessionLogs() {
   const { data, error } = await supabase
@@ -368,6 +382,7 @@ async function findUserByDeviceId(deviceId) {
    (upsert-by-device_id: never creates a duplicate, never overwrites the original
    name/phone). Returns { ok, user }. */
 async function createUser(req, res) {
+  if (storageUnavailable(res)) return;
   const b = req.body || {};
   const str = (v, max = 80) => (v == null ? "" : String(v).trim().slice(0, max));
   const deviceId = str(b.deviceId, 64);
@@ -413,6 +428,7 @@ async function createUser(req, res) {
 
 /* GET /api/users/:deviceId — return the user for this device_id, or 404. */
 async function getUserByDevice(req, res) {
+  if (storageUnavailable(res)) return;
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   const deviceId = String(req.params.deviceId || "").trim();
   if (!deviceId) return res.status(400).json({ error: "missing_device_id" });
@@ -429,6 +445,7 @@ async function getUserByDevice(req, res) {
 /* GET /api/admin/users — open access. Returns every user with their total
    measurement (session) count, newest user first. */
 async function getUsersWithCounts(_req, res) {
+  if (storageUnavailable(res)) return;
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
     const [{ data: users, error: uErr }, { data: rows, error: sErr }] = await Promise.all([
@@ -459,6 +476,7 @@ async function getUsersWithCounts(_req, res) {
 
 /* ── POST: save a session → appends to sessions.json ─────────────────────── */
 async function saveSession(req, res) {
+  if (storageUnavailable(res)) return;
   const b = req.body || {};
   const m = b.measurements || {};   // tolerate either nested {measurements} or flat fields
   const str = (v, max = 80) => (v == null ? "" : String(v).slice(0, max));
@@ -493,6 +511,7 @@ async function saveSession(req, res) {
 
 /* ── GET: retrieve sessions (open access) → reads from Supabase ───────────── */
 async function getSessions(_req, res) {
+  if (storageUnavailable(res)) return;
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
     const sessions = await readSessionLogs();   // already newest-first from Supabase ORDER BY
@@ -506,6 +525,7 @@ async function getSessions(_req, res) {
 
 /* DELETE: wipe all sessions (open access). */
 async function clearSessions(_req, res) {
+  if (storageUnavailable(res)) return;
   try {
     await clearSessionLogs();
     console.log("[sessions] cleared all → Supabase");
