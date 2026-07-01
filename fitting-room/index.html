@@ -134,9 +134,12 @@
                 <label for="userPhone"><span class="required">*</span>טלפון:</label>
                 <input type="tel" id="userPhone" autocomplete="tel" inputmode="tel" placeholder="לדוגמה: 050-1234567">
             </div>
-            <div class="result-actions" id="identityActions">
+            <!-- Plain container: must NOT use .result-actions (that class stays
+                 collapsed/invisible until the size-calc adds .is-ready, which would
+                 permanently hide this Continue button). -->
+            <div id="identityActions" style="margin-top:14px">
                 <button id="btn-identity-continue" type="button" class="btn-primary">המשך →</button>
-                <p id="identityError" class="login-error" role="alert" hidden></p>
+                <p id="identityError" class="login-error" role="alert" hidden style="margin-top:10px"></p>
             </div>
         </form>
 
@@ -376,7 +379,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=2"></script>
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
      header shrink. Pure enhancement — touches no app.js logic or state. -->
 <script src="mobile-ux.js" defer></script>

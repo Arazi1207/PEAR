@@ -1859,22 +1859,48 @@ function newUuid() {
 function showSizeForm() {
   const idForm = $("identityForm");
   const sizeForm = $("sizeForm");
-  if (idForm) idForm.hidden = true;
-  if (sizeForm) sizeForm.hidden = false;
+  // Use inline display too: #sizeForm has `display:grid` in CSS which outranks the
+  // [hidden] attribute, so toggling `.hidden` alone can't hide/show it reliably.
+  if (idForm)   { idForm.hidden = true;    idForm.style.display = "none"; }
+  if (sizeForm) { sizeForm.hidden = false; sizeForm.style.display = "";   }
   try { calculateSize(); } catch {}
 }
 
-/* Decide whether to gate on name/phone. Runs at startup BEFORE the user can fill
-   measurements. Pure-localStorage decision (synchronous) avoids a form flash. */
-async function setupIdentityGate() {
+/* Show the name/phone gate and wire its controls (idempotent — safe to call
+   more than once). Hides the measurement form until the visitor registers. */
+function showIdentityGate() {
   const idForm   = $("identityForm");
   const sizeForm = $("sizeForm");
+  // Inline display overrides #sizeForm's CSS `display:grid` (see showSizeForm).
+  if (idForm)   { idForm.hidden = false;  idForm.style.display = "";     }
+  if (sizeForm) { sizeForm.hidden = true; sizeForm.style.display = "none"; }
+
+  const btn   = $("btn-identity-continue");
+  const errEl = $("identityError");
+  if (btn && !btn.dataset.wired) {
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", () => submitIdentity());
+  }
+  // Enter inside the identity fields submits the gate.
+  ["userName", "userPhone"].forEach((id) => {
+    const el = $(id);
+    if (el && !el.dataset.wired) {
+      el.dataset.wired = "1";
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); submitIdentity(); }
+      });
+    }
+  });
+  if (errEl) errEl.hidden = true;
+}
+
+/* Decide whether to gate on name/phone. Runs at startup BEFORE the user can fill
+   measurements, so every session links to a real user profile. */
+async function setupIdentityGate() {
   const deviceId = getDeviceId();
 
-  // Returning visitor → skip the gate immediately, confirm the profile in the
-  // background. Even if the lookup fails we still let them proceed.
+  // Known device → verify the profile still exists server-side.
   if (deviceId) {
-    showSizeForm();
     try {
       const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`, { cache: "no-store" });
       if (res.ok) {
@@ -1882,33 +1908,33 @@ async function setupIdentityGate() {
         if (data?.user?.id) {
           PEAR_USER_ID = data.user.id;
           console.log("[identity] returning user:", data.user.name);
+          showSizeForm();
+          return;
         }
-      } else if (res.status === 404) {
-        console.warn("[identity] device id not found server-side — keeping local id, user can re-register on next session");
       }
+      if (res.status === 404) {
+        // Device is remembered locally but has NO server-side user (the profile
+        // store was reset/migrated, or an earlier registration never completed).
+        // Re-register — reusing this device id — so the profile exists again and
+        // future sessions link to it instead of saving user_id = null forever.
+        console.warn("[identity] no server profile for this device — prompting registration");
+        showIdentityGate();
+        return;
+      }
+      // Any other status (e.g. 503 storage down): don't block the fitting room.
+      console.warn("[identity] profile lookup returned", res.status, "— proceeding without gate");
+      showSizeForm();
+      return;
     } catch (err) {
+      // Network error — don't block the visitor from using the fitting room.
       console.warn("[identity] profile lookup failed (proceeding anyway):", err?.message || err);
+      showSizeForm();
+      return;
     }
-    return;
   }
 
-  // First-time visitor → show the name/phone gate, hide measurements until done.
-  if (idForm)   idForm.hidden = false;
-  if (sizeForm) sizeForm.hidden = true;
-
-  const btn   = $("btn-identity-continue");
-  const errEl = $("identityError");
-  if (btn) {
-    btn.addEventListener("click", () => submitIdentity());
-  }
-  // Enter inside the identity fields submits the gate.
-  ["userName", "userPhone"].forEach((id) => {
-    const el = $(id);
-    if (el) el.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); submitIdentity(); }
-    });
-  });
-  if (errEl) errEl.hidden = true;
+  // First-time visitor (no device id) → show the gate.
+  showIdentityGate();
 }
 
 /* Validate, create the user, persist the device id, then reveal measurements. */
@@ -1927,7 +1953,8 @@ async function submitIdentity() {
   if (phone.replace(/\D/g, "").length < 7) return showErr("נא להזין מספר טלפון תקין.");
   if (errEl) errEl.hidden = true;
 
-  const deviceId = newUuid();
+  // Reuse the existing device id when re-registering (404 recovery); otherwise mint one.
+  const deviceId = getDeviceId() || newUuid();
   if (btn) btn.disabled = true;
 
   try {
