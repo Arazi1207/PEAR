@@ -1,35 +1,42 @@
 /* =============================================================================
-   PEAR · Admin Dashboard — clean sectioned analytics UI
+   PEAR · Admin Dashboard — Adidas-style analytics UI
    -----------------------------------------------------------------------------
-   Palette
-     --bg        #f5f5f7   neutral app background
-     --card      #ffffff   section cards
-     --ink       #1f2933   primary text
-     --ink-soft  #6b7280   muted labels
-     --accent    #0f766e   single accent (deep teal) — titles, highlights, bars
-     --accent-2  #115e59   darker teal for hovers
-     --tint      #e6f2f1   teal wash for bars / badges
-     --border    #e6e8ec   hairlines
-     --row-alt   #fafbfc   zebra rows
+   Palette (matches fitting-room interface aesthetic)
+     --primary      #000000   pure black — Adidas signature (navbar, table heads,
+                              section-title caps, primary buttons)
+     --accent       #00AA44   Adidas green — numbers, bars, accents
+     --accent-dark  #008833   hover / pressed green
+     --bg           #f5f5f5   light gray app background
+     --card         #ffffff   white section cards
+     --text         #111111   near-black primary text
+     --text-muted   #666666   secondary text / labels
+     --border       #e0e0e0   subtle hairlines
+     --success      #00AA44   (same as accent)
+     --danger       #ff3333   alerts / delete
    Type
      Urbanist — section titles + stat numbers (weight, presence)
      Inter    — body, tables (legibility at small sizes)
    ============================================================================= */
 
 :root {
-  --bg:       #f5f5f7;
-  --card:     #ffffff;
-  --ink:      #1f2933;
-  --ink-soft: #6b7280;
-  --accent:   #0f766e;
-  --accent-2: #115e59;
-  --tint:     #e6f2f1;
-  --border:   #e6e8ec;
-  --row-alt:  #fafbfc;
+  --primary:     #000000;
+  --accent:      #00AA44;
+  --accent-dark: #008833;
+  --bg:          #f5f5f5;
+  --card:        #ffffff;
+  --text:        #111111;
+  --text-muted:  #666666;
+  --border:      #e0e0e0;
+  --success:     #00AA44;
+  --danger:      #ff3333;
 
-  --radius:   14px;
-  --shadow:   0 1px 2px rgba(16, 24, 40, .04), 0 6px 18px rgba(16, 24, 40, .06);
-  --gap:      28px;
+  --tint:        #eaf7ef;                     /* soft green wash — badges */
+  --row-alt:     #f9f9f9;                     /* zebra rows / light track */
+  --hover:       rgba(0, 170, 68, .06);       /* green row hover */
+
+  --radius:      12px;
+  --shadow:      0 2px 12px rgba(0, 0, 0, .08);
+  --gap:         28px;
 }
 
 * { box-sizing: border-box; }
@@ -38,8 +45,8 @@ html, body {
   margin: 0;
   padding: 0;
   background: var(--bg);
-  color: var(--ink);
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--text);
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -55,65 +62,112 @@ html, body {
   gap: var(--gap);
 }
 
-/* ── Top bar ──────────────────────────────────────────────────────────────── */
+/* ── Top navbar (black bar, white PEAR logo, green dot) ───────────────────── */
 .dash-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  background: var(--primary);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 24px;
 }
 .dash-top__brand { display: flex; align-items: baseline; gap: 12px; }
 .dash-top__mark {
+  position: relative;
   font-family: "Urbanist", sans-serif;
   font-weight: 900;
   font-size: 26px;
   letter-spacing: .14em;
-  color: var(--accent);
+  color: #fff;
+  padding-right: 12px;
+}
+/* green accent dot after the wordmark */
+.dash-top__mark::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .dash-top__title {
   font-family: "Urbanist", sans-serif;
   font-weight: 600;
   font-size: 16px;
-  color: var(--ink-soft);
+  color: rgba(255, 255, 255, .65);
 }
 .dash-top__actions { display: flex; gap: 10px; }
 
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
 .dash-btn {
   font-family: "Inter", sans-serif;
   font-size: 14px;
   font-weight: 600;
   padding: 9px 16px;
   border-radius: 9px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--primary);
+  background: var(--primary);       /* primary = black bg, white text */
   color: #fff;
   cursor: pointer;
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
-.dash-btn:hover { background: var(--accent-2); border-color: var(--accent-2); }
-.dash-btn--ghost { background: #fff; color: var(--accent); }
-.dash-btn--ghost:hover { background: var(--tint); color: var(--accent-2); }
-.dash-btn:focus-visible { outline: 3px solid rgba(15, 118, 110, .35); outline-offset: 2px; }
+.dash-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ghost — used inside the black navbar: outlined, turns green on hover */
+.dash-btn--ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, .4);
+  color: #fff;
+}
+.dash-btn--ghost:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* confirm / success action */
+.dash-btn--confirm {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.dash-btn--confirm:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+
+/* destructive / delete action */
+.dash-btn--danger {
+  background: transparent;
+  border-color: rgba(255, 255, 255, .4);
+  color: #fff;
+}
+.dash-btn--danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+.dash-btn:focus-visible { outline: 3px solid rgba(0, 170, 68, .45); outline-offset: 2px; }
 
 /* ── Section card ─────────────────────────────────────────────────────────── */
 .card {
+  --card-pad-x: 24px;
+  --card-pad-b: 26px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 24px 24px 26px;
+  overflow: hidden;                 /* clips the title cap to the card radius */
+  padding: 0 var(--card-pad-x) var(--card-pad-b);
 }
+/* title cap — black bar, white text, green left border, sits atop the card */
 .card__title {
-  margin: 0 0 18px;
+  display: block;
+  margin: 0 calc(-1 * var(--card-pad-x)) 20px;
+  padding: 14px 20px;
+  background: var(--primary);
+  color: #fff;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px 8px 0 0;
   font-family: "Urbanist", sans-serif;
   font-weight: 800;
   font-size: 18px;
   letter-spacing: .01em;
-  color: var(--ink);
-  padding-bottom: 10px;
-  border-bottom: 2px solid var(--accent);
-  display: inline-block;
 }
 
 /* ── Overview · stat cards ────────────────────────────────────────────────── */
@@ -123,9 +177,10 @@ html, body {
   gap: 16px;
 }
 .stat-card {
-  background: var(--row-alt);
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-top: 3px solid var(--accent);   /* thin green top border */
+  border-radius: 10px;
   padding: 20px 22px;
   text-align: center;
 }
@@ -144,7 +199,7 @@ html, body {
   font-weight: 600;
   letter-spacing: .03em;
   text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--text-muted);
 }
 
 /* ── Tables (shared across Users + Sessions) ──────────────────────────────── */
@@ -161,25 +216,27 @@ html, body {
   font-size: 12px;
   letter-spacing: .04em;
   text-transform: uppercase;
-  color: var(--ink-soft);
-  padding: 10px 14px;
-  border-bottom: 2px solid var(--border);
+  color: #fff;                      /* black header row, white text */
+  background: var(--primary);
+  padding: 12px 14px;
   white-space: nowrap;
 }
+.data-table thead th:first-child { border-top-left-radius: 8px; }
+.data-table thead th:last-child  { border-top-right-radius: 8px; }
 .data-table tbody td {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
-  color: var(--ink);
+  color: var(--text);
   vertical-align: middle;
 }
-.data-table tbody tr:nth-child(even) { background: var(--row-alt); }
-.data-table tbody tr:hover { background: var(--tint); }
+.data-table tbody tr:nth-child(even) { background: var(--row-alt); }   /* zebra */
+.data-table tbody tr:hover { background: var(--hover); }               /* green hover */
 .data-table tbody tr:last-child td { border-bottom: none; }
 
-.cell-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; color: var(--ink-soft); }
-.cell-time { color: var(--ink-soft); white-space: nowrap; }
+.cell-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; color: var(--text-muted); }
+.cell-time { color: var(--text-muted); white-space: nowrap; }
 .garment-name { font-weight: 600; }
-.garment-id { display: inline-block; margin-left: 8px; font-size: 12px; color: var(--ink-soft); }
+.garment-id { display: inline-block; margin-left: 8px; font-size: 12px; color: var(--text-muted); }
 
 /* count / size pill */
 .size-badge {
@@ -188,12 +245,12 @@ html, body {
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--tint);
-  color: var(--accent-2);
+  color: var(--accent-dark);
   font-weight: 700;
   font-size: 13px;
   text-align: center;
 }
-.size-badge--none { background: #f0f1f3; color: var(--ink-soft); }
+.size-badge--none { background: #f0f0f0; color: var(--text-muted); }
 
 /* ── Ranked lists (Most-Worn Garments · Most-Requested Sizes) ─────────────── */
 .rank-list { display: flex; flex-direction: column; gap: 10px; }
@@ -206,14 +263,15 @@ html, body {
   padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--row-alt);        /* light gray track */
   overflow: hidden;
 }
-/* proportional fill behind each item — encodes relative magnitude */
+/* proportional green fill behind each item — encodes relative magnitude */
 .rank-item__bar {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--tint);
+  background: var(--accent);
+  opacity: .85;
   z-index: 0;
 }
 .rank-item__main {
@@ -223,28 +281,27 @@ html, body {
   align-items: baseline;
   min-width: 0;
 }
-.rank-item__count { position: relative; z-index: 1; }
 .rank-item__rank {
   font-family: "Urbanist", sans-serif;
   font-weight: 800;
-  color: var(--accent);
+  color: var(--text);
   margin-right: 12px;
 }
-.rank-item__label { font-weight: 600; color: var(--ink); }
-.rank-item__sub { color: var(--ink-soft); font-weight: 400; }
-.rank-item__count { font-weight: 700; color: var(--accent-2); white-space: nowrap; }
+.rank-item__label { font-weight: 600; color: var(--text); }
+.rank-item__sub { color: var(--text-muted); font-weight: 400; }
+.rank-item__count { position: relative; z-index: 1; font-weight: 800; color: var(--text); white-space: nowrap; }
 
 /* ── Empty / error states ─────────────────────────────────────────────────── */
 .empty {
   margin: 14px 2px 0;
-  color: var(--ink-soft);
+  color: var(--text-muted);
   font-size: 14px;
 }
 .error {
   margin: 14px 2px 0;
-  color: #b42318;
-  background: #fef3f2;
-  border: 1px solid #fecdca;
+  color: var(--danger);
+  background: #fff0f0;
+  border: 1px solid #ffc9c9;
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 14px;
@@ -255,7 +312,7 @@ html, body {
   .dashboard-view { padding: 20px 14px 48px; gap: 20px; }
   .stat-row { grid-template-columns: 1fr; }
   .stat-card__num { font-size: 34px; }
-  .card { padding: 18px 16px 20px; }
+  .card { --card-pad-x: 16px; --card-pad-b: 20px; }
   .dash-top { justify-content: flex-start; }
 }
 
