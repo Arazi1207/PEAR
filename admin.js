@@ -12,8 +12,106 @@
 (() => {
   "use strict";
 
+  /* ── Static shell markup — the whole page structure, rendered once into
+     #app by JS. Data-fetching/render functions below target these ids/classes
+     exactly as before; only the HTML now originates here instead of admin.html. */
+  function shellMarkup() {
+    return `
+    <main id="dashboardView" class="dashboard-view">
+
+      <header class="dash-top">
+        <div class="dash-top__brand">
+          <span class="dash-top__mark">PEAR</span>
+          <span class="dash-top__sub">Session Analytics</span>
+        </div>
+        <div class="dash-top__actions">
+          <button id="refreshBtn" class="dash-btn" type="button">Refresh</button>
+          <button id="clearBtn"   class="dash-btn" type="button">Clear all</button>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2 class="card__title">Overview</h2>
+        <div class="stat-row">
+          <div class="stat-card">
+            <span class="stat-card__num" id="statTotal">0</span>
+            <span class="stat-card__label">Total Sessions</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__num" id="statVisitors">0</span>
+            <span class="stat-card__label">Unique Visitors</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__num" id="statGarments">0</span>
+            <span class="stat-card__label">Garments Sized</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">Users</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Measurements</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody id="usersRows"></tbody>
+          </table>
+        </div>
+        <p id="usersEmpty" class="empty" hidden>No users registered yet.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">Most-Worn Garments</h2>
+        <div id="garmentsList" class="rank-list"></div>
+        <p id="garmentsEmpty" class="empty" hidden>No garment data yet.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">Most-Requested Sizes</h2>
+        <div id="sizesList" class="rank-list"></div>
+        <p id="sizesEmpty" class="empty" hidden>No size data yet.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">All Sessions</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Visitor ID</th>
+                <th>Recommended Size</th>
+                <th>Height</th>
+                <th>Weight</th>
+                <th>Chest</th>
+                <th>Waist</th>
+                <th>Garment</th>
+                <th>Date &amp; Time</th>
+              </tr>
+            </thead>
+            <tbody id="sessionRows"></tbody>
+          </table>
+        </div>
+        <p id="emptyState" class="empty" hidden>No sessions logged yet.</p>
+        <p id="dashError"  class="error" role="alert" hidden></p>
+      </section>
+
+    </main>`;
+  }
+
   function start() {
     const $ = (id) => document.getElementById(id);
+
+    // Render the page structure into #app before wiring anything up.
+    const app = document.getElementById("app");
+    if (app && !document.getElementById("dashboardView")) {
+      app.innerHTML = shellMarkup();
+    }
 
     const dashView = $("dashboardView");
     if (!dashView) {
