@@ -1,20 +1,40 @@
 /* =============================================================================
-   PEAR Admin Dashboard — client logic (open access, no login gate)
+   PEAR Admin Dashboard — client logic with Supabase Auth login gate
    -----------------------------------------------------------------------------
-   • No password / login form. The dashboard loads directly on page open.
-   • Data is read live from Supabase via the server:
-       GET    /api/sessions      → every session row (newest first)
-       GET    /api/admin/users   → users + per-user measurement count
-       DELETE /api/sessions      → wipe all sessions ("Clear all")
-   • All row fields are read using the snake_case keys Supabase returns
-     (session_id, garment_name, garment_type, created_at, …).
+   • Login gate: admins must authenticate via Supabase Auth.
+   • On page load: getSession() → if valid session, skip to dashboard.
+   • All data fetches carry a Bearer token; server verifies via getUser().
    ============================================================================= */
 (() => {
   "use strict";
 
-  /* ── Static shell markup — the whole page structure, rendered once into
-     #app by JS. Data-fetching/render functions below target these ids/classes
-     exactly as before; only the HTML now originates here instead of admin.html. */
+  const SUPABASE_URL      = "https://nhkaiucbaauqetaidgoi.supabase.co";
+  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"; // Supabase Dashboard → Settings → API → anon public
+
+  const adminSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  /* ── Login view markup ──────────────────────────────────────────────────── */
+  function loginMarkup() {
+    return `
+    <div id="loginView" class="login-view">
+      <form id="loginForm" class="login-card" autocomplete="on" novalidate>
+        <div class="login-brand">PEAR</div>
+        <p class="login-subtitle">Admin Dashboard</p>
+        <div class="login-field">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" autocomplete="email" required placeholder="admin@example.com">
+        </div>
+        <div class="login-field">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••">
+        </div>
+        <p id="loginError" class="login-error" hidden></p>
+        <button type="submit" id="loginBtn" class="dash-btn login-submit">Login</button>
+      </form>
+    </div>`;
+  }
+
+  /* ── Dashboard shell markup ─────────────────────────────────────────────── */
   function shellMarkup() {
     return `
     <main id="dashboardView" class="dashboard-view">
@@ -27,6 +47,7 @@
         <div class="dash-top__actions">
           <button id="refreshBtn" class="dash-btn" type="button">Refresh</button>
           <button id="clearBtn"   class="dash-btn" type="button">Clear all</button>
+          <button id="logoutBtn"  class="dash-btn" type="button">Logout</button>
         </div>
       </header>
 
@@ -104,22 +125,69 @@
     </main>`;
   }
 
-  function start() {
+  /* ── Show login form ────────────────────────────────────────────────────── */
+  function showLogin() {
+    document.getElementById("app").innerHTML = loginMarkup();
+
+    const form     = document.getElementById("loginForm");
+    const errEl    = document.getElementById("loginError");
+    const loginBtn = document.getElementById("loginBtn");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errEl.hidden = true;
+      loginBtn.disabled = true;
+      loginBtn.textContent = "...";
+
+      const email    = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+
+      const { data, error } = await adminSupabase.auth.signInWithPassword({ email, password });
+
+      if (error || !data?.session) {
+        errEl.textContent = "אימייל או סיסמה שגויים";
+        errEl.hidden = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = "Login";
+        return;
+      }
+
+      showDashboard(data.session.access_token);
+    });
+  }
+
+  /* ── Render dashboard and boot data-fetching logic ──────────────────────── */
+  function showDashboard(accessToken) {
+    document.getElementById("app").innerHTML = shellMarkup();
+    startDashboard(accessToken);
+  }
+
+  /* ── All dashboard logic — unchanged except every fetch is authed ────────── */
+  function startDashboard(accessToken) {
     const $ = (id) => document.getElementById(id);
 
-    // Render the page structure into #app before wiring anything up.
-    const app = document.getElementById("app");
-    if (app && !document.getElementById("dashboardView")) {
-      app.innerHTML = shellMarkup();
+    /* Always re-reads session so auto-refreshed tokens are picked up. */
+    async function currentToken() {
+      const { data: { session } } = await adminSupabase.auth.getSession();
+      return session?.access_token || accessToken;
     }
 
-    const dashView = $("dashboardView");
-    if (!dashView) {
-      console.error("[admin] missing #dashboardView container");
-      return;
+    async function authedFetch(url, opts = {}) {
+      const tk = await currentToken();
+      return fetch(url, {
+        ...opts,
+        headers: { ...(opts.headers || {}), "Authorization": `Bearer ${tk}` },
+      });
     }
 
-    /* ── refresh / clear ────────────────────────────────────────────────── */
+    /* ── Logout ─────────────────────────────────────────────────────────── */
+    const logoutBtn = $("logoutBtn");
+    if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+      await adminSupabase.auth.signOut();
+      showLogin();
+    });
+
+    /* ── Refresh / clear ────────────────────────────────────────────────── */
     const refreshBtn = $("refreshBtn");
     if (refreshBtn) refreshBtn.addEventListener("click", () => loadSessions());
 
@@ -128,7 +196,7 @@
       if (!confirm("Delete ALL session data permanently? This cannot be undone.")) return;
       clearBtn.disabled = true;
       try {
-        const res = await fetch("/api/sessions", { method: "DELETE" });
+        const res = await authedFetch("/api/sessions", { method: "DELETE" });
         if (!res.ok) throw new Error("Server error " + res.status);
         await loadSessions();
       } catch (err) {
@@ -139,16 +207,16 @@
       }
     });
 
-    /* ── data load + render ─────────────────────────────────────────────── */
+    /* ── Data load + render ─────────────────────────────────────────────── */
     async function loadSessions() {
       const errEl = $("dashError");
       if (errEl) errEl.hidden = true;
 
       try {
-        // Cache-buster (&_=) + no-store so the browser/CDN can never hand back a
-        // stale or empty response.
         const url = "/api/sessions?_=" + Date.now();
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await authedFetch(url, { cache: "no-store" });
+
+        if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); return; }
 
         const rawText = await res.text();
         let data;
@@ -161,11 +229,12 @@
 
         const sessions = Array.isArray(data.sessions) ? data.sessions : [];
         renderStats(sessions);
-        renderUsageStats(sessions);   // most-worn garments + most-requested sizes
+        renderUsageStats(sessions);
         renderRows(sessions);
-        loadUsers();                  // users + per-user measurement counts
+        loadUsers();
       } catch (err) {
         console.error("[admin] loadSessions failed:", err);
+        const errEl = $("dashError");
         if (errEl) {
           errEl.textContent = "Could not load data: " + (err.message || err);
           errEl.hidden = false;
@@ -177,12 +246,11 @@
       const visitors = new Set(sessions.map((s) => s.session_id).filter(Boolean));
       const garments = new Set(sessions.map((s) => s.garment_name || s.garment_id).filter(Boolean));
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-      set("statTotal",    sessions.length);     // Total Sessions
-      set("statVisitors", visitors.size);       // Unique Visitors (unique IDs)
-      set("statGarments", garments.size);       // Garments Sized
+      set("statTotal",    sessions.length);
+      set("statVisitors", visitors.size);
+      set("statGarments", garments.size);
     }
 
-    // A measurement value with its unit, or a dash when the field was left blank.
     function val(v, unit) {
       if (v === "" || v === null || v === undefined) return "—";
       return esc(v) + (unit || "");
@@ -242,16 +310,12 @@
       tbody.appendChild(frag);
     }
 
-    // Minimal HTML-escape — all DB-sourced strings pass through this.
     function esc(v) {
       return String(v ?? "")
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    /* Render a ranked list into a static container (#garmentsList / #sizesList).
-       Each row carries a proportional bar behind it so relative magnitude reads
-       at a glance. `items` = [{ label, sub, count }] already sorted desc. */
     function renderRankList(gridId, emptyId, items, unit) {
       const grid  = $(gridId);
       const empty = $(emptyId);
@@ -280,10 +344,7 @@
       grid.appendChild(frag);
     }
 
-    /* Most-worn garments (top 5, grouped by garment_type + garment_name) and
-       most-requested sizes — both computed live from the fetched session rows. */
     function renderUsageStats(sessions) {
-      /* ── Most-worn garments — group by garment_type + garment_name ── */
       const byGarment = new Map();
       for (const s of sessions) {
         const name = String(s.garment_name || "Unspecified garment").trim();
@@ -295,7 +356,6 @@
       const topGarments = [...byGarment.values()].sort((a, b) => b.count - a.count).slice(0, 5);
       renderRankList("garmentsList", "garmentsEmpty", topGarments, "worn");
 
-      /* ── Most-requested sizes — group by calculated size, count desc ── */
       const bySize = new Map();
       for (const s of sessions) {
         const size = String(s.size || "").trim().toUpperCase();
@@ -308,16 +368,14 @@
       renderRankList("sizesList", "sizesEmpty", sizes, "requests");
     }
 
-    /* Users + total measurement count — fetched live from /api/admin/users and
-       rendered into the static Users table. The endpoint returns snake_case keys
-       (name, phone, created_at) plus the derived session_count. */
     async function loadUsers() {
       const tbody = $("usersRows");
       if (!tbody) return;
 
       try {
         const url = "/api/admin/users?_=" + Date.now();
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await authedFetch(url, { cache: "no-store" });
+        if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); return; }
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || data.ok === false) {
           throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
@@ -344,12 +402,21 @@
       }
     }
 
-    /* ── boot: load the dashboard data immediately (no auth) ─────────────── */
     loadSessions();
   }
 
+  /* ── Entry point: check existing session, show login or dashboard ────────── */
+  async function init() {
+    const { data: { session } } = await adminSupabase.auth.getSession();
+    if (session) {
+      showDashboard(session.access_token);
+    } else {
+      showLogin();
+    }
+  }
+
   if (document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", start);
+    document.addEventListener("DOMContentLoaded", init);
   else
-    start();
+    init();
 })();

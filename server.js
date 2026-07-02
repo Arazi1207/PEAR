@@ -86,7 +86,7 @@ app.use("/api", (req, res, next) => {
   if (origin) res.header("Access-Control-Allow-Origin", allowed ? origin : "null");
   res.header("Vary",                          "Origin");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.header("Access-Control-Max-Age",       "600");
   res.header("X-Content-Type-Options",       "nosniff");
   res.header("Referrer-Policy",              "strict-origin-when-cross-origin");
@@ -340,6 +340,29 @@ function storageUnavailable(res) {
   return true;
 }
 
+/* ── Admin auth middleware — verifies Supabase Auth JWT ─────────────────────
+   Reads the Bearer token from the Authorization header and calls getUser()
+   on the server-side Supabase client (service-role key, so no RLS bypass
+   concerns here — we're only checking identity, not reading data with it).
+   Returns 401 for missing, invalid, or expired tokens. */
+async function requireAdminAuth(req, res, next) {
+  const auth  = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token) {
+    return res.status(401).json({ ok: false, error: "unauthorized", message: "Missing auth token." });
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ ok: false, error: "unauthorized", message: "Invalid or expired token." });
+    }
+    next();
+  } catch (err) {
+    console.error("[admin-auth] getUser failed:", err?.message);
+    return res.status(401).json({ ok: false, error: "unauthorized", message: "Auth check failed." });
+  }
+}
+
 async function readSessionLogs() {
   const { data, error } = await supabase
     .from("sessions")
@@ -536,10 +559,11 @@ async function clearSessions(_req, res) {
   }
 }
 
-/* Canonical routes the dashboard uses (open access — no auth). */
+/* Canonical routes the dashboard uses. POST (fitting-room ingest) is open;
+   GET and DELETE are admin-only and require a valid Supabase Auth token. */
 app.post("/api/sessions", saveSession);
-app.get("/api/sessions", getSessions);
-app.delete("/api/sessions", clearSessions);
+app.get("/api/sessions", requireAdminAuth, getSessions);
+app.delete("/api/sessions", requireAdminAuth, clearSessions);
 
 /* Back-compat aliases (older clients / earlier code paths). */
 app.post("/api/session-log",      saveSession);
@@ -549,7 +573,7 @@ app.delete("/api/admin/sessions", clearSessions);
 /* User identity routes (returning-visitor recognition). */
 app.post("/api/users",            createUser);
 app.get("/api/users/:deviceId",   getUserByDevice);
-app.get("/api/admin/users",       getUsersWithCounts);
+app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 
 /* ── In-memory image cache — avoids re-fetching the same CDN image within a warm
    Lambda container. Keyed by full URL; evicts oldest entry when the cap is hit.
