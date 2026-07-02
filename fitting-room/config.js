@@ -58,4 +58,55 @@ export const CONFIG = Object.freeze({
      NOT applied to setRemoteDescription — Decart's send rate is determined server-side
      via RTCP feedback; the b= line in an answer SDP doesn't override it. */
   VIDEO_TARGET_BITRATE_KBPS: 2000,
+
+  /* ── "Upload Your Own Garment" — client-side detection + crop tuning ─────────
+     Every timing / threshold the upload → detect → crop flow uses lives HERE (per
+     the project's "zero hardcoded timings" rule); app.js reads CONFIG.UPLOAD and
+     never redefines these.
+
+     DETECTOR CHOICE — vanilla canvas, not MediaPipe. MediaPipe's shipped Object
+     Detector model (EfficientDet/COCO) has NO apparel classes ("clothing/top/
+     bottom/dress" aren't in COCO), so it cannot reliably box garments, and it adds
+     a multi-MB WASM+model CDN dependency that can 404 — against this codebase's
+     "bulletproof, self-contained, no external path to break" ethos. Instead we use
+     a dependency-free background-subtraction + connected-components pass
+     (detectGarments() in app.js): estimate the background colour from the image
+     border, mask the foreground, dilate to close gaps, then label blobs into
+     garment bounding boxes. It runs fully offline and handles flat-lays, white
+     backgrounds AND model-worn photos. Swap in MediaPipe later by adding its CDN
+     URL here and replacing detectGarments()'s body — the rest of the flow is
+     detector-agnostic (it only consumes {xmin,ymin,width,height} boxes). */
+  UPLOAD: Object.freeze({
+    MAX_BYTES:               12 * 1024 * 1024, // reject uploads larger than 12 MB
+    ACCEPT:                  "image/*",        // native file-picker filter
+
+    DETECT_MAX_DIM:          512,   // downscale the longest side to this before analysis (speed)
+    BG_SAMPLE_BAND:          0.06,  // fraction of each edge sampled to estimate the background colour
+    FG_DIFF_THRESHOLD:       46,    // Euclidean RGB distance from bg above which a pixel is "foreground"
+    DILATE_RADIUS:           3,     // morphological dilation (downscaled px) — closes gaps so one garment = one blob
+    MIN_BOX_AREA_FRAC:       0.015, // ignore foreground blobs smaller than this fraction of the image
+    MAX_BOX_AREA_FRAC:       0.985, // ignore blobs that fill essentially the whole frame (bg-estimate failure)
+    MIN_BOX_DIM_FRAC:        0.05,  // ignore slivers thinner than this fraction of the image in either axis
+    MERGE_IOU:               0.18,  // merge two boxes overlapping more than this (or on strong containment)
+    MAX_BOXES:               6,     // cap on how many detection boxes are drawn
+
+    BOX_PAD_FRAC:            0.05,  // expand the crop outward by this fraction so seams/edges aren't clipped
+    CROP_MAX_DIM:            1024,  // longest side of the exported cropped garment
+    CROP_QUALITY:            0.92,  // JPEG quality of the exported crop (data URL handed to rtClient.set)
+
+    DETECT_RENDER_DELAY_MS:  240,   // let the modal paint its loading state before the (synchronous) detect pass
+
+    /* ── multi-garment separation + viewfinder labels ────────────────────────
+       A person wearing an outfit is one foreground blob; to surface a Top AND a
+       Bottom bracket (like the reference), a tall, person-shaped blob is split
+       horizontally into two garment zones. Flat-lays with spatially separate
+       garments stay separate and are classified by geometry. */
+    PERSON_MIN_HEIGHT_FRAC:   0.55, // a blob taller than this fraction of the image = a worn outfit → split Top+Bottom
+    PERSON_MAX_ASPECT:        0.85, // …and no wider than this (w/h) to read as a person rather than a wide flat-lay
+    SPLIT_TOP_FRAC:           0.56, // the Top garment spans the upper N of the outfit blob
+    SPLIT_BOTTOM_FRAC:        0.50, // the Bottom garment starts this far down (slight waist overlap → natural framing)
+    FULLBODY_MIN_HEIGHT_FRAC: 0.86, // a single tall, narrow blob at least this tall = a full-body item (dress/jumpsuit)
+    MIN_CONFIDENCE:           0.02, // if the best box's area-fraction score is below this → treat as "no clear garment"
+    PICK_ANIM_MS:             260,  // crisp click-confirmation animation played before the modal closes
+  }),
 });

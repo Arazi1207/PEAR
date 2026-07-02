@@ -550,6 +550,35 @@ function onMeasurementKeydown(e) {
    ============================================================================= */
 function parseHandoff() {
   const q = new URLSearchParams(location.search);
+
+  // "Upload Your Own Garment" handoff from the storefront. The cropped garment is a
+  // data URL — far too large for a query param — so the storefront stashes it in
+  // localStorage ("pear_custom_garment") and flags the deep-link with ?custom=1.
+  // We reconstruct it here as a "custom" focus-mode item (Screen 2 Active Item),
+  // handled downstream exactly like a catalog garment (buildCustomPrompt, the
+  // data-URL passthrough in garmentImageRef, the custom chip label). Left in
+  // localStorage (not cleared) because parseHandoff() runs several times per
+  // session; a later upload simply overwrites it.
+  if (q.get("custom") === "1") {
+    try {
+      const raw = JSON.parse(localStorage.getItem("pear_custom_garment") || "null");
+      if (raw && raw.img) {
+        const lower = raw.garmentType === "lower_body";
+        const result = {
+          id: null, custom: true,
+          name: raw.name || "Your garment",
+          type: lower ? "pants" : "shirt",   // toItem() → garmentType (lower_body|upper_body)
+          subType: "",                       // no catalog subType → generic custom prompt
+          color: raw.color || "#0B3C95",
+          img: raw.img,                      // cropped garment data URL (rtClient image)
+        };
+        console.log("[PEAR] parseHandoff() — custom uploaded garment:", { ...result, img: "data:… (custom crop)" });
+        return result;
+      }
+      console.warn("[PEAR] parseHandoff() — ?custom=1 but no stored garment; falling through");
+    } catch (e) { console.warn("[PEAR] parseHandoff() — custom garment parse failed:", e && e.message); }
+  }
+
   const id = parseInt(q.get("id"), 10);
   const fromCatalog = !isNaN(id) ? PEAR_CATALOG.find((p) => p.id === id) : null;
 
@@ -790,8 +819,9 @@ function renderActiveGarment() {
     const item = activeItem;
     $("activeGarmentMedia").innerHTML = garmentThumb(item);
     $("activeGarmentName").innerText = item.name;
-    $("activeGarmentType").innerText =
-      (item.garmentType === "lower_body" ? "מכנסיים · " : "חולצה · ") + (SUBTYPE_LABEL_HE[item.subType] || "");
+    $("activeGarmentType").innerText = item.custom
+      ? (item.garmentType === "lower_body" ? "בגד תחתון שהעלית · Custom upload" : "בגד עליון שהעלית · Custom upload")
+      : (item.garmentType === "lower_body" ? "מכנסיים · " : "חולצה · ") + (SUBTYPE_LABEL_HE[item.subType] || "");
     if (eyebrow) eyebrow.innerText = "פריט נמדד · Now fitting";
     chip.classList.remove("is-duo");
   }
@@ -1425,9 +1455,21 @@ async function fetchGarmentBlob(imgUrl) {
  */
 function garmentImageRef(cdnUrl) {
   if (!cdnUrl) return undefined;
+  // "Upload Your Own Garment": a cropped custom garment is a self-contained
+  // data:/blob: URL — it is NOT a fetchable http(s) CDN URL, so it must be handed
+  // to the SDK verbatim. Routing it through /api/img-proxy (which fetches a remote
+  // URL) would corrupt it. Pass it straight through.
+  if (/^(data:|blob:)/i.test(cdnUrl)) return cdnUrl;
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if (isLocal) return cdnUrl;
   return `${location.origin}/api/img-proxy?url=${encodeURIComponent(cdnUrl)}`;
+}
+
+/** Console-safe image ref: abbreviate long/data URLs so a base64 crop can't flood DevTools. */
+function abbrevImg(ref) {
+  if (!ref) return "(none)";
+  if (/^data:/i.test(ref)) return `data:… (${ref.length.toLocaleString()} chars, custom crop)`;
+  return ref.length > 100 ? ref.slice(0, 100) + "…" : ref;
 }
 
 async function applyGarment(item) {
@@ -1441,10 +1483,10 @@ async function applyGarment(item) {
   };
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
-  console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType})`);
+  console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType}${item.custom ? ", custom upload" : ""})`);
   console.log("subType  :", item.subType, "| color:", item.color);
-  console.log("img URL  :", item.img || "(none)");
-  console.log("img ref  :", imageRef || "(none — prompt-only)");
+  console.log("img URL  :", abbrevImg(item.img));   // data: URLs abbreviated so a base64 blob can't flood the console
+  console.log("img ref  :", abbrevImg(imageRef));
   console.log("prompt   :", payload.prompt);
   console.groupEnd();
 
@@ -1535,6 +1577,12 @@ const KEEP_BOTTOMS = " Keep the person's existing lower body exactly as it is in
 const KEEP_TOP     = " Keep the person's existing upper body exactly as it is in the live camera — do not change, recolor, restyle, or re-render the shirt, top, jacket, or anything above the waist.";
 
 function buildPrompt(item) {
+  // "Upload Your Own Garment": the reference image IS the garment, so we point the
+  // model AT that image instead of naming a catalog color/subType. We still keep the
+  // anatomical anchor, size-driven fit modifier and the opposite-layer lock, so a
+  // custom upload behaves exactly like a built-in item in the strict live flow.
+  if (item.custom) return buildCustomPrompt(item);
+
   const colorWord = colorName(item.color);
   const sub    = SUBTYPE_PROMPT[item.subType] || "";
   const anchor = getAnatomicalAnchor();
@@ -1547,6 +1595,27 @@ function buildPrompt(item) {
   }
   const noun = SHIRT_NOUN[item.subType] || "top";
   return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_BOTTOMS}`
+    .replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Prompt for a user-uploaded ("custom") garment. The cropped image is passed as the
+ * reference (image: dataURL) so the instruction tells the model to replicate the
+ * exact garment shown, rather than a named catalog color/subType.
+ * @param {object} item — a custom item ({ custom:true, garmentType, img, color })
+ * @returns {string}
+ */
+function buildCustomPrompt(item) {
+  const anchor = getAnatomicalAnchor();
+  const delta  = getSizeDelta();
+  const fitMod = getFitModifier(delta, item.garmentType);
+  const ref = "the exact garment shown in the reference image — a custom uploaded garment — replicating its precise color, pattern, print, fabric texture and silhouette";
+
+  if (item.garmentType === "lower_body") {
+    return `Substitute the current bottoms with ${ref}, worn as trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_TOP}`
+      .replace(/\s+/g, " ").trim();
+  }
+  return `Substitute the current top with ${ref}, worn on the upper body. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_BOTTOMS}`
     .replace(/\s+/g, " ").trim();
 }
 
@@ -2806,7 +2875,27 @@ function renderCompleteTheLook(item) {
 }
 
 function renderCatalogPanel() {
-  $("catalogGrid").innerHTML = PEAR_CATALOG.map((p) => `
+  // "Upload Your Own Garment" — the first, prominent tile in the garment selector.
+  // Clicking it opens the native file picker (delegated [data-upload] handler).
+  const uploadCard = `
+    <div class="cat-item cat-item--upload" data-upload role="button" tabindex="0"
+         aria-label="העלה בגד משלך · Upload your own garment">
+      <div class="cat-item__media cat-upload__media">
+        <span class="cat-upload__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 16V4"></path><path d="M7 9l5-5 5 5"></path>
+            <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+        </span>
+      </div>
+      <div class="cat-item__body">
+        <span class="cat-item__name">העלה בגד משלך</span>
+        <span class="cat-item__price cat-upload__en">Upload your own</span>
+      </div>
+    </div>`;
+
+  $("catalogGrid").innerHTML = uploadCard + PEAR_CATALOG.map((p) => `
     <div class="cat-item" data-pick="${p.id}">
       <div class="cat-item__media">${garmentThumb(p)}</div>
       <div class="cat-item__body">
@@ -2819,6 +2908,576 @@ function renderCatalogPanel() {
 function highlightCatalog(id) {
   document.querySelectorAll(".cat-item").forEach((el) =>
     el.classList.toggle("is-active", +el.dataset.pick === id));
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   "UPLOAD YOUR OWN GARMENT" — detect · select · crop · inject
+   ─────────────────────────────────────────────────────────────────────────────
+   Flow:  upload card → file picker → handleGarmentFile() validates + loads the
+   image → runDetection() opens the overlay and runs detectGarments() (a vanilla,
+   dependency-free background-subtraction + connected-components pass) → the user
+   clicks a bounding box → selectDetectedGarment() crops that region to a data-URL
+   and hands it to setActiveItem() as a "custom" item. From there it is treated
+   EXACTLY like a catalog garment: goLive() → applyActive() → rtClient.set({ prompt,
+   image: <cropped dataURL> }), governed by the same ek_ token, strict LIVE_DURATION_MS
+   window and pagehide/visibilitychange leak guards. All tunables live in CONFIG.UPLOAD.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+let uploadedImg    = null;  // the currently-loaded source Image (natural resolution)
+let detectedBoxes  = [];    // [{ xmin, ymin, width, height, score }] in NATURAL image coords
+let detectedOutfit = null;  // { topBounds, bottomBounds, … } when a full worn outfit is detected → TOP/BOTTOM toggle
+let activeSide     = "top"; // which sub-region the outfit toggle currently targets ("top" | "bottom")
+
+/** Open the native file picker (reset value so re-picking the SAME file re-fires change). */
+function openGarmentUpload() {
+  const inp = $("garmentUploadInput");
+  if (!inp) return;
+  inp.value = "";
+  inp.click();
+}
+
+/** File-input change handler. */
+function onGarmentFileChosen(e) {
+  const file = e.target.files && e.target.files[0];
+  if (file) handleGarmentFile(file);
+}
+
+/**
+ * Validate the picked file (type + size), decode it, then run detection.
+ * @param {File} file
+ */
+function handleGarmentFile(file) {
+  const U = CONFIG.UPLOAD;
+  if (!/^image\//i.test(file.type)) { toast("קובץ לא נתמך — בחר/י תמונה"); return; }
+  if (file.size > U.MAX_BYTES) {
+    toast(`התמונה גדולה מדי (מקסימום ${Math.round(U.MAX_BYTES / (1024 * 1024))}MB)`);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    // Same-origin data URL → canvas stays untainted, so getImageData()/toDataURL() work.
+    img.onload = () => runDetection(img);
+    img.onerror = () => toast("טעינת התמונה נכשלה — נסה/י תמונה אחרת");
+    img.src = String(reader.result);
+  };
+  reader.onerror = () => toast("קריאת הקובץ נכשלה");
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Open the overlay in its loading state, paint the image, then (after a short,
+ * config-driven delay so the modal can render) run the synchronous detect pass and
+ * draw the boxes — or the empty state when nothing is found.
+ * @param {HTMLImageElement} img
+ */
+function runDetection(img) {
+  uploadedImg = img;
+  detectedBoxes = [];
+
+  openGarmentDetect();
+  $("gdImage").src = img.src;
+
+  setTimeout(() => {
+    let boxes = [];
+    try { boxes = detectGarments(img); }
+    catch (err) { console.warn("[upload] detectGarments failed:", err?.message || err); }
+
+    detectedBoxes = boxes;
+    $("gdLoading").hidden = true;
+
+    if (!boxes.length) {
+      showDetectEmpty();
+      toast("לא זוהו בגדים. נסה/י תמונה ברורה אחרת.");
+      return;
+    }
+
+    // A worn full outfit is ONE figure → drive it with the TOP/BOTTOM toggle
+    // (one bounding box that snaps between the top & bottom sub-regions). Flat-lays
+    // with distinct garments stay in multi-bracket mode.
+    const outfit = boxes.filter((b) => b.outfit)
+                        .sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
+    if (outfit) {
+      enterOutfitMode(outfit);
+    } else {
+      exitOutfitMode();
+      $("gdSub").textContent =
+        `${boxes.length} ${boxes.length === 1 ? "פריט זוהה" : "פריטים זוהו"} · tap to select`;
+      renderDetectionBoxes(boxes);
+    }
+  }, CONFIG.UPLOAD.DETECT_RENDER_DELAY_MS);
+}
+
+/* ── overlay open/close (fade driven purely by the .show class + CSS) ───────── */
+function openGarmentDetect() {
+  const ov = $("garmentDetect");
+  if (!ov) return;
+  ov.hidden = false;                       // drop the initial display:none once
+  $("gdBoxes").innerHTML = "";
+  $("gdLoading").hidden = false;
+  $("gdEmpty").hidden = true;
+  $("gdSub").textContent = "מזהה בגדים בתמונה…";
+  detectedOutfit = null; activeSide = "top";
+  { const tabs = $("gdTabs"); if (tabs) tabs.hidden = true; }
+  document.body.classList.add("gd-open");
+  requestAnimationFrame(() => ov.classList.add("show"));
+}
+
+function closeGarmentDetect() {
+  const ov = $("garmentDetect");
+  if (!ov) return;
+  ov.classList.remove("show");             // CSS transitions the fade-out; no JS timer
+  document.body.classList.remove("gd-open");
+}
+
+function showDetectEmpty() {
+  $("gdEmpty").hidden = false;
+  $("gdSub").textContent = "לא זוהו בגדים";
+}
+
+/**
+ * Draw a clickable royal-blue box over each detection. Coordinates are expressed
+ * as PERCENTAGES of the natural image size, and .gd-boxes overlaps the rendered
+ * image exactly (its .gd-frame parent wraps only the <img>), so the mapping is
+ * scale-independent — no recompute on resize needed.
+ * @param {Array<{xmin:number,ymin:number,width:number,height:number}>} boxes
+ */
+const GARMENT_LABEL_HE = { "Top": "עליון", "Bottom": "תחתון", "Full-body": "מלא" };
+
+function renderDetectionBoxes(boxes) {
+  const img = uploadedImg;
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  $("gdBoxes").innerHTML = boxes.map((b, i) => {
+    const left = (b.xmin / iw) * 100, top = (b.ymin / ih) * 100;
+    const w = (b.width / iw) * 100,   h = (b.height / ih) * 100;
+    const en = b.label || "Item", he = GARMENT_LABEL_HE[en] || "פריט";
+    return `<button class="gd-box" type="button" data-box="${i}" aria-label="מדוד ${he}" style="--i:${i};` +
+      `left:${left.toFixed(3)}%;top:${top.toFixed(3)}%;width:${w.toFixed(3)}%;height:${h.toFixed(3)}%">` +
+      `<span class="gd-box__label"><b>${he}</b><span>${en}</span></span>` +
+      `<i class="gd-corner gd-corner--tl"></i><i class="gd-corner gd-corner--tr"></i>` +
+      `<i class="gd-corner gd-corner--bl"></i><i class="gd-corner gd-corner--br"></i>` +
+      `</button>`;
+  }).join("");
+}
+
+/* ── OUTFIT MODE — one bracket + a TOP/BOTTOM segmented toggle ────────────────
+   For a full worn outfit we show a single bracket whose position/size + label snap
+   between the outfit's TOP and BOTTOM sub-regions when the toggle changes. Switching
+   sides mutates the SAME element's inline bounds so the CSS transition animates the
+   move (the uploaded image is never reloaded). */
+const SIDE_LABEL = {
+  top:    { he: "בגד עליון", en: "Top Garment" },
+  bottom: { he: "בגד תחתון", en: "Bottom Garment" },
+};
+
+function outfitBoundsPct(bounds) {
+  const iw = uploadedImg.naturalWidth || uploadedImg.width;
+  const ih = uploadedImg.naturalHeight || uploadedImg.height;
+  return {
+    left:  (bounds.xmin  / iw) * 100, top:    (bounds.ymin   / ih) * 100,
+    width: (bounds.width / iw) * 100, height: (bounds.height / ih) * 100,
+  };
+}
+
+function enterOutfitMode(outfit) {
+  detectedOutfit = outfit;
+  activeSide = "top";
+  $("gdSub").textContent = "זוהתה תלבושת מלאה · בחר/י עליון או תחתון";
+  const tabs = $("gdTabs"); if (tabs) tabs.hidden = false;
+  updateTabsUI();
+  renderOutfitBox();
+}
+
+function exitOutfitMode() {
+  detectedOutfit = null;
+  const tabs = $("gdTabs"); if (tabs) tabs.hidden = true;
+}
+
+function renderOutfitBox() {
+  const b = activeSide === "bottom" ? detectedOutfit.bottomBounds : detectedOutfit.topBounds;
+  const p = outfitBoundsPct(b);
+  const { he, en } = SIDE_LABEL[activeSide];
+  $("gdBoxes").innerHTML =
+    `<button class="gd-box gd-box--outfit" type="button" data-box="0" aria-label="מדוד ${he}" style="--i:0;` +
+    `left:${p.left.toFixed(3)}%;top:${p.top.toFixed(3)}%;width:${p.width.toFixed(3)}%;height:${p.height.toFixed(3)}%">` +
+    `<span class="gd-box__label"><b>${he}</b><span>${en}</span></span>` +
+    `<i class="gd-corner gd-corner--tl"></i><i class="gd-corner gd-corner--tr"></i>` +
+    `<i class="gd-corner gd-corner--bl"></i><i class="gd-corner gd-corner--br"></i>` +
+    `</button>`;
+}
+
+/** Move/resize the existing outfit bracket to the active side (CSS animates it). */
+function positionOutfitBox() {
+  if (!detectedOutfit) return;
+  const el = $("gdBoxes").querySelector(".gd-box");
+  if (!el) return;
+  const b = activeSide === "bottom" ? detectedOutfit.bottomBounds : detectedOutfit.topBounds;
+  const p = outfitBoundsPct(b);
+  el.style.left = p.left.toFixed(3) + "%";  el.style.top    = p.top.toFixed(3) + "%";
+  el.style.width = p.width.toFixed(3) + "%"; el.style.height = p.height.toFixed(3) + "%";
+  const { he, en } = SIDE_LABEL[activeSide];
+  el.setAttribute("aria-label", "מדוד " + he);
+  const lbl = el.querySelector(".gd-box__label");
+  if (lbl) lbl.innerHTML = `<b>${he}</b><span>${en}</span>`;
+}
+
+/** Toggle handler — snap the bracket + crop target between the TOP and BOTTOM regions. */
+function setActiveSide(side) {
+  if (side !== "top" && side !== "bottom" || !detectedOutfit) return;
+  activeSide = side;
+  updateTabsUI();
+  positionOutfitBox();
+}
+
+function updateTabsUI() {
+  const tabs = $("gdTabs"); if (!tabs) return;
+  tabs.dataset.active = activeSide;                 // slides the pill indicator
+  tabs.querySelectorAll(".gd-tab").forEach((t) => {
+    const on = t.dataset.side === activeSide;
+    t.classList.toggle("is-active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+/**
+ * The user picked a box: crop the chosen region (the active TOP/BOTTOM sub-region in
+ * outfit mode, else the tapped garment), build a "custom" item and route it through
+ * the normal setActiveItem() path. Then close the overlay and nudge the user to go live.
+ * @param {number} index — index into detectedBoxes (ignored in outfit mode)
+ */
+function selectDetectedGarment(index) {
+  if (!uploadedImg) return;
+
+  // Resolve which region to crop + its garment category.
+  let box, gtype;
+  if (detectedOutfit) {
+    box   = activeSide === "bottom" ? detectedOutfit.bottomBounds : detectedOutfit.topBounds;
+    gtype = activeSide === "bottom" ? "lower_body" : "upper_body";
+  } else {
+    box = detectedBoxes[index];
+    if (!box) return;
+    const iw = uploadedImg.naturalWidth || uploadedImg.width;
+    const ih = uploadedImg.naturalHeight || uploadedImg.height;
+    gtype = box.garmentType || guessGarmentType(box, iw, ih);
+  }
+
+  // Crisp click-confirmation flash on the chosen bracket before the modal closes.
+  const el = document.querySelector(`.gd-box[data-box="${index}"]`);
+  if (el) el.classList.add("is-picked");
+
+  const crop = cropRegion(uploadedImg, box);
+
+  const item = {
+    id: null,
+    custom: true,
+    name: gtype === "lower_body" ? "המכנס שלך · Your garment" : "הבגד שלך · Your garment",
+    price: null,
+    type: gtype === "lower_body" ? "pants" : "shirt",  // feeds recommendFor()/thumbnails
+    subType: "",                                       // no catalog subType → generic prompt
+    garmentType: gtype,                                // drives slotOf() + opposite-layer lock
+    color: crop.color,                                 // avg crop colour → recommendFor contrast + demo
+    img: crop.dataUrl,                                 // the cropped garment as a data URL (rtClient image)
+  };
+
+  // Let the pick animation play, then close + transition to the live room (Screen 2).
+  setTimeout(() => {
+    closeGarmentDetect();
+    setActiveItem(item);                               // fills its slot, paints chip, resets to live
+    const cc = $("cameraCard");
+    if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
+    toast(`נבחר בגד מותאם אישית — לחצ/י על <b>התחל מדידה חיה</b>`);
+  }, CONFIG.UPLOAD.PICK_ANIM_MS);
+}
+
+/**
+ * Detect garment bounding boxes with a vanilla, dependency-free pass:
+ *   1. downscale for speed;  2. estimate the background colour from the border;
+ *   3. mask foreground (pixels far from bg);  4. dilate to close gaps;
+ *   5. connected-components → blob boxes;  6. filter by size, merge overlaps, cap.
+ * Handles flat-lays, white/plain backgrounds AND model-worn photos (one subject box).
+ * Falls back to a single whole-image box if the canvas is unreadable (tainted).
+ * @param {HTMLImageElement} img
+ * @returns {Array<{xmin:number,ymin:number,width:number,height:number,score:number}>} boxes in NATURAL coords
+ */
+function detectGarments(img) {
+  const U = CONFIG.UPLOAD;
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return [];
+
+  const scale = Math.min(1, U.DETECT_MAX_DIM / Math.max(iw, ih));
+  const w = Math.max(1, Math.round(iw * scale));
+  const h = Math.max(1, Math.round(ih * scale));
+
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let data;
+  try { data = ctx.getImageData(0, 0, w, h).data; }
+  catch (_) { return [{ xmin: 0, ymin: 0, width: iw, height: ih, score: 0.4 }]; }
+
+  // 2) background colour = mean of a border band on all four edges.
+  const band = Math.max(2, Math.round(Math.min(w, h) * U.BG_SAMPLE_BAND));
+  let br = 0, bg = 0, bb = 0, bn = 0;
+  const sample = (x, y) => { const i = (y * w + x) * 4; br += data[i]; bg += data[i + 1]; bb += data[i + 2]; bn++; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < band; x++) { sample(x, y); sample(w - 1 - x, y); }
+  for (let x = 0; x < w; x++) for (let y = 0; y < band; y++) { sample(x, y); sample(x, h - 1 - y); }
+  const bgR = br / bn, bgG = bg / bn, bgB = bb / bn;
+
+  // 3) foreground mask (squared distance vs threshold²).
+  const thr2 = U.FG_DIFF_THRESHOLD * U.FG_DIFF_THRESHOLD;
+  let mask = new Uint8Array(w * h);
+  let fgCount = 0;
+  for (let p = 0, i = 0; p < w * h; p++, i += 4) {
+    const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB;
+    if (dr * dr + dg * dg + db * db > thr2) { mask[p] = 1; fgCount++; }
+  }
+  if (fgCount === 0) return [];
+
+  // 4) dilate (separable) so a single garment fragmented by shadows/prints → one blob.
+  mask = dilateMask(mask, w, h, U.DILATE_RADIUS);
+
+  // 5) connected components (4-connectivity, iterative flood fill).
+  const visited = new Uint8Array(w * h);
+  const stack = [];
+  const raw = [];
+  for (let sy = 0; sy < h; sy++) {
+    for (let sx = 0; sx < w; sx++) {
+      const start = sy * w + sx;
+      if (!mask[start] || visited[start]) continue;
+      let minx = sx, maxx = sx, miny = sy, maxy = sy, area = 0;
+      stack.length = 0; stack.push(start); visited[start] = 1;
+      while (stack.length) {
+        const q = stack.pop();
+        const qx = q % w, qy = (q / w) | 0;
+        area++;
+        if (qx < minx) minx = qx; if (qx > maxx) maxx = qx;
+        if (qy < miny) miny = qy; if (qy > maxy) maxy = qy;
+        if (qx > 0)     { const n = q - 1; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); } }
+        if (qx < w - 1) { const n = q + 1; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); } }
+        if (qy > 0)     { const n = q - w; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); } }
+        if (qy < h - 1) { const n = q + w; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); } }
+      }
+      raw.push({ x: minx, y: miny, w: maxx - minx + 1, h: maxy - miny + 1, area });
+    }
+  }
+
+  // 6) filter by size, drop slivers + near-full-frame blobs, then merge + cap.
+  const imgArea = w * h;
+  let cand = raw
+    .filter((b) => b.area >= imgArea * U.MIN_BOX_AREA_FRAC)
+    .filter((b) => (b.w * b.h) <= imgArea * U.MAX_BOX_AREA_FRAC)
+    .filter((b) => b.w >= w * U.MIN_BOX_DIM_FRAC && b.h >= h * U.MIN_BOX_DIM_FRAC)
+    .sort((a, b) => b.area - a.area);
+
+  // Fallback: nothing passed the size gate but there IS a clear subject → one box
+  // around all foreground (covers a garment/person that fills most of the frame).
+  if (!cand.length) {
+    if (fgCount < imgArea * U.MIN_BOX_AREA_FRAC) return [];
+    const all = raw.reduce((acc, b) => ({
+      x0: Math.min(acc.x0, b.x), y0: Math.min(acc.y0, b.y),
+      x1: Math.max(acc.x1, b.x + b.w), y1: Math.max(acc.y1, b.y + b.h),
+    }), { x0: w, y0: h, x1: 0, y1: 0 });
+    cand = [{ x: all.x0, y: all.y0, w: all.x1 - all.x0, h: all.y1 - all.y0, area: fgCount }];
+  }
+
+  cand = mergeBoxes(cand, U.MERGE_IOU);
+
+  // Scale back to natural coords + pad outward so seams aren't clipped.
+  const inv = 1 / scale;
+  let natural = cand.map((b) => {
+    const padX = b.w * U.BOX_PAD_FRAC, padY = b.h * U.BOX_PAD_FRAC;
+    const x0 = Math.max(0, (b.x - padX)) * inv;
+    const y0 = Math.max(0, (b.y - padY)) * inv;
+    const x1 = Math.min(w, (b.x + b.w + padX)) * inv;
+    const y1 = Math.min(h, (b.y + b.h + padY)) * inv;
+    return {
+      xmin: Math.round(x0), ymin: Math.round(y0),
+      width: Math.round(x1 - x0), height: Math.round(y1 - y0),
+      score: Math.min(1, b.area / imgArea),
+    };
+  });
+
+  // Classify each blob (Top / Bottom / Full-body) and split a worn-outfit blob
+  // into separate Top + Bottom garments, then confidence-gate + cap.
+  natural = refineGarments(natural, iw, ih, U);
+  const best = natural.reduce((m, b) => Math.max(m, b.score || 0), 0);
+  if (best < U.MIN_CONFIDENCE) return [];
+  return natural.slice(0, U.MAX_BOXES);
+}
+
+/**
+ * Turn raw foreground boxes into labelled garments. A tall, person-shaped blob is
+ * an outfit worn on a body → split it horizontally into a Top and a Bottom zone
+ * (so both get their own viewfinder bracket, like the reference). Very tall narrow
+ * blobs read as Full-body (dress/jumpsuit); everything else is classified by
+ * geometry. Each returned box carries { garmentType, label }.
+ */
+function refineGarments(boxes, iw, ih, U) {
+  const out = [];
+  for (const b of boxes) {
+    const aspect = b.width / Math.max(1, b.height);
+    // A person-shaped blob (tall + narrow) = a full worn OUTFIT. Even when it fills
+    // the frame we no longer emit a dead-end "Full-body" box — we mark it as an
+    // outfit carrying TOP and BOTTOM sub-regions so the UI can toggle between them.
+    const person = b.height >= ih * U.PERSON_MIN_HEIGHT_FRAC && aspect <= U.PERSON_MAX_ASPECT;
+    if (person) {
+      out.push(makeOutfit(b, U));
+    } else {
+      const c = classifyGarment(b, iw, ih, U);
+      out.push({ ...b, garmentType: c.garmentType, label: c.label });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build an OUTFIT detection from a full-figure box: one box that keeps the whole
+ * figure bounds plus geometric TOP (upper ~SPLIT_TOP_FRAC) and BOTTOM (from
+ * ~SPLIT_BOTTOM_FRAC down to the feet) sub-regions. The UI's TOP/BOTTOM toggle
+ * snaps the visible bracket — and the crop — between these two sub-regions.
+ */
+function makeOutfit(b, U) {
+  const topH = Math.round(b.height * U.SPLIT_TOP_FRAC);
+  const botY = b.ymin + Math.round(b.height * U.SPLIT_BOTTOM_FRAC);
+  const botH = (b.ymin + b.height) - botY;
+  return {
+    xmin: b.xmin, ymin: b.ymin, width: b.width, height: b.height, score: b.score,
+    outfit: true, garmentType: "upper_body", label: "Top Garment",
+    topBounds:    { xmin: b.xmin, ymin: b.ymin, width: b.width, height: topH },
+    bottomBounds: { xmin: b.xmin, ymin: botY,   width: b.width, height: botH },
+  };
+}
+
+/** Label a single box from its geometry: Full-body (tall+narrow) / Bottom / Top. */
+function classifyGarment(box, iw, ih, U) {
+  const aspect = box.width / Math.max(1, box.height);
+  const cy     = (box.ymin + box.height / 2) / ih;
+  const hFrac  = box.height / ih;
+  if (hFrac >= U.FULLBODY_MIN_HEIGHT_FRAC && aspect < 0.72) return { garmentType: "upper_body", label: "Full-body" };
+  if (aspect < 0.72 && cy > 0.45) return { garmentType: "lower_body", label: "Bottom" };
+  return { garmentType: "upper_body", label: "Top" };
+}
+
+/** Separable morphological dilation by `r` pixels (closes small gaps in the mask). */
+function dilateMask(mask, w, h, r) {
+  if (!r || r < 1) return mask;
+  const tmp = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let on = 0;
+      for (let dx = -r; dx <= r; dx++) { const nx = x + dx; if (nx >= 0 && nx < w && mask[row + nx]) { on = 1; break; } }
+      tmp[row + x] = on;
+    }
+  }
+  const out = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let on = 0;
+      for (let dy = -r; dy <= r; dy++) { const ny = y + dy; if (ny >= 0 && ny < h && tmp[ny * w + x]) { on = 1; break; } }
+      out[y * w + x] = on;
+    }
+  }
+  return out;
+}
+
+/**
+ * Merge boxes that overlap strongly (IoU > iouThresh) or where one largely contains
+ * another — collapses fragments of one garment while keeping distinct items apart.
+ * @param {Array<{x:number,y:number,w:number,h:number,area:number}>} boxes (sorted by area desc)
+ * @param {number} iouThresh
+ * @returns {Array} merged boxes
+ */
+function mergeBoxes(boxes, iouThresh) {
+  const out = [];
+  for (const b of boxes) {
+    let merged = false;
+    for (const o of out) {
+      const ix = Math.max(b.x, o.x), iy = Math.max(b.y, o.y);
+      const ax = Math.min(b.x + b.w, o.x + o.w), ay = Math.min(b.y + b.h, o.y + o.h);
+      const iw = Math.max(0, ax - ix), ih = Math.max(0, ay - iy);
+      const inter = iw * ih;
+      if (inter <= 0) continue;
+      const iou = inter / (b.w * b.h + o.w * o.h - inter);
+      const contain = inter / Math.min(b.w * b.h, o.w * o.h);   // fraction of the smaller box covered
+      if (iou > iouThresh || contain > 0.72) {
+        const x0 = Math.min(b.x, o.x), y0 = Math.min(b.y, o.y);
+        const x1 = Math.max(b.x + b.w, o.x + o.w), y1 = Math.max(b.y + b.h, o.y + o.h);
+        o.x = x0; o.y = y0; o.w = x1 - x0; o.h = y1 - y0; o.area += b.area;
+        merged = true; break;
+      }
+    }
+    if (!merged) out.push({ ...b });
+  }
+  return out;
+}
+
+/**
+ * Guess whether a boxed garment is a top or a bottom. Bottoms (trousers/shorts) are
+ * typically tall + narrow and sit lower in frame; everything else defaults to a top.
+ * A best-effort heuristic — the generic custom prompt keeps either choice safe.
+ * @returns {"upper_body"|"lower_body"}
+ */
+function guessGarmentType(box, iw, ih) {
+  const aspect = box.width / Math.max(1, box.height);
+  const centerY = (box.ymin + box.height / 2) / ih;
+  if (aspect < 0.72 && centerY > 0.45) return "lower_body";
+  return "upper_body";
+}
+
+/**
+ * Crop a box from the source image to a padded, downscaled JPEG data URL and compute
+ * the crop's average garment colour (skipping near-white background remnants). The
+ * data URL is what gets handed to rtClient.set({ image }) at go-live.
+ * @param {HTMLImageElement} img
+ * @param {{xmin:number,ymin:number,width:number,height:number}} box  (natural coords, already padded)
+ * @returns {{dataUrl:string, color:string, aspect:number}}
+ */
+function cropRegion(img, box) {
+  const U = CONFIG.UPLOAD;
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+
+  const sx = Math.max(0, Math.min(box.xmin, iw - 1));
+  const sy = Math.max(0, Math.min(box.ymin, ih - 1));
+  const sw = Math.max(1, Math.min(box.width,  iw - sx));
+  const sh = Math.max(1, Math.min(box.height, ih - sy));
+
+  const scale = Math.min(1, U.CROP_MAX_DIM / Math.max(sw, sh));
+  const cw = Math.max(1, Math.round(sw * scale));
+  const ch = Math.max(1, Math.round(sh * scale));
+
+  const cv = document.createElement("canvas");
+  cv.width = cw; cv.height = ch;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+
+  let color = "#8a8f98";
+  try { color = averageColor(ctx, cw, ch); } catch (_) {}
+
+  let dataUrl;
+  try { dataUrl = cv.toDataURL("image/jpeg", U.CROP_QUALITY); }
+  catch (_) { dataUrl = img.src; }   // tainted-canvas fallback: hand back the original
+
+  return { dataUrl, color, aspect: sw / sh };
+}
+
+/** Average colour of a canvas (skips near-white pixels so flat-lay bg doesn't wash it out). */
+function averageColor(ctx, w, h) {
+  const { data } = ctx.getImageData(0, 0, w, h);
+  let r = 0, g = 0, b = 0, n = 0;
+  const step = 4 * Math.max(1, Math.floor((w * h) / 4000));   // sub-sample ~4k pixels
+  for (let i = 0; i < data.length; i += step) {
+    const R = data[i], G = data[i + 1], B = data[i + 2], A = data[i + 3];
+    if (A < 128) continue;
+    if (R > 244 && G > 244 && B > 244) continue;               // skip near-white background
+    r += R; g += G; b += B; n++;
+  }
+  if (!n) return "#8a8f98";
+  const toHex = (v) => Math.round(v / n).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 /* ── self-contained studio garment SVG ───────────────────────────────────────
@@ -3433,9 +4092,45 @@ function init() {
   if (compareOverlay) compareOverlay.addEventListener("click", (e) => {
     if (e.target.closest("[data-compare-close]")) closeCompare();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeCompare(); closeFitLightbox(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeCompare(); closeFitLightbox(); closeGarmentDetect(); } });
+
+  /* ── "Upload Your Own Garment" wiring ─────────────────────────────────────── */
+  const uploadInput = $("garmentUploadInput");
+  if (uploadInput) uploadInput.addEventListener("change", onGarmentFileChosen);
+
+  const gdRetry = $("gdRetry");
+  if (gdRetry) gdRetry.addEventListener("click", openGarmentUpload);
+
+  // Close the detection overlay via ✕ / backdrop.
+  const gdOverlay = $("garmentDetect");
+  if (gdOverlay) gdOverlay.addEventListener("click", (e) => {
+    if (e.target.closest("[data-gd-close]")) closeGarmentDetect();
+  });
+
+  // Pick a detected garment (delegated over the box layer).
+  const gdBoxes = $("gdBoxes");
+  if (gdBoxes) gdBoxes.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-box]");
+    if (b) selectDetectedGarment(Number(b.dataset.box));
+  });
+
+  // TOP / BOTTOM segmented toggle (outfit mode) — snap the bracket between regions.
+  const gdTabs = $("gdTabs");
+  if (gdTabs) gdTabs.addEventListener("click", (e) => {
+    const t = e.target.closest(".gd-tab");
+    if (t) setActiveSide(t.dataset.side);
+  });
+
+  // Keyboard access for the (role="button") upload card: Enter / Space open the picker.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.target.closest && e.target.closest("[data-upload]")) { e.preventDefault(); openGarmentUpload(); }
+  });
 
   document.addEventListener("click", (e) => {
+    // "Upload Your Own Garment" card — open the native file picker.
+    if (e.target.closest("[data-upload]")) { openGarmentUpload(); return; }
+
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the
     // active garment (additive; keeps the opposite category). toItem() rebuilds the
     // full record from the catalog so image URL, metadata AND category (garmentType →

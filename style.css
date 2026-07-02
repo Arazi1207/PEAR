@@ -522,3 +522,216 @@ body.net-modal-open { overflow: hidden; }
   .pdp__grid { grid-template-columns: 1fr; gap: 32px; }
   .pdp__media { position: static; aspect-ratio: 1 / 1; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   "UPLOAD YOUR OWN GARMENT" — 5th New-Arrivals card + detection overlay
+   Reuses the storefront's royal-blue tokens (--blue / --blue-bright) so the
+   feature is native to the Luxury white / royal-blue theme.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── the upload card (matches .card 1:1, with a dashed royal-blue media well) ── */
+.card--upload { cursor: pointer; }
+.card--upload .card__media--upload {
+  background:
+    radial-gradient(80% 70% at 50% 24%, rgba(65,105,225,0.16), transparent 62%),
+    linear-gradient(160deg, #f6f8fc, var(--blue-tint));
+}
+.card--upload:hover { border-color: var(--blue-tint-2); box-shadow: 0 18px 34px -20px rgba(11,60,149,0.4); }
+.card--upload:hover .card__media--upload svg { transform: translateY(-4px) scale(1.05); }
+.card__badge--upload { background: var(--blue-bright); }
+.card__price--upload { color: var(--blue-bright); font-weight: 700; letter-spacing: 0.3px; }
+.card--upload:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 3px; }
+
+/* ── detection overlay ──
+   Fade in/out is driven entirely by the .show class + CSS transitions (no JS
+   timers). The initial `hidden` attribute is dropped on first open; thereafter
+   .show alone governs visibility, so the close animation needs no hardcoded timing. */
+.gd-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  padding: clamp(14px, 4vw, 40px);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.28s var(--ease), visibility 0.28s var(--ease);
+}
+.gd-overlay[hidden] { display: none; }
+.gd-overlay.show { opacity: 1; visibility: visible; pointer-events: auto; }
+.gd-overlay__backdrop {
+  position: absolute; inset: 0; background: rgba(6,18,45,0.55);
+  -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%);
+  cursor: pointer;
+}
+.gd-overlay__panel {
+  position: relative; z-index: 1;
+  width: min(720px, 96vw); max-height: 92vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+  padding: clamp(16px, 3vw, 24px);
+  background: linear-gradient(150deg, #ffffff, #f4f8ff);
+  border: 1px solid rgba(65,105,225,0.22); border-radius: 22px;
+  box-shadow: 0 30px 80px rgba(6,18,45,0.42);
+  animation: gdPanelIn 0.5s cubic-bezier(0.22, 1, 0.3, 1) both;
+}
+@keyframes gdPanelIn { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+.gd-head { display: flex; align-items: flex-start; gap: 12px; }
+.gd-eyebrow {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 2.5px;
+  text-transform: uppercase; color: var(--blue-bright);
+}
+.gd-title { margin: 4px 0 2px; font-size: 20px; font-weight: 800; color: var(--blue); }
+.gd-sub { margin: 0; font-size: 13px; color: var(--muted); }
+.gd-close {
+  margin-left: auto; flex: none; width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid rgba(65,105,225,0.28); background: #fff; color: var(--blue);
+  font-size: 16px; line-height: 1; cursor: pointer;
+  transition: transform 0.4s var(--ease), background 0.3s var(--ease);
+}
+.gd-close:hover { transform: scale(1.08) rotate(90deg); background: var(--blue-tint); }
+.gd-close:active { transform: scale(0.94); }
+
+/* ── TOP / BOTTOM segmented toggle (outfit mode) — luxury pill control ──────── */
+.gd-tabs {
+  position: relative; align-self: center; display: grid; grid-template-columns: 1fr 1fr;
+  width: min(300px, 100%); padding: 4px; border-radius: 100px;
+  background: var(--blue-tint); border: 1px solid rgba(65,105,225,0.18);
+  box-shadow: inset 0 1px 3px rgba(6,18,45,0.08);
+}
+.gd-tabs[hidden] { display: none; }
+.gd-tab {
+  position: relative; z-index: 1; padding: 8px 10px; border-radius: 100px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; letter-spacing: 0.3px; color: var(--blue);
+  background: transparent; border: none; cursor: pointer;
+  transition: color 0.25s var(--ease);
+}
+.gd-tab.is-active { color: #fff; }
+.gd-tabs__ind {
+  position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px);
+  border-radius: 100px; background: var(--blue-bright);
+  box-shadow: 0 6px 16px rgba(11,60,149,0.35);
+  transition: transform 0.32s var(--ease);
+}
+.gd-tabs[data-active="bottom"] .gd-tabs__ind { transform: translateX(calc(100% + 0px)); }
+
+/* stage + tightly-wrapped image frame (boxes overlay the image exactly) */
+.gd-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 160px; }
+.gd-frame { position: relative; display: inline-block; line-height: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px -12px rgba(6,18,45,0.4); }
+.gd-frame__img { display: block; max-width: 100%; max-height: min(64vh, 560px); width: auto; height: auto; }
+
+/* ── focus scrim — subtle dark tint over the whole image (viewfinder mode) ──── */
+.gd-scrim {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: rgba(6,18,45,0.44);
+  transition: background 0.3s var(--ease);
+}
+/* Deepen the tint on the rest of the image while any bracket is hovered. */
+.gd-frame:has(.gd-box:hover) .gd-scrim,
+.gd-frame:has(.gd-box:focus-visible) .gd-scrim { background: rgba(6,18,45,0.6); }
+
+.gd-boxes { position: absolute; inset: 0; z-index: 2; }
+
+/* ── viewfinder bracket — no harsh border; rounded corner crosshairs + glow ── */
+.gd-box {
+  position: absolute; margin: 0; padding: 0; cursor: pointer;
+  background: transparent; border: none; border-radius: 16px;
+  transition: transform 0.25s var(--ease), -webkit-backdrop-filter 0.3s var(--ease), backdrop-filter 0.3s var(--ease),
+    left 0.38s var(--ease), top 0.38s var(--ease), width 0.38s var(--ease), height 0.38s var(--ease);
+  animation: gdBoxIn 0.4s var(--ease) both; animation-delay: calc(var(--i, 0) * 0.06s);
+}
+@keyframes gdBoxIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+/* soft pulsating glow ring behind the corners */
+.gd-box::before {
+  content: ""; position: absolute; inset: 0; border-radius: 16px; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.16), 0 0 14px rgba(65,105,225,0.22);
+  animation: gdGlow 2.6s ease-in-out infinite;
+}
+@keyframes gdGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,0.16), 0 0 12px rgba(65,105,225,0.22); }
+  50%      { box-shadow: 0 0 0 1px rgba(255,255,255,0.28), 0 0 26px rgba(65,105,225,0.5); }
+}
+/* Hover / focus: clear this zone's dark tint (spotlight) + intensify the brackets. */
+.gd-box:hover, .gd-box:focus-visible {
+  outline: none; z-index: 3; transform: scale(1.012);
+  -webkit-backdrop-filter: brightness(1.5) saturate(1.12); backdrop-filter: brightness(1.5) saturate(1.12);
+}
+.gd-box:active { transform: scale(0.99); }
+
+/* rounded corner crosshairs (white brackets w/ royal glow) */
+.gd-corner {
+  position: absolute; width: 26px; height: 26px; pointer-events: none;
+  border: 3px solid #fff; opacity: 0.88;
+  filter: drop-shadow(0 0 6px rgba(65,105,225,0.65));
+  transition: width 0.25s var(--ease), height 0.25s var(--ease), opacity 0.25s var(--ease), border-color 0.25s var(--ease);
+}
+.gd-corner--tl { top: -2px; left: -2px;  border-right: none;  border-bottom: none; border-top-left-radius: 13px; }
+.gd-corner--tr { top: -2px; right: -2px; border-left: none;   border-bottom: none; border-top-right-radius: 13px; }
+.gd-corner--bl { bottom: -2px; left: -2px;  border-right: none; border-top: none;  border-bottom-left-radius: 13px; }
+.gd-corner--br { bottom: -2px; right: -2px; border-left: none;  border-top: none;  border-bottom-right-radius: 13px; }
+.gd-box:hover .gd-corner, .gd-box:focus-visible .gd-corner {
+  width: 34px; height: 34px; opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(65,105,225,0.9));
+}
+
+/* label badge ("Top" / "Bottom" / "Full-body") — always shown so overlapping
+   garments are unambiguous; lights up royal-blue on hover. */
+.gd-box__label {
+  position: absolute; top: 8px; left: 8px;
+  padding: 4px 11px; border-radius: 100px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.2px;
+  color: #0b1b3a; background: rgba(255,255,255,0.94);
+  box-shadow: 0 4px 14px rgba(6,18,45,0.4); backdrop-filter: blur(4px);
+  transition: background 0.25s var(--ease), color 0.25s var(--ease), transform 0.25s var(--ease);
+}
+.gd-box:hover .gd-box__label, .gd-box:focus-visible .gd-box__label {
+  background: var(--blue-bright); color: #fff; transform: scale(1.05);
+}
+
+/* crisp click-confirmation flash before the modal closes */
+.gd-box.is-picked { animation: gdPick 0.28s ease both; }
+.gd-box.is-picked .gd-corner { border-color: var(--blue-bright); filter: drop-shadow(0 0 14px rgba(65,105,225,1)); }
+@keyframes gdPick {
+  0%   { transform: scale(1.012); }
+  45%  { transform: scale(0.955); -webkit-backdrop-filter: brightness(1.85); backdrop-filter: brightness(1.85); }
+  100% { transform: scale(1.02);  -webkit-backdrop-filter: brightness(1.5);  backdrop-filter: brightness(1.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gd-box::before, .gd-box.is-picked { animation: none; }
+}
+
+/* detecting spinner */
+.gd-loading {
+  position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(255,255,255,0.3); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  color: var(--blue); font-weight: 700; font-size: 13.5px;
+}
+.gd-loading[hidden] { display: none; }
+.gd-spinner {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 3px solid rgba(65,105,225,0.22); border-top-color: var(--blue-bright);
+  animation: gdSpin 0.8s linear infinite;
+}
+@keyframes gdSpin { to { transform: rotate(360deg); } }
+
+/* empty state */
+.gd-empty {
+  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  text-align: center; padding: 24px;
+  background: rgba(244,248,255,0.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border-radius: 14px;
+}
+.gd-empty[hidden] { display: none; }
+.gd-empty__icon { font-size: 30px; }
+.gd-empty__text { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+.gd-empty__text span { color: var(--muted); font-weight: 600; font-size: 13px; }
+.gd-empty__retry { margin-top: 6px; }
+
+.gd-hint { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); }
+
+body.gd-open { overflow: hidden; }
+
+@media (max-width: 640px) {
+  .gd-overlay__panel { width: 100%; max-height: 94vh; }
+  .gd-frame__img { max-height: 56vh; }
+  /* touch: no hover → keep the brackets crisp and lift the tint a touch so items read */
+  .gd-corner { opacity: 1; }
+  .gd-scrim { background: rgba(6,18,45,0.32); }
+}

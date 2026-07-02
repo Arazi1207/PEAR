@@ -2033,3 +2033,247 @@ img.pear-loader__fruit { width: 46px; height: auto; object-fit: contain; }
   color: var(--pear-deep); letter-spacing: .01em;
 }
 .lux-field.is-focus > label { color: var(--pear); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   "UPLOAD YOUR OWN GARMENT" — upload card · detection overlay · boxes
+   ────────────────────────────────────────────────────────────────────────
+   Its own Luxury white / royal-blue accent (scoped --royal* tokens), kept
+   distinct from the app's pear-green so the upload flow reads as a special,
+   premium action while the rest of the room is untouched.
+   ════════════════════════════════════════════════════════════════════════ */
+:root {
+  --royal:      #0b3c95;                 /* MERIDIAN royal blue — borders / text */
+  --royal-lift: #2b6bff;                 /* brighter royal — glow / active state */
+  --royal-soft: rgba(43, 107, 255, .14);
+  --royal-ring: rgba(43, 107, 255, .30);
+  --royal-glow: rgba(43, 107, 255, .55);
+}
+
+/* ── Upload card (first tile in the catalog grid) ─────────────────────────── */
+.cat-item--upload {
+  border: 1.5px dashed var(--royal);
+  background: linear-gradient(155deg, rgba(43,107,255,.10), rgba(255,255,255,.5));
+}
+.cat-item--upload:hover {
+  border-color: var(--royal-lift);
+  box-shadow: 0 0 0 2px var(--royal-ring), 0 18px 44px rgba(11,60,149,.22);
+}
+.cat-item--upload.is-active { animation: none; }
+.cat-upload__media {
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 120% at 50% 15%, rgba(43,107,255,.16), transparent 62%);
+}
+.cat-upload__icon {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
+  color: var(--royal); background: rgba(255,255,255,.7);
+  box-shadow: 0 6px 18px rgba(11,60,149,.18), inset 0 0 0 1px rgba(43,107,255,.25);
+  transition: transform .4s var(--ease), box-shadow .4s var(--ease), color .3s var(--ease);
+}
+.cat-item--upload:hover .cat-upload__icon {
+  transform: translateY(-3px) scale(1.06); color: var(--royal-lift);
+  box-shadow: 0 10px 26px rgba(11,60,149,.28), inset 0 0 0 1px rgba(43,107,255,.4);
+}
+.cat-item--upload .cat-item__name { color: var(--royal); }
+.cat-upload__en { color: var(--royal-lift) !important; font-weight: 600; }
+
+/* ── Detection overlay ─────────────────────────────────────────────────────
+   Fade in/out is driven entirely by the .show class + CSS transitions (no JS
+   timers). The initial `hidden` attribute is removed on first open; thereafter
+   .show alone governs visibility, so the close animation plays with zero
+   hardcoded teardown timing. */
+.gd-overlay {
+  position: fixed; inset: 0; z-index: 400;
+  display: flex; align-items: center; justify-content: center;
+  padding: clamp(14px, 4vw, 40px);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .28s var(--ease), visibility .28s var(--ease);
+}
+.gd-overlay[hidden] { display: none; }
+.gd-overlay.show { opacity: 1; visibility: visible; pointer-events: auto; }
+.gd-overlay__backdrop {
+  position: absolute; inset: 0; background: rgba(6,14,32,.58);
+  -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+}
+.gd-overlay__panel {
+  position: relative; z-index: 1;
+  width: min(720px, 96vw); max-height: 92vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+  padding: clamp(16px, 3vw, 24px);
+  background: linear-gradient(150deg, rgba(255,255,255,.92), rgba(244,248,255,.86));
+  border: 1px solid rgba(43,107,255,.22); border-radius: 26px;
+  box-shadow: 0 30px 80px rgba(6,14,32,.42), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.gd-overlay.show .gd-overlay__panel { animation: gdPanelIn .5s cubic-bezier(.22,1,.3,1) both; }
+@keyframes gdPanelIn { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+
+.gd-head { display: flex; align-items: flex-start; gap: 12px; }
+.gd-eyebrow {
+  display: inline-block; font-size: .64rem; font-weight: 800; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--royal-lift);
+}
+.gd-title { margin: 4px 0 2px; font-size: 1.16rem; font-weight: 800; color: var(--royal); }
+.gd-title span { color: var(--muted); font-weight: 700; font-size: .82rem; }
+.gd-sub { margin: 0; font-size: .82rem; color: var(--muted); }
+.gd-close {
+  margin-inline-start: auto; flex: none; width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid rgba(43,107,255,.28); background: #fff; color: var(--royal);
+  font-size: 1.05rem; line-height: 1; cursor: pointer;
+  transition: transform .5s var(--ease), background .3s var(--ease);
+}
+.gd-close:hover { transform: scale(1.08) rotate(90deg); background: var(--royal-soft); }
+.gd-close:active { transform: scale(.94); }
+
+/* ── TOP / BOTTOM segmented toggle (outfit mode) — luxury pill control ──────── */
+.gd-tabs {
+  position: relative; align-self: center; display: grid; grid-template-columns: 1fr 1fr;
+  width: min(300px, 100%); padding: 4px; border-radius: var(--pill);
+  background: var(--royal-soft); border: 1px solid rgba(43,107,255,.2);
+  box-shadow: inset 0 1px 3px rgba(6,14,32,.08);
+}
+.gd-tabs[hidden] { display: none; }
+.gd-tab {
+  position: relative; z-index: 1; padding: 6px 10px; border-radius: var(--pill);
+  display: flex; flex-direction: column; align-items: center; line-height: 1.05;
+  font-size: .82rem; font-weight: 800; color: var(--royal);
+  background: transparent; border: none; cursor: pointer;
+  transition: color .25s var(--ease);
+}
+.gd-tab small { font-size: .56rem; font-weight: 700; opacity: .6; letter-spacing: .1em; text-transform: uppercase; }
+.gd-tab.is-active { color: #fff; }
+.gd-tab.is-active small { opacity: .85; }
+.gd-tabs__ind {
+  position: absolute; z-index: 0; top: 4px; bottom: 4px; inset-inline-start: 4px; width: calc(50% - 4px);
+  border-radius: var(--pill); background: var(--royal-lift);
+  box-shadow: 0 6px 16px rgba(11,60,149,.35);
+  transition: transform .32s var(--ease);
+}
+/* RTL-aware: the pill slides toward the "Bottom" tab (second column). */
+.gd-tabs[data-active="bottom"] .gd-tabs__ind { transform: translateX(100%); }
+[dir="rtl"] .gd-tabs[data-active="bottom"] .gd-tabs__ind { transform: translateX(-100%); }
+
+/* stage + tightly-wrapped image frame (boxes overlay the image exactly) */
+.gd-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 160px; }
+.gd-frame { position: relative; display: inline-block; line-height: 0; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-soft); }
+.gd-frame__img { display: block; max-width: 100%; max-height: min(64vh, 560px); width: auto; height: auto; }
+
+/* ── focus scrim — subtle dark tint over the whole image (viewfinder mode) ──── */
+.gd-scrim {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: rgba(6,14,32,.44);
+  transition: background .3s var(--ease);
+}
+/* Deepen the tint on the rest of the image while any bracket is hovered. */
+.gd-frame:has(.gd-box:hover) .gd-scrim,
+.gd-frame:has(.gd-box:focus-visible) .gd-scrim { background: rgba(6,14,32,.6); }
+
+.gd-boxes { position: absolute; inset: 0; z-index: 2; }
+
+/* ── viewfinder bracket — no harsh border; rounded corner crosshairs + glow ── */
+.gd-box {
+  position: absolute; margin: 0; padding: 0; cursor: pointer;
+  background: transparent; border: none; border-radius: 16px;
+  transition: transform .25s var(--ease), -webkit-backdrop-filter .3s var(--ease), backdrop-filter .3s var(--ease),
+    left .38s var(--ease), top .38s var(--ease), width .38s var(--ease), height .38s var(--ease);
+  animation: gdBoxIn .4s var(--ease) both; animation-delay: calc(var(--i, 0) * .06s);
+}
+@keyframes gdBoxIn { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+/* soft pulsating glow ring behind the corners */
+.gd-box::before {
+  content: ""; position: absolute; inset: 0; border-radius: 16px; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 0 14px rgba(43,107,255,.22);
+  animation: gdGlow 2.6s ease-in-out infinite;
+}
+@keyframes gdGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 0 12px rgba(43,107,255,.22); }
+  50%      { box-shadow: 0 0 0 1px rgba(255,255,255,.28), 0 0 26px rgba(43,107,255,.5); }
+}
+/* Hover / focus: clear this zone's dark tint (spotlight) + intensify the brackets. */
+.gd-box:hover, .gd-box:focus-visible {
+  outline: none; z-index: 3; transform: scale(1.012);
+  -webkit-backdrop-filter: brightness(1.5) saturate(1.12); backdrop-filter: brightness(1.5) saturate(1.12);
+}
+.gd-box:active { transform: scale(.99); }
+
+/* rounded corner crosshairs (white brackets w/ royal glow) */
+.gd-corner {
+  position: absolute; width: 26px; height: 26px; pointer-events: none;
+  border: 3px solid #fff; opacity: .88;
+  filter: drop-shadow(0 0 6px rgba(43,107,255,.65));
+  transition: width .25s var(--ease), height .25s var(--ease), opacity .25s var(--ease), border-color .25s var(--ease);
+}
+.gd-corner--tl { top: -2px; left: -2px;  border-right: none;  border-bottom: none; border-top-left-radius: 13px; }
+.gd-corner--tr { top: -2px; right: -2px; border-left: none;   border-bottom: none; border-top-right-radius: 13px; }
+.gd-corner--bl { bottom: -2px; left: -2px;  border-right: none; border-top: none;  border-bottom-left-radius: 13px; }
+.gd-corner--br { bottom: -2px; right: -2px; border-left: none;  border-top: none;  border-bottom-right-radius: 13px; }
+.gd-box:hover .gd-corner, .gd-box:focus-visible .gd-corner {
+  width: 34px; height: 34px; opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(43,107,255,.9));
+}
+
+/* label badge ("עליון · Top" / "תחתון · Bottom" / "מלא · Full-body") — always shown
+   so overlapping garments are unambiguous; lights up on hover. */
+.gd-box__label {
+  position: absolute; top: 8px; inset-inline-start: 8px;
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 4px 11px; border-radius: var(--pill);
+  font-size: .7rem; color: #0b1b3a; background: rgba(255,255,255,.94);
+  box-shadow: 0 4px 14px rgba(6,14,32,.4); backdrop-filter: blur(4px);
+  transition: background .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
+}
+.gd-box__label b { font-weight: 800; letter-spacing: .01em; }
+.gd-box__label span { font-size: .6rem; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .06em; }
+.gd-box:hover .gd-box__label, .gd-box:focus-visible .gd-box__label {
+  background: var(--royal-lift); color: #fff; transform: scale(1.05);
+}
+.gd-box:hover .gd-box__label span, .gd-box:focus-visible .gd-box__label span { opacity: .85; }
+
+/* crisp click-confirmation flash before the modal closes */
+.gd-box.is-picked { animation: gdPick .28s ease both; }
+.gd-box.is-picked .gd-corner { border-color: var(--royal-lift); filter: drop-shadow(0 0 14px rgba(43,107,255,1)); }
+@keyframes gdPick {
+  0%   { transform: scale(1.012); }
+  45%  { transform: scale(.955); -webkit-backdrop-filter: brightness(1.85); backdrop-filter: brightness(1.85); }
+  100% { transform: scale(1.02);  -webkit-backdrop-filter: brightness(1.5);  backdrop-filter: brightness(1.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gd-box::before, .gd-box.is-picked { animation: none; }
+}
+
+/* detecting spinner */
+.gd-loading {
+  position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(255,255,255,.3); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  color: var(--royal); font-weight: 700; font-size: .86rem;
+}
+.gd-loading[hidden] { display: none; }
+.gd-spinner {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 3px solid rgba(43,107,255,.22); border-top-color: var(--royal-lift);
+  animation: gdSpin .8s linear infinite;
+}
+@keyframes gdSpin { to { transform: rotate(360deg); } }
+
+/* empty state */
+.gd-empty {
+  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  text-align: center; padding: 24px;
+  background: rgba(248,250,255,.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border-radius: 16px;
+}
+.gd-empty[hidden] { display: none; }
+.gd-empty__icon { font-size: 2rem; }
+.gd-empty__text { margin: 0; font-size: .92rem; font-weight: 700; color: var(--ink); }
+.gd-empty__text span { color: var(--muted); font-weight: 600; font-size: .82rem; }
+.gd-empty__retry { margin-top: 6px; }
+
+.gd-hint { margin: 0; text-align: center; font-size: .8rem; color: var(--muted); }
+
+body.gd-open { overflow: hidden; }
+
+@media (max-width: 640px) {
+  .gd-overlay__panel { width: 100%; max-height: 94vh; }
+  .gd-frame__img { max-height: 56vh; }
+  /* touch: no hover → keep the brackets crisp and lift the tint a touch so items read */
+  .gd-corner { opacity: 1; }
+  .gd-scrim { background: rgba(6,14,32,.32); }
+}

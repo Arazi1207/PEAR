@@ -377,6 +377,68 @@
     </div>
 </div>
 
+<!-- ░░ "Upload Your Own Garment" — hidden native file input ░░
+     Driven programmatically by the upload card in the catalog grid (app.js). -->
+<input type="file" id="garmentUploadInput" accept="image/*" hidden aria-hidden="true">
+
+<!-- ░░ Garment-detection overlay ░░
+     Opens on upload. Shows the picked image with interactive royal-blue bounding
+     boxes over each detected garment. Hover highlights a box; clicking one crops
+     that garment, closes the overlay, and sets it as the Active Item. Luxury
+     white / royal-blue theme (scoped --royal tokens in style.css). -->
+<div class="gd-overlay" id="garmentDetect" role="dialog" aria-modal="true"
+     aria-label="בחירת בגד מהתמונה שהעלית" hidden>
+  <div class="gd-overlay__backdrop" data-gd-close></div>
+  <div class="gd-overlay__panel" role="document">
+    <header class="gd-head">
+      <div class="gd-head__text">
+        <span class="gd-eyebrow">PEAR · Detect</span>
+        <h3 class="gd-title">בחר/י את הבגד <span>· Select a garment</span></h3>
+        <p class="gd-sub" id="gdSub">מזהה בגדים בתמונה…</p>
+      </div>
+      <button class="gd-close" id="gdClose" type="button" aria-label="סגור" data-gd-close>✕</button>
+    </header>
+
+    <!-- TOP / BOTTOM segmented toggle — shown only for a full worn outfit; snaps the
+         bounding box between the top-garment and bottom-garment sub-regions. -->
+    <div class="gd-tabs" id="gdTabs" role="tablist" aria-label="בחירת סוג בגד" data-active="top" hidden>
+      <button class="gd-tab is-active" type="button" role="tab" data-side="top" aria-selected="true">
+        <span>עליון</span><small>Top</small>
+      </button>
+      <button class="gd-tab" type="button" role="tab" data-side="bottom" aria-selected="false">
+        <span>תחתון</span><small>Bottom</small>
+      </button>
+      <span class="gd-tabs__ind" aria-hidden="true"></span>
+    </div>
+
+    <div class="gd-stage" id="gdStage">
+      <!-- .gd-frame wraps ONLY the image so .gd-boxes { inset:0 } overlaps the
+           rendered image exactly — box coords are % of natural size, scale-free. -->
+      <div class="gd-frame" id="gdFrame">
+        <img class="gd-frame__img" id="gdImage" alt="התמונה שהועלתה" decoding="async">
+        <!-- focus scrim — dims the whole image; each bracket clears its own zone on hover -->
+        <div class="gd-scrim" aria-hidden="true"></div>
+        <div class="gd-boxes" id="gdBoxes"></div>
+
+        <!-- detecting spinner (over the image) -->
+        <div class="gd-loading" id="gdLoading">
+          <span class="gd-spinner" aria-hidden="true"></span>
+          <span class="gd-loading__label">מזהה בגדים…</span>
+        </div>
+      </div>
+
+      <!-- empty state — no garments detected -->
+      <div class="gd-empty" id="gdEmpty" hidden>
+        <span class="gd-empty__icon" aria-hidden="true">🔍</span>
+        <p class="gd-empty__text">לא זוהו בגדים בתמונה.<br><span>Please try another clear image.</span></p>
+        <button class="btn-primary gd-empty__retry" id="gdRetry" type="button">בחר/י תמונה אחרת</button>
+      </div>
+    </div>
+
+    <p class="gd-hint" id="gdHint">לחצ/י על המסגרת הכחולה סביב הבגד שתרצה/י למדוד</p>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app.js?v=2"></script>

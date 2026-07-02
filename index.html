@@ -241,6 +241,63 @@
     </div>
   </div>
 
+  <!-- ░░ "Upload Your Own Garment" — hidden native file input ░░
+       Driven programmatically by the New-Arrivals upload card (store.js). -->
+  <input type="file" id="garmentUploadInput" accept="image/*" hidden aria-hidden="true" />
+
+  <!-- ░░ Garment-detection overlay ░░
+       Opens on upload. Shows the picked image with interactive royal-blue bounding
+       boxes over each detected garment. Hover highlights a box; clicking one crops
+       that garment, closes the overlay, and hands it off to the PEAR fitting room. -->
+  <div class="gd-overlay" id="garmentDetect" role="dialog" aria-modal="true"
+       aria-label="Select a garment from your uploaded image" hidden>
+    <div class="gd-overlay__backdrop" data-gd-close></div>
+    <div class="gd-overlay__panel" role="document">
+      <header class="gd-head">
+        <div class="gd-head__text">
+          <span class="gd-eyebrow">PEAR · Detect</span>
+          <h3 class="gd-title">Select a garment</h3>
+          <p class="gd-sub" id="gdSub">Detecting garments…</p>
+        </div>
+        <button class="gd-close" id="gdClose" type="button" aria-label="Close" data-gd-close>✕</button>
+      </header>
+
+      <!-- TOP / BOTTOM segmented toggle — shown only for a full worn outfit; snaps the
+           bounding box between the top-garment and bottom-garment sub-regions. -->
+      <div class="gd-tabs" id="gdTabs" role="tablist" aria-label="Garment type" data-active="top" hidden>
+        <button class="gd-tab is-active" type="button" role="tab" data-side="top" aria-selected="true">Top</button>
+        <button class="gd-tab" type="button" role="tab" data-side="bottom" aria-selected="false">Bottom</button>
+        <span class="gd-tabs__ind" aria-hidden="true"></span>
+      </div>
+
+      <div class="gd-stage" id="gdStage">
+        <!-- .gd-frame wraps ONLY the image so .gd-boxes { inset:0 } overlaps the
+             rendered image exactly — box coords are % of natural size, scale-free. -->
+        <div class="gd-frame" id="gdFrame">
+          <img class="gd-frame__img" id="gdImage" alt="Your uploaded image" decoding="async" />
+          <!-- focus scrim — dims the whole image; each bracket clears its own zone on hover -->
+          <div class="gd-scrim" aria-hidden="true"></div>
+          <div class="gd-boxes" id="gdBoxes"></div>
+
+          <!-- detecting spinner -->
+          <div class="gd-loading" id="gdLoading">
+            <span class="gd-spinner" aria-hidden="true"></span>
+            <span class="gd-loading__label">Detecting garments…</span>
+          </div>
+        </div>
+
+        <!-- empty state — no garments detected -->
+        <div class="gd-empty" id="gdEmpty" hidden>
+          <span class="gd-empty__icon" aria-hidden="true">🔍</span>
+          <p class="gd-empty__text">No garments detected.<br /><span>Please try another clear image.</span></p>
+          <button class="btn btn--primary gd-empty__retry" id="gdRetry" type="button">Choose another image</button>
+        </div>
+      </div>
+
+      <p class="gd-hint">Click the blue frame around the garment you want to try on</p>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
