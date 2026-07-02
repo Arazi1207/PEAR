@@ -9,7 +9,7 @@
   "use strict";
 
   const SUPABASE_URL      = "https://nhkaiucbaauqetaidgoi.supabase.co";
-  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"; // Supabase Dashboard → Settings → API → anon public
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oa2FpdWNiYWF1cWV0YWlkZ29pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4MTQ2NzIsImV4cCI6MjA5ODM5MDY3Mn0.t6uZbCmQUoeNdz1XkH1ZxwrcIcy7bxmvzezGcSUOLDU"; // Supabase Dashboard → Settings → API → anon public
 
   const adminSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
