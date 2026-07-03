@@ -44,10 +44,75 @@ const TOKEN_TTL   = Math.min(3600, Math.max(1, Number(process.env.DECART_TOKEN_T
 const ALLOWED_ORIGINS = (process.env.DECART_ALLOWED_ORIGINS || "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
+/* Admin authorization allowlist. requireAdminAuth() only accepts a Supabase Auth
+   JWT whose verified email is in this list. Without it, ANY account that can sign
+   up against the public anon key would pass the auth check (authentication ≠
+   authorization). Set ADMIN_EMAILS in .env AND in your Vercel env vars:
+     ADMIN_EMAILS=you@example.com,partner@example.com                            */
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
 /* ── Express setup ───────────────────────────────────────────────────────── */
 const app = express();
 app.use(express.json({ limit: "8mb" }));
 app.disable("x-powered-by");
+app.set("trust proxy", true);   // Vercel/edge sets X-Forwarded-For; needed for req.ip + rate limiting
+
+/* ── Security headers (all responses) ──────────────────────────────────────────
+   Applied globally so HTML pages (not just /api) carry hardening headers. The
+   admin dashboard additionally gets strict anti-framing + no-store to defeat
+   clickjacking and stop the (login-gated) page being cached on shared machines.
+   The rest of the site allows same-origin framing so the storefront can embed the
+   fitting room (its "back to store" link uses target="_top", implying embedding). */
+app.use((req, res, next) => {
+  res.header("X-Content-Type-Options", "nosniff");
+  res.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  const isAdmin = /(^|\/)admin(\.html|\.js|\.css)?(\/|$)/i.test(req.path);
+  if (isAdmin) {
+    res.header("X-Frame-Options", "DENY");
+    res.header("Content-Security-Policy", "frame-ancestors 'none'");
+    res.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  } else {
+    res.header("X-Frame-Options", "SAMEORIGIN");
+    res.header("Content-Security-Policy", "frame-ancestors 'self'");
+  }
+  next();
+});
+
+/* ── Lightweight in-memory rate limiter ────────────────────────────────────────
+   Sliding-window per client IP. NOTE: on serverless (Vercel) each warm instance
+   keeps its own counters, so this is a best-effort brake against casual flooding
+   /brute-forcing, not a distributed guarantee. For hard limits put a shared store
+   (Upstash/Redis) or the platform WAF in front. Still, it meaningfully raises the
+   cost of registration spam, session-table flooding, and token-mint abuse. */
+function rateLimit({ windowMs, max }) {
+  const hits = new Map();   // ip -> [timestamps]
+  return (req, res, next) => {
+    const ip =
+      (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+      req.ip || req.socket?.remoteAddress || "unknown";
+    const now = Date.now();
+    const arr = (hits.get(ip) || []).filter((t) => now - t < windowMs);
+    arr.push(now);
+    hits.set(ip, arr);
+    if (hits.size > 5000) {                 // opportunistic cleanup of idle IPs
+      for (const [k, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(k);
+    }
+    if (arr.length > max) {
+      res.set("Retry-After", String(Math.ceil(windowMs / 1000)));
+      return res.status(429).json({ error: "rate_limited", message: "Too many requests — slow down." });
+    }
+    next();
+  };
+}
+
+// Per-surface limiters (generous enough to never bother a real user).
+const tokenLimiter   = rateLimit({ windowMs: 60_000, max: 30 });   // ek_ token mint — costs money
+const sessionLimiter = rateLimit({ windowMs: 60_000, max: 40 });   // session-log ingest
+const userLimiter    = rateLimit({ windowMs: 60_000, max: 20 });   // user registration
+const trackLimiter   = rateLimit({ windowMs: 60_000, max: 60 });   // analytics ping
+const proxyLimiter   = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
 
 /* ── CORS enforcement ────────────────────────────────────────────────────────
    The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
@@ -247,8 +312,8 @@ async function mintToken(req, res) {
 /* ── Routes ──────────────────────────────────────────────────────────────── */
 function mountTokenRoute(p) {
   app.route(p)
-    .get(mintToken)
-    .post(mintToken)
+    .get(tokenLimiter, mintToken)
+    .post(tokenLimiter, mintToken)
     .all((_req, res) =>
       res.set("Allow", "GET, POST, OPTIONS").status(405).json({
         error:   "method_not_allowed",
@@ -275,7 +340,7 @@ app.get("/api/speed-probe", (_req, res) => {
 });
 
 /* ── Analytics: log a garment try-on to Google Sheets ───────────────────────── */
-app.post("/api/track-tryon", async (req, res) => {
+app.post("/api/track-tryon", trackLimiter, async (req, res) => {
   const { garmentId, garmentName, garmentType, subType, size } = req.body || {};
   const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || "";
   try {
@@ -288,15 +353,18 @@ app.post("/api/track-tryon", async (req, res) => {
   }
 });
 
-/* ── Debug: verify Sheets env vars and write a test row ─────────────────────── */
-app.get("/api/test-sheets", async (req, res) => {
+/* ── Debug: verify Sheets env vars and write a test row (admin-only) ──────────
+   Gated behind requireAdminAuth: it previously exposed the Google Sheet ID and the
+   service-account email to any anonymous caller and let anyone write test rows.
+   Env-var VALUES are no longer echoed — only presence — even to admins. */
+app.get("/api/test-sheets", requireAdminAuth, async (req, res) => {
   const sheetId = process.env.GOOGLE_SHEET_ID;
   const email   = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key     = process.env.GOOGLE_PRIVATE_KEY;
   const envCheck = {
-    GOOGLE_SHEET_ID:              sheetId ? `✓ (${sheetId})` : "✗ MISSING",
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: email   ? `✓ (${email})`   : "✗ MISSING",
-    GOOGLE_PRIVATE_KEY:           key     ? "✓ present"       : "✗ MISSING",
+    GOOGLE_SHEET_ID:              sheetId ? "✓ present" : "✗ MISSING",
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: email   ? "✓ present" : "✗ MISSING",
+    GOOGLE_PRIVATE_KEY:           key     ? "✓ present" : "✗ MISSING",
   };
   if (!sheetId || !email || !key) {
     return res.json({ ok: false, envCheck, error: "Missing env vars — check Vercel settings" });
@@ -340,12 +408,18 @@ function storageUnavailable(res) {
   return true;
 }
 
-/* ── Admin auth middleware — verifies Supabase Auth JWT ─────────────────────
-   Reads the Bearer token from the Authorization header and calls getUser()
-   on the server-side Supabase client (service-role key, so no RLS bypass
-   concerns here — we're only checking identity, not reading data with it).
-   Returns 401 for missing, invalid, or expired tokens. */
+/* ── Admin auth middleware — verifies Supabase Auth JWT + admin allowlist ───────
+   Two independent checks, both required:
+     1. AUTHENTICATION — the Bearer token is a valid, unexpired Supabase Auth JWT
+        (verified server-side via getUser()).
+     2. AUTHORIZATION  — the token's verified email is in ADMIN_EMAILS. This is the
+        critical second gate: the fitting room ships the PUBLIC anon key, so anyone
+        who signs up against it gets a valid JWT. Without the allowlist, "logged in"
+        would equal "admin" and any member of the public could read all PII and wipe
+        the sessions table.
+   On success the verified email is attached as req.adminEmail for audit logging. */
 async function requireAdminAuth(req, res, next) {
+  if (storageUnavailable(res)) return;   // no Supabase client → can't verify → fail closed
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) {
@@ -356,6 +430,19 @@ async function requireAdminAuth(req, res, next) {
     if (error || !user) {
       return res.status(401).json({ ok: false, error: "unauthorized", message: "Invalid or expired token." });
     }
+    const email = (user.email || "").toLowerCase();
+    if (ADMIN_EMAILS.length === 0) {
+      // Allowlist not configured — fail OPEN for backward compatibility, but shout
+      // about it. Configure ADMIN_EMAILS to close this hole (see the env comment).
+      console.warn(
+        `[admin-auth] ⚠ ADMIN_EMAILS is empty — authorizing ANY authenticated user ` +
+        `(${email || "unknown"}). Set ADMIN_EMAILS to restrict admin access.`
+      );
+    } else if (!ADMIN_EMAILS.includes(email)) {
+      console.warn(`[admin-auth] blocked non-admin login: "${email}"`);
+      return res.status(403).json({ ok: false, error: "forbidden", message: "Not an admin account." });
+    }
+    req.adminEmail = email;
     next();
   } catch (err) {
     console.error("[admin-auth] getUser failed:", err?.message);
@@ -401,6 +488,15 @@ async function findUserByDeviceId(deviceId) {
   return data || null;
 }
 
+/* Strip a user row down to the non-PII fields the PUBLIC client actually needs
+   (returning-visitor recognition uses id + name only). The phone number is PII and
+   must NEVER be returned by an unauthenticated endpoint — only the admin API, which
+   is auth-gated, may see it. */
+function publicUser(u) {
+  if (!u) return null;
+  return { id: u.id, name: u.name, created_at: u.created_at };
+}
+
 /* POST /api/users — create a user, or return the existing one for this device_id
    (upsert-by-device_id: never creates a duplicate, never overwrites the original
    name/phone). Returns { ok, user }. */
@@ -424,7 +520,7 @@ async function createUser(req, res) {
     const existing = await findUserByDeviceId(deviceId);
     if (existing) {
       console.log(`[users] device "${deviceId}" already known → returning existing user`);
-      return res.json({ ok: true, user: existing, existed: true });
+      return res.json({ ok: true, user: publicUser(existing), existed: true });
     }
 
     const { data, error } = await supabase
@@ -437,12 +533,12 @@ async function createUser(req, res) {
       // Race: another request inserted the same device_id between our check and
       // insert. Fall back to fetching the now-existing row.
       const raced = await findUserByDeviceId(deviceId);
-      if (raced) return res.json({ ok: true, user: raced, existed: true });
+      if (raced) return res.json({ ok: true, user: publicUser(raced), existed: true });
       throw new Error(error.message);
     }
 
     console.log(`[users] created user ${data.id} (device "${deviceId}")`);
-    res.json({ ok: true, user: data, existed: false });
+    res.json({ ok: true, user: publicUser(data), existed: false });
   } catch (err) {
     console.error("[users] create failed:", err?.message);
     res.status(500).json({ ok: false, error: err?.message });
@@ -458,7 +554,7 @@ async function getUserByDevice(req, res) {
   try {
     const user = await findUserByDeviceId(deviceId);
     if (!user) return res.status(404).json({ ok: false, error: "not_found" });
-    res.json({ ok: true, user });
+    res.json({ ok: true, user: publicUser(user) });   // no phone/PII to the public
   } catch (err) {
     console.error("[users] lookup failed:", err?.message);
     res.status(500).json({ ok: false, error: err?.message });
@@ -546,12 +642,12 @@ async function getSessions(_req, res) {
   }
 }
 
-/* DELETE: wipe all sessions (open access). */
-async function clearSessions(_req, res) {
+/* DELETE: wipe all sessions (admin-only). */
+async function clearSessions(req, res) {
   if (storageUnavailable(res)) return;
   try {
     await clearSessionLogs();
-    console.log("[sessions] cleared all → Supabase");
+    console.log(`[sessions] cleared all → Supabase (by admin: ${req.adminEmail || "unknown"})`);
     res.json({ ok: true });
   } catch (err) {
     console.error("[sessions] clear failed:", err?.message);
@@ -559,19 +655,23 @@ async function clearSessions(_req, res) {
   }
 }
 
-/* Canonical routes the dashboard uses. POST (fitting-room ingest) is open;
-   GET and DELETE are admin-only and require a valid Supabase Auth token. */
-app.post("/api/sessions", saveSession);
+/* Canonical routes the dashboard uses. POST (fitting-room ingest) is open but rate
+   limited; GET and DELETE are admin-only and require a valid Supabase Auth token. */
+app.post("/api/sessions", sessionLimiter, saveSession);
 app.get("/api/sessions", requireAdminAuth, getSessions);
 app.delete("/api/sessions", requireAdminAuth, clearSessions);
 
-/* Back-compat aliases (older clients / earlier code paths). */
-app.post("/api/session-log",      saveSession);
-app.get("/api/admin/sessions",    getSessions);
-app.delete("/api/admin/sessions", clearSessions);
+/* Back-compat aliases (older clients / earlier code paths).
+   SECURITY: these MUST carry the same guards as the canonical routes above — the
+   GET/DELETE aliases previously had NO auth, which fully bypassed the admin gate
+   (unauthenticated read of all data + wipe of the entire table). */
+app.post("/api/session-log",      sessionLimiter, saveSession);
+app.get("/api/admin/sessions",    requireAdminAuth, getSessions);
+app.delete("/api/admin/sessions", requireAdminAuth, clearSessions);
 
-/* User identity routes (returning-visitor recognition). */
-app.post("/api/users",            createUser);
+/* User identity routes (returning-visitor recognition). POST is rate limited; the
+   public GET returns non-PII fields only; the admin list is auth-gated. */
+app.post("/api/users",            userLimiter, createUser);
 app.get("/api/users/:deviceId",   getUserByDevice);
 app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 
@@ -583,6 +683,39 @@ app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 const imgCache = new Map();
 const IMG_CACHE_MAX = 50;
 
+/* ── Image-proxy SSRF guard ────────────────────────────────────────────────────
+   The proxy fetches an arbitrary caller-supplied URL server-side, so without a
+   host allowlist it is a Server-Side Request Forgery primitive: an attacker could
+   aim it at cloud metadata (169.254.169.254), internal services, or use the server
+   as an open relay to hide/abuse its bandwidth. We only ever proxy garment images
+   from a known set of retail CDNs, so we hard-allowlist exactly those hosts and
+   additionally reject any host that is an IP literal / obviously-internal name. */
+const IMG_HOST_ALLOWLIST = new Set([
+  "burst.shopifycdn.com",
+  "cdn.shopify.com",
+  "cdn.suitsupply.com",
+  "image.hm.com",
+  "images.unsplash.com",
+  "img.freepik.com",
+  "img.magnific.com",
+  "live.staticflickr.com",
+  "www.universalcolours.com",
+]);
+// Also accept any subdomain of these registrable CDN roots (Shopify shards hosts).
+const IMG_HOST_SUFFIXES = [".shopifycdn.com", ".shopify.com", ".unsplash.com"];
+
+function isProxyHostAllowed(hostname) {
+  const h = (hostname || "").toLowerCase();
+  if (!h) return false;
+  // Block IP literals and internal-looking names outright (defense in depth).
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":") ||
+      h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) {
+    return false;
+  }
+  if (IMG_HOST_ALLOWLIST.has(h)) return true;
+  return IMG_HOST_SUFFIXES.some((s) => h.endsWith(s));
+}
+
 /* ── Image proxy — fetches garment images server-side to sidestep CORS restrictions
    on CDN hosts (cdn.suitsupply.com, img.magnific.com, etc.) that block browser
    cross-origin fetch.  The Decart SDK calls fetch(imageUrl) internally when you
@@ -591,7 +724,7 @@ const IMG_CACHE_MAX = 50;
    server (no CORS restriction) retrieves the image and pipes it back as a Blob.
    The client then passes the Blob directly to rtClient.set() — no CDN fetch needed.
    ─────────────────────────────────────────────────────────────────────────────── */
-app.get("/api/img-proxy", async (req, res) => {
+app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
   const raw = req.query.url;
   if (!raw) return res.status(400).json({ error: "missing_url", message: "?url= is required" });
 
@@ -601,6 +734,12 @@ app.get("/api/img-proxy", async (req, res) => {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
   } catch {
     return res.status(400).json({ error: "invalid_url", message: "url must be an absolute http(s) URL" });
+  }
+
+  // SSRF guard — only proxy known garment-image CDNs, never arbitrary/internal hosts.
+  if (!isProxyHostAllowed(parsed.hostname)) {
+    console.warn(`[img-proxy] blocked disallowed host: "${parsed.hostname}"`);
+    return res.status(403).json({ error: "host_not_allowed", message: "This image host is not permitted." });
   }
 
   const cacheKey = parsed.href;

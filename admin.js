@@ -144,19 +144,11 @@
 
       const { data, error } = await adminSupabase.auth.signInWithPassword({ email, password });
 
-      // DEBUG — paste this output in the browser console (F12 → Console)
-      console.log("[auth] SUPABASE_URL used:", SUPABASE_URL);
-      console.log("[auth] ANON_KEY prefix:", SUPABASE_ANON_KEY.slice(0, 40) + "…");
-      console.log("[auth] signInWithPassword result:", JSON.stringify({ data, error }));
+      // Do NOT log `data`/`error` verbatim: `data.session` carries the access +
+      // refresh tokens and logging them leaves live admin credentials in the
+      // browser console (and any console-capturing extension). Log status only.
       if (error) {
-        console.log("[auth] error.status :", error?.status);
-        console.log("[auth] error.message:", error?.message);
-        console.log("[auth] error.name   :", error?.name);
-        console.log("[auth] full error   :", JSON.stringify(error));
-      } else {
-        console.log("[auth] session obtained:", !!data?.session);
-        console.log("[auth] user email:", data?.user?.email);
-        console.log("[auth] email confirmed:", data?.user?.email_confirmed_at ?? "(not confirmed)");
+        console.warn("[auth] sign-in failed:", error?.status || "", error?.name || "error");
       }
 
       if (error || !data?.session) {
