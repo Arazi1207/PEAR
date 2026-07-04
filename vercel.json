@@ -5,15 +5,7 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": [
-          "index.html",
-          "product.html",
-          "style.css",
-          "catalog.js",
-          "store.js",
-          "product.js",
-          "pear-demo/**"
-        ]
+        "includeFiles": ["*.html", "*.css", "*.js", "admin/**", "fitting-room/**", "widget/**", "lib/**", "docs/**"]
       }
     }
   ],

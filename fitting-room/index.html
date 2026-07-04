@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#efe8d8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PEAR">
+    <title>PEAR — חדר הלבשה וירטואלי · Lucy VTON</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ░░ Liquid-glass dynamic background — a soft mesh of blurred light that drifts
+     microscopically with the pointer / device tilt (lux-interactions.js applies an
+     inertial translate3d). Fixed, behind all content, pointer-events:none. ░░ -->
+<div class="liquid-mesh" aria-hidden="true"></div>
+
+<!-- ░░ Ambient editorial side rails — fill desktop/tablet margins; parallax to
+     scroll + pointer (lux-interactions.js). Decorative, pointer-events:none,
+     hidden on smaller viewports. ░░ -->
+<aside class="lux-rail lux-rail--left" aria-hidden="true">
+  <div class="lux-rail__grid"></div>
+  <span class="lux-rail__type">PEAR PREMIUM FIT ROOM // EST. 2026</span>
+  <span class="lux-rail__meta">№ 01 — MONOCHROME CAPSULE</span>
+</aside>
+<aside class="lux-rail lux-rail--right" aria-hidden="true">
+  <div class="lux-rail__grid"></div>
+  <span class="lux-rail__type">VIRTUAL TRY-ON // ALGORITHMIC FIT</span>
+  <span class="lux-rail__meta">LUCY VTON · REALTIME</span>
+</aside>
+
+<!-- ░░ Bitten-Pear screen transition overlay (Screen 1 → Screen 2) ░░ -->
+<!-- ░░ "Liquid Brand Aperture" transition (Screen 1 → Screen 2) ░░
+     Layers, painted bottom→top: glass backdrop · brand logo · pear-green flood.
+     The flood is a single GPU layer (viewport-sized ellipse) that scales up to
+     mask the screen, then scales out + fades like a camera aperture. NO clipping
+     paths, NO secondary "bite" shape — pure transform + opacity. -->
+<div class="pear-transition" id="pearTransition" aria-hidden="true" hidden>
+  <div class="pear-transition__bg"></div>
+  <!-- Authentic PEAR logo: a filled pear with the serif "P" + hanger knocked out
+       as negative space, exactly like the brand mark. -->
+  <svg class="pear-transition__shape" viewBox="0 0 120 152" role="presentation">
+    <defs>
+      <linearGradient id="luxPearGrad" x1="20%" y1="8%" x2="80%" y2="100%">
+        <stop offset="0%"   stop-color="#2a2a2c"/>
+        <stop offset="50%"  stop-color="#141416"/>
+        <stop offset="100%" stop-color="#0a0a0b"/>
+      </linearGradient>
+      <!-- STATIC mask (rasterised once, never animated) -->
+      <mask id="luxLogoMask">
+        <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z" fill="#fff"/>
+        <g stroke="#000" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M70 60 L70 126" stroke-width="6"/>
+          <path d="M70 62 H85 C93 62 99 68 99 77 C99 86 93 91 85 91 H70" stroke-width="5"/>
+          <path d="M59 112 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
+          <path d="M41 123 L59 110 L83 123" stroke-width="2.6"/>
+        </g>
+      </mask>
+    </defs>
+    <path class="pear-transition__stem" d="M61 31 C59 22 62 15 70 12" fill="none" stroke="#0a0a0b" stroke-width="3.4" stroke-linecap="round"/>
+    <path class="pear-transition__leaf" d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="#0a0a0b"/>
+    <path class="pear-transition__body"
+          d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"
+          fill="url(#luxPearGrad)" mask="url(#luxLogoMask)"/>
+  </svg>
+  <!-- the pear-green liquid flood / aperture (single GPU layer) -->
+  <div class="pear-transition__flood" aria-hidden="true"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SCREEN 1 — Size / body-measurement calculator (REQUIRED FIRST STEP)
+     ════════════════════════════════════════════════════════════════════ -->
+<div id="screen-calculator" class="screen active">
+  <div class="calc-shell">
+
+    <!-- ░░ Editorial lookbook panel — premium B&W split-screen on desktop, an elegant
+         banner on mobile. Purely decorative: the photo is forced monochrome via CSS,
+         and if the remote image ever fails it removes itself, leaving a styled black
+         panel so the layout never reads as broken. ░░ -->
+    <aside class="calc-editorial">
+      <img class="calc-editorial__img"
+           src="https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=1100&q=80&sat=-100&auto=format&fit=crop"
+           alt="" aria-hidden="true" loading="eager" onerror="this.remove()">
+      <div class="calc-editorial__scrim"></div>
+      <div class="calc-editorial__content">
+        <span class="calc-editorial__kicker">PEAR · Atelier</span>
+        <h1 class="calc-editorial__headline">המידה שלך,<br>בדיוק מושלם</h1>
+        <p class="calc-editorial__lead">חדר הלבשה וירטואלי בזמן אמת — הלוק נמדד על הגוף שלך, מתוך נתונים ולא ניחושים.</p>
+        <ul class="calc-editorial__list">
+          <li>התאמת מידה אלגוריתמית מדויקת</li>
+          <li>מדידה חיה של הבגד על הגוף</li>
+          <li>שמירה והורדה של הלוק</li>
+        </ul>
+        <span class="calc-editorial__meta">Lookbook № 01 — Monochrome Capsule</span>
+      </div>
+    </aside>
+
+    <!-- ░░ Calculator column ░░ -->
+    <div class="calc-main">
+    <div class="step-progress">
+        <div class="step-progress-label">
+            <span>שלב 1 מתוך 2 · Size</span>
+            <span id="progressPercent">0%</span>
+        </div>
+        <div class="step-progress-track">
+            <div class="step-progress-fill" id="progressFill"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="focus-calc-hint" id="focusCalcHint" hidden></div>
+        <span class="kicker">PEAR · Personal Fit Engine</span>
+        <h2>התאמת מידה אישית</h2>
+        <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
+
+        <!-- ░░ Identity gate — shown ONCE for a first-time visitor (app.js).
+             On return visits the browser is remembered (localStorage device id)
+             and this form is skipped entirely, going straight to measurements. ░░ -->
+        <form id="identityForm" autocomplete="off" hidden>
+            <div class="form-group">
+                <label for="userName"><span class="required">*</span>שם מלא:</label>
+                <input type="text" id="userName" autocomplete="name" placeholder="לדוגמה: דנה כהן">
+            </div>
+            <div class="form-group">
+                <label for="userPhone"><span class="required">*</span>טלפון:</label>
+                <input type="tel" id="userPhone" autocomplete="tel" inputmode="tel" placeholder="לדוגמה: 050-1234567">
+            </div>
+            <!-- Plain container: must NOT use .result-actions (that class stays
+                 collapsed/invisible until the size-calc adds .is-ready, which would
+                 permanently hide this Continue button). -->
+            <div id="identityActions" style="margin-top:14px">
+                <button id="btn-identity-continue" type="button" class="btn-primary">המשך →</button>
+                <p id="identityError" class="login-error" role="alert" hidden style="margin-top:10px"></p>
+            </div>
+        </form>
+
+        <form id="sizeForm" autocomplete="off">
+            <!-- ░░ Mandatory inputs — always visible (idle state) ░░ -->
+            <div class="form-group">
+                <label for="height"><span class="required">*</span>גובה (בס"מ):</label>
+                <input type="number" id="height" min="100" max="300" placeholder="לדוגמה: 175">
+            </div>
+            <div class="form-group">
+                <label for="weight"><span class="required">*</span>משקל (בק"ג):</label>
+                <input type="number" id="weight" min="30" max="250" placeholder="לדוגמה: 68">
+            </div>
+
+            <!-- ░░ Result + Continue — appear directly below Weight once both
+                 mandatory fields are valid. .is-ready (set in app.js) drives the
+                 staggered liquid reveal. ░░ -->
+            <div class="result-actions" id="resultActions">
+                <div class="result-box" id="resultBox">
+                    <div id="resultLabel">המידה המומלצת עבורך:</div>
+                    <div class="size-display" id="sizeResult">-</div>
+                </div>
+
+                <button id="btn-next-screen" type="button" class="btn-primary" disabled>המשך לחדר המדידה הוירטואלי →</button>
+            </div>
+
+            <!-- ░░ Optional "Fine-tune your fit" tray — pushed to the bottom,
+                 revealed below the result as a secondary, optional action.
+                 Stays hidden until BOTH mandatory fields are valid (Task 6). ░░ -->
+            <div class="optional-fields optional-fields-container" id="optionalFields">
+                <div class="section-divider"><span>כוונון עדין · Fine-tune your fit</span></div>
+
+                <div class="form-group">
+                    <label for="chest">היקף חזה (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="chest" min="50" max="150" placeholder="לדוגמה: 94">
+                </div>
+                <div class="form-group">
+                    <label for="waist">היקף מותניים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="waist" min="40" max="150" placeholder="לדוגמה: 80">
+                </div>
+                <div class="form-group">
+                    <label for="legs">אורך רגליים (בס"מ) <span class="optional">(אופציונלי)</span>:</label>
+                    <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
+                </div>
+            </div>
+        </form>
+    </div>
+    </div><!-- /.calc-main -->
+  </div><!-- /.calc-shell -->
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SCREEN 2 — Isolated Try-On Room (Lucy VTON realtime snapshot flow)
+     ════════════════════════════════════════════════════════════════════ -->
+<div id="screen-fitting" class="screen">
+
+    <!-- Pear-green product-isolation status bar (focus mode only) -->
+    <div class="focus-bar" id="focusBar" hidden>
+        <span class="focus-bar__dot"></span>
+        <span class="focus-bar__text">מדידת פריט ממוקדת: <strong id="focusItemName">—</strong></span>
+        <span class="focus-bar__badge" id="focusSizeBadge"></span>
+    </div>
+
+    <div class="app-header">
+        <!-- Back to Store — breaks out of any iframe (target="_top") and returns
+             to the storefront homepage. -->
+        <a class="back-to-store" href="/" target="_top" aria-label="חזרה לחנות · Back to store">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 9.5 5.4 4h13.2L20 9.5"/>
+                <path d="M4.5 9.5h15V19a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1V9.5Z"/>
+                <path d="M10 20v-5h4v5"/>
+            </svg>
+            <span>חזרה לחנות</span>
+        </a>
+        <!-- Authentic PEAR brand mark — inline SVG (pear · serif "P" · hanger),
+             so it is bulletproof on any host with no external path to 404.
+             The same artwork also ships as the relative asset ./image_9d45b0.svg
+             (used by the loaders); swap an <img src="./image_9d45b0.svg"> in here
+             if you prefer the external file. -->
+        <svg class="brand-mark" viewBox="0 0 120 152" fill="none" stroke="currentColor"
+             stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"/>
+            <path d="M61 31 C59 22 62 15 70 12"/>
+            <path d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="currentColor" stroke="none"/>
+            <path d="M70 58 L70 128" stroke-width="6"/>
+            <path d="M70 60 H86 C95 60 101 67 101 77 C101 87 95 93 86 93 H70" stroke-width="5"/>
+            <path d="M61 58 H79" stroke-width="5"/>
+            <path d="M61 128 H79" stroke-width="5"/>
+            <path d="M59 110 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
+            <path d="M40 122 L59 108 L84 122" stroke-width="2.6"/>
+        </svg>
+        <span class="app-header__brand">PEAR</span>
+        <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+        <button class="cart-btn" id="cartBtn" type="button" aria-label="סל קניות · Shopping cart">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 8h12l-1 11.5a1.5 1.5 0 0 1-1.5 1.4H8.5A1.5 1.5 0 0 1 7 19.5L6 8Z"></path>
+                <path d="M9 8V6.4a3 3 0 0 1 6 0V8"></path>
+            </svg>
+            <span class="cart-btn__count is-empty" id="cartCount">0</span>
+        </button>
+        <span class="app-header__engine" id="engineBadge" title="מנוע">●</span>
+    </div>
+
+    <div class="container fitting-container">
+        <h2 class="personal-title">ככה המידה <span id="final-size-text"></span> נראית עליך</h2>
+
+        <!-- Active garment chip -->
+        <div class="active-garment" id="activeGarment" hidden>
+            <div class="active-garment__media" id="activeGarmentMedia"></div>
+            <div class="active-garment__meta">
+                <span class="active-garment__eyebrow">פריט נמדד · Now fitting</span>
+                <strong class="active-garment__name" id="activeGarmentName">—</strong>
+                <span class="active-garment__type" id="activeGarmentType"></span>
+            </div>
+        </div>
+
+        <!-- ░░ Camera stage ░░ -->
+        <div class="camera-card" id="cameraCard">
+            <span class="camera-card__live" id="liveBadge"><i></i>LIVE</span>
+
+            <!-- ░░ Multi-Image Gallery — vertical perspective strip ░░
+                 A real-PDP vertical thumbnail rail pinned to the inline-start edge of
+                 the camera stage so it stays reachable DURING the live stream (above
+                 #aiVideo). One thumbnail per WEARABLE angle (Front / Back / Side) is built
+                 at runtime from the active product's gallery (renderPerspectiveSelector);
+                 tapping one re-warps that angle onto the same WebRTC session — no
+                 reconnect, no new token. Inspection-only angles (e.g. Detail) live on the
+                 storefront PDP gallery, not here — a macro is a poor VTON reference. -->
+            <div class="persp-selector" id="perspectiveSelector" role="group"
+                 aria-label="בחירת זווית · Product perspective" hidden></div>
+
+            <!-- ░░ Source-image preview — the exact product photo fed to the AI ░░
+                 Mirrors a real product-gallery thumbnail so the user always sees which
+                 angle the model is processing. Updated on every item/angle change. -->
+            <figure class="source-preview" id="sourcePreview" hidden aria-live="polite">
+                <img id="sourcePreviewImg" alt="" width="52" height="66" decoding="async">
+                <figcaption class="source-preview__cap">
+                    <span class="source-preview__eyebrow">מקור · AI source</span>
+                    <span class="source-preview__label" id="sourcePreviewLabel">Front</span>
+                </figcaption>
+            </figure>
+
+            <video id="webcam" playsinline autoplay muted></video>
+            <!-- hidden source video carrying the Lucy-VTON-edited realtime stream -->
+            <video id="aiVideo" playsinline autoplay muted></video>
+            <!-- the frozen "masterpiece" snapshot is painted here -->
+            <canvas id="resultCanvas"></canvas>
+
+            <div class="camera-card__guide" id="alignGuide"></div>
+
+            <!-- strict 5-second live countdown — the visible token kill-clock.
+                 Shown only while .show-live; ticks 5→1 then auto-freezes. -->
+            <div class="live-countdown" id="liveCountdown" hidden aria-live="polite">
+                <span class="live-countdown__num" id="liveCountdownNum">5</span>
+                <span class="live-countdown__label">שניות · sec</span>
+            </div>
+
+            <!-- luxury AI scanning overlay -->
+            <div class="scan-overlay" id="scanOverlay" hidden>
+                <div class="scan-overlay__lines"></div>
+                <div class="pear-loader" aria-hidden="true">
+                    <img class="pear-loader__fruit" src="./image_9d45b0.svg" alt="" width="48" height="60">
+                    <div class="pear-loader__shadow"></div>
+                </div>
+                <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
+                <div class="scan-overlay__sub" id="scanSub">Lucy VTON · photorealistic render</div>
+            </div>
+
+            <div class="camera-card__placeholder" id="camPlaceholder">
+                <div class="camera-card__icon">📷</div>
+                <p>הפעל את המצלמה כדי להתחיל מדידה</p>
+                <button class="btn-primary" id="startCamBtn">הפעל מצלמה</button>
+            </div>
+
+            <div class="camera-card__error" id="camError" hidden></div>
+        </div>
+
+        <!-- ░░ Live try-on controls ░░ -->
+        <div class="cam-controls">
+            <button class="btn-capture" id="captureBtn" disabled>
+                <span class="btn-capture__icon">📸</span>
+                <span class="btn-capture__label">התחל מדידה חיה</span>
+                <span class="btn-capture__en">Go Live</span>
+            </button>
+            <!-- #retakeBtn now lives inside the unified .pear-interaction-pod below -->
+        </div>
+
+        <!-- ░░ Add to Cart — high-end morphing action (spinner → fly → checkmark) ░░ -->
+        <div class="add-cart-row">
+            <button class="btn-add-cart" id="addToCartBtn" type="button" aria-label="הוסף לסל">
+                <span class="bac__label">
+                    <span class="bac__icon" aria-hidden="true">＋</span>
+                    הוסף לסל <span class="bac__en">· Add to Cart</span>
+                </span>
+                <span class="bac__spinner" aria-hidden="true"></span>
+                <span class="bac__check" aria-hidden="true">✓</span>
+            </button>
+        </div>
+
+        <!-- ░░ Catalog (only when entering WITHOUT a focused product) ░░ -->
+        <section class="catalog-panel" id="catalogPanel" hidden>
+            <h3 class="catalog-title">בחר בגד מהקטלוג</h3>
+            <div class="catalog-grid" id="catalogGrid"></div>
+        </section>
+
+        <!-- ░░ Complete the Look — cross-category recommendations ░░ -->
+        <section class="complete-look" id="completeLook" hidden>
+            <div class="complete-look__head">
+                <h3 class="cl-title">השלמת הלוק <span>· Complete the Look</span></h3>
+                <p class="cl-sub" id="clSub"></p>
+            </div>
+            <div class="cl-track" id="clTrack"></div>
+        </section>
+
+        <!-- ░░ PEAR Live-Action Gallery & Retake Pod — unified glass capsule ░░
+             Retake capsule + horizontal "Live Photo" history (5s VTON clips,
+             captured locally — zero server video cost). ░░ -->
+        <section class="pear-interaction-pod" id="pearGallery" aria-label="גלריית מדידות" hidden>
+            <div class="pip-head">
+                <span class="pip-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 4v4h4"></path><path d="M12 8v4l3 2"></path>
+                    </svg>
+                </span>
+                <h3 class="pip-title">מדידות קודמות <span>· Previous Fits</span></h3>
+                <button class="pip-retake" id="retakeBtn" type="button">
+                    <span class="pip-retake__icon" aria-hidden="true">↺</span>
+                    <span>מדוד שוב</span>
+                    <span class="pip-retake__en">Retake</span>
+                </button>
+                <button class="pip-clear" id="galleryClear" type="button" title="נקה גלריה">נקה</button>
+            </div>
+            <div class="pear-gallery-track" id="galleryTrack"></div>
+
+            <!-- Floating "Compare Looks" pill — slides up when exactly 2 fits are selected -->
+            <button class="pear-compare-bar" id="compareBar" type="button" hidden>
+                <span class="pear-compare-bar__icon" aria-hidden="true">⤢</span>
+                <span>השוואה בין המראה הנבחר</span>
+                <span class="pear-compare-bar__en">Compare Looks</span>
+            </button>
+        </section>
+
+        <button class="btn-back" id="btn-back">← חזור למחשבון המידות</button>
+
+        <!-- ░░ Compare Fits — split-screen liquid-glass overlay ░░ -->
+        <div class="pear-compare-overlay" id="pearCompare" role="dialog" aria-modal="true" aria-label="השוואת מדידות" hidden>
+            <div class="pcmp__backdrop" data-compare-close></div>
+            <div class="pcmp__panel" role="document">
+                <header class="pcmp__head">
+                    <h3 class="pcmp__title">השוואת מדידות <span>· Compare Fits</span></h3>
+                    <button class="pcmp__close" id="compareClose" type="button" aria-label="סגור" data-compare-close>✕</button>
+                </header>
+                <div class="pcmp__split" id="compareSplit"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ░░ "Upload Your Own Garment" — hidden native file input ░░
+     Driven programmatically by the upload card in the catalog grid (app.js). -->
+<input type="file" id="garmentUploadInput" accept="image/*" hidden aria-hidden="true">
+
+<!-- ░░ Garment-detection overlay ░░
+     Opens on upload. Shows the picked image with interactive royal-blue bounding
+     boxes over each detected garment. Hover highlights a box; clicking one crops
+     that garment, closes the overlay, and sets it as the Active Item. Luxury
+     white / royal-blue theme (scoped --royal tokens in style.css). -->
+<div class="gd-overlay" id="garmentDetect" role="dialog" aria-modal="true"
+     aria-label="בחירת בגד מהתמונה שהעלית" hidden>
+  <div class="gd-overlay__backdrop" data-gd-close></div>
+  <div class="gd-overlay__panel" role="document">
+    <header class="gd-head">
+      <div class="gd-head__text">
+        <span class="gd-eyebrow">PEAR · Detect</span>
+        <h3 class="gd-title">בחר/י את הבגד <span>· Select a garment</span></h3>
+        <p class="gd-sub" id="gdSub">מזהה בגדים בתמונה…</p>
+      </div>
+      <button class="gd-close" id="gdClose" type="button" aria-label="סגור" data-gd-close>✕</button>
+    </header>
+
+    <!-- TOP / BOTTOM segmented toggle — shown only for a full worn outfit; snaps the
+         bounding box between the top-garment and bottom-garment sub-regions. -->
+    <div class="gd-tabs" id="gdTabs" role="tablist" aria-label="בחירת סוג בגד" data-active="top" hidden>
+      <button class="gd-tab is-active" type="button" role="tab" data-side="top" aria-selected="true">
+        <span>עליון</span><small>Top</small>
+      </button>
+      <button class="gd-tab" type="button" role="tab" data-side="bottom" aria-selected="false">
+        <span>תחתון</span><small>Bottom</small>
+      </button>
+      <span class="gd-tabs__ind" aria-hidden="true"></span>
+    </div>
+
+    <div class="gd-stage" id="gdStage">
+      <!-- .gd-frame wraps ONLY the image so .gd-boxes { inset:0 } overlaps the
+           rendered image exactly — box coords are % of natural size, scale-free. -->
+      <div class="gd-frame" id="gdFrame">
+        <img class="gd-frame__img" id="gdImage" alt="התמונה שהועלתה" decoding="async">
+        <!-- focus scrim — dims the whole image; each bracket clears its own zone on hover -->
+        <div class="gd-scrim" aria-hidden="true"></div>
+        <div class="gd-boxes" id="gdBoxes"></div>
+
+        <!-- detecting spinner (over the image) -->
+        <div class="gd-loading" id="gdLoading">
+          <span class="gd-spinner" aria-hidden="true"></span>
+          <span class="gd-loading__label">מזהה בגדים…</span>
+        </div>
+      </div>
+
+      <!-- empty state — no garments detected -->
+      <div class="gd-empty" id="gdEmpty" hidden>
+        <span class="gd-empty__icon" aria-hidden="true">🔍</span>
+        <p class="gd-empty__text">לא זוהו בגדים בתמונה.<br><span>Please try another clear image.</span></p>
+        <button class="btn-primary gd-empty__retry" id="gdRetry" type="button">בחר/י תמונה אחרת</button>
+      </div>
+    </div>
+
+    <p class="gd-hint" id="gdHint">לחצ/י על המסגרת הכחולה סביב הבגד שתרצה/י למדוד</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="app.js?v=2"></script>
+<!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
+     header shrink. Pure enhancement — touches no app.js logic or state. -->
+<script src="mobile-ux.js" defer></script>
+<!-- Luxury micro-interaction layer: Add-to-Cart fly, Bitten-Pear transition,
+     ambient side rails, magnetic buttons, floating labels. Additive only —
+     touches no app.js logic or state. -->
+<script src="lux-interactions.js" defer></script>
+</body>
+</html>

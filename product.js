@@ -6,7 +6,7 @@
    ============================================================ */
 "use strict";
 
-const PEAR_PATH = "./pear-demo/index.html";
+const PEAR_PATH = "/fitting-room/";
 const LS_BAG    = "meridian_bag";
 const LS_TRYON  = "pear_tryon";
 
@@ -59,9 +59,10 @@ function pearUrl(p, color) {
 }
 
 /* ── state ── */
-let product = null;
+let product = null;         // the selected product object == the spec's `activeGarment`
 let activeColor = null;
 let activeSize = "M";
+let activeAngle = "front";  // which gallery angle the main viewport is showing
 
 function findProduct() {
   const id = parseInt(new URLSearchParams(location.search).get("id"), 10);
@@ -73,9 +74,11 @@ function render() {
   const grid = $("#pdpGrid");
 
   grid.innerHTML = `
-    <section class="pdp__media">
-      <span class="pdp__badge"${product.isNew ? "" : " hidden"}>New Arrival</span>
-      <div class="pdp__svg" id="pdpSvg">${pdpSvgOf(activeColor)}</div>
+    <section class="pdp__media${hasPhotoGallery(product) ? " pdp__media--gallery" : ""}">
+      ${hasPhotoGallery(product)
+        ? `<div class="pdp__gallery" id="pdpGallery"></div>`
+        : `<span class="pdp__badge"${product.isNew ? "" : " hidden"}>New Arrival</span>
+           <div class="pdp__svg" id="pdpSvg">${pdpSvgOf(activeColor)}</div>`}
     </section>
 
     <section class="pdp__info">
@@ -115,6 +118,7 @@ function render() {
 
   renderSwatches();
   renderSizes();
+  if (hasPhotoGallery(product)) renderProductGallery(product);
 
   $("#crumbs").innerHTML =
     `<a href="index.html#home">Home</a>` +
@@ -156,17 +160,108 @@ function renderSizes() {
   });
 }
 
+/* ── Multi-angle product gallery (main viewport + vertical thumbnail strip) ───
+   Only rendered for products with a real photo set (hasPhotoGallery). Clicking a
+   thumbnail crossfades the main viewport to that angle and moves the active
+   border — a real retail PDP gallery. The exact same angle model (activeAngle +
+   product.gallery) drives the fitting-room live rail, so the storefront and the
+   live try-on stay in lock-step. */
+function galleryUrl(p, angle) {
+  const hit = productGallery(p).find((i) => i.angle === angle);
+  return hit ? hit.url : (p.imageUrl || "");
+}
+
+function renderProductGallery(p) {
+  const host = $("#pdpGallery");
+  if (!host) return;
+  const items = productGallery(p);
+  if (!items.length) return;
+  if (!items.some((i) => i.angle === activeAngle)) activeAngle = items[0].angle;
+
+  host.innerHTML = `
+    <ul class="product-thumbnails" id="pdpThumbs" role="listbox" aria-label="Product views">
+      ${items.map((i) => `
+        <li role="presentation">
+          <button type="button" class="product-thumb${i.angle === activeAngle ? " is-active" : ""}"
+                  data-angle="${i.angle}" role="option" aria-selected="${i.angle === activeAngle}"
+                  aria-label="${i.label} view">
+            <img src="${i.url}" alt="${p.name} — ${i.label}" loading="lazy" decoding="async">
+            <span class="product-thumb__label">${i.label}</span>
+          </button>
+        </li>`).join("")}
+    </ul>
+    <div class="pdp__stage">
+      <span class="pdp__badge"${p.isNew ? "" : " hidden"}>New Arrival</span>
+      <img class="pdp__main" id="pdpMain" src="${galleryUrl(p, activeAngle)}"
+           alt="${p.name} — ${ANGLE_LABEL[activeAngle]}" decoding="async">
+    </div>`;
+
+  host.querySelectorAll(".product-thumb").forEach((btn) => {
+    btn.addEventListener("click", () => setProductAngle(p, btn.dataset.angle));
+  });
+}
+
+function setProductAngle(p, angle) {
+  if (!angle || angle === activeAngle) return;
+  activeAngle = angle;                                    // == updates the spec's activeAngle
+
+  // active border on the clicked thumb
+  document.querySelectorAll("#pdpThumbs .product-thumb").forEach((b) => {
+    const on = b.dataset.angle === angle;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+
+  // crossfade the main viewport: preload → fade out → swap cached src → fade in.
+  // Preloading first guarantees no flicker / blank frame during the swap.
+  const main = $("#pdpMain");
+  if (!main) return;
+  const url = galleryUrl(p, angle);
+  const pre = new Image();
+  pre.decoding = "async";
+  pre.onload = () => {
+    main.classList.add("is-fade");
+    setTimeout(() => {
+      main.src = url;
+      main.alt = `${p.name} — ${ANGLE_LABEL[angle]}`;
+      main.classList.remove("is-fade");
+    }, 170);                                              // matches .pdp__main opacity transition
+  };
+  pre.onerror = () => { main.src = url; };                // still swap even if preload fails
+  pre.src = url;
+}
+
 /* ── handoff to PEAR (remembers the garment; PEAR runs the calculator first) ── */
 function launchPear() {
+  const url = pearUrl(product, activeColor);
+  const payload = {
+    id:       product.id,
+    itemType: product.type,
+    subType:  product.subType,
+    color:    activeColor.replace("#", ""),
+    name:     product.name,
+    size:     activeSize,
+    img:      product.imageUrl || "(none)",
+  };
+
+  console.group("[PEAR] launchPear() — handoff debug");
+  console.log("product :", product.name, `(id=${product.id})`);
+  console.log("type    :", product.type, "| subType:", product.subType);
+  console.log("color   :", activeColor, "| size:", activeSize);
+  console.log("img URL :", product.imageUrl || "(no imageUrl on this product)");
+  console.log("target  :", url);
+  console.log("payload :", payload);
+  console.groupEnd();
+
+  if (!product.imageUrl) {
+    console.warn("[PEAR] launchPear() — product.imageUrl is empty; the VTON model will have no garment reference image.");
+  }
+
   try {
-    localStorage.setItem(LS_TRYON, JSON.stringify({
-      id: product.id, itemType: product.type, subType: product.subType,
-      color: activeColor.replace("#", ""), name: product.name, size: activeSize,
-      img: product.imageUrl,
-    }));
+    localStorage.setItem(LS_TRYON, JSON.stringify(payload));
   } catch (_) {}
   showToast(`Launching <b>PEAR Camera</b> — ${product.name}…`);
-  setTimeout(() => { location.href = pearUrl(product, activeColor); }, 600);
+  setTimeout(() => { location.href = url; }, 600);
 }
 
 /* ── not found ── */

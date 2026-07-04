@@ -79,6 +79,16 @@ const PRODUCTS = [
     id: 6, name: "Strata Longsleeve", price: 128, category: "Shirts", type: "shirt", subType: "long_sleeve",
     color: "#2b2b30", isNew: true, fav: true,
     imageUrl: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024",
+    /* ── Multi-angle hero (real, visually-verified assets) ──
+       Only the angles this product actually ships a photo for. universalcolours
+       -1/-3/-4 = front packshot / back-on-model / fabric+logo detail macro. There
+       is NO true side profile for this item, so `side` is deliberately omitted —
+       never faked. See productGallery() for the shared normalizer. */
+    gallery: {
+      front:  "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024",
+      back:   "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=1024",
+      detail: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-4.jpg?v=1732626199&width=1024",
+    },
     variants: [
       { color: "#2b2b30", label: "Charcoal" },
       { color: "#f0ede6", label: "White"    },
@@ -194,6 +204,31 @@ const SUBTYPE_LABEL = {
 };
 
 const SIZES = ["S", "M", "L", "XL"];
+
+/* ── Multi-angle product gallery (shared source of truth) ────────────────────
+   Ordered inspection angles a product ships REAL photos for. `front` falls back
+   to the canonical imageUrl so every product yields at least a single-image
+   gallery; products carrying a `gallery` map add whatever real angles exist
+   (back / side / detail). Angles with no real photo are simply omitted — never
+   duplicated or faked. Consumed by the storefront PDP (product.js) and mirrored
+   by the fitting-room live rail. */
+const GALLERY_ANGLES = ["front", "back", "side", "detail"];
+const ANGLE_LABEL = { front: "Front", back: "Back", side: "Side", detail: "Detail" };
+
+function productGallery(p) {
+  if (!p) return [];
+  const g = (p.gallery && typeof p.gallery === "object") ? p.gallery : {};
+  const out = [];
+  for (const a of GALLERY_ANGLES) {
+    const url = g[a] || (a === "front" ? p.imageUrl : null);
+    if (url) out.push({ angle: a, label: ANGLE_LABEL[a], url });
+  }
+  return out;
+}
+
+/* True when a product has a real multi-angle photo set worth rendering as a
+   gallery (vs. the procedural recolour SVG). One angle (front-only) stays SVG. */
+function hasPhotoGallery(p) { return !!(p && p.gallery) && productGallery(p).length >= 2; }
 
 /* ── color helper ── */
 function shade(hex, p) {
