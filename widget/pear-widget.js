@@ -2,7 +2,7 @@
    PEAR Widget — embeddable virtual try-on button for any store
    ----------------------------------------------------------------------------
    One-line embed:
-     <script src="https://pear-demo.vercel.app/widget/pear-widget.js"
+     <script src="https://pear-web-demo.vercel.app/widget/pear-widget.js"
              data-pear-key="STORE_KEY"></script>
 
    What it does:
@@ -25,7 +25,7 @@
   w.__pearWidgetLoaded = true;
 
   /* ── configuration ──────────────────────────────────────────────────────── */
-  var FALLBACK_BASE = "https://pear-demo.vercel.app";
+  var FALLBACK_BASE = "https://pear-web-demo.vercel.app";
 
   /* Resolve the PEAR origin from this script's own src so the widget works
      against localhost / preview deployments too; fall back to production. */

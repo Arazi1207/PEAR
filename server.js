@@ -691,36 +691,46 @@ const imgCache = new Map();
 const IMG_CACHE_MAX = 50;
 
 /* ── Image-proxy SSRF guard ────────────────────────────────────────────────────
-   The proxy fetches an arbitrary caller-supplied URL server-side, so without a
-   host allowlist it is a Server-Side Request Forgery primitive: an attacker could
-   aim it at cloud metadata (169.254.169.254), internal services, or use the server
-   as an open relay to hide/abuse its bandwidth. We only ever proxy garment images
-   from a known set of retail CDNs, so we hard-allowlist exactly those hosts and
-   additionally reject any host that is an IP literal / obviously-internal name. */
-const IMG_HOST_ALLOWLIST = new Set([
-  "burst.shopifycdn.com",
-  "cdn.shopify.com",
-  "cdn.suitsupply.com",
-  "image.hm.com",
-  "images.unsplash.com",
-  "img.freepik.com",
-  "img.magnific.com",
-  "live.staticflickr.com",
-  "www.universalcolours.com",
-]);
-// Also accept any subdomain of these registrable CDN roots (Shopify shards hosts).
-const IMG_HOST_SUFFIXES = [".shopifycdn.com", ".shopify.com", ".unsplash.com"];
-
-function isProxyHostAllowed(hostname) {
+   The proxy fetches an arbitrary caller-supplied URL server-side.  We block
+   private/internal network ranges (where SSRF is dangerous) and non-HTTPS
+   schemes, but allow any public HTTPS host so widget garments from any store
+   load without manual allowlist additions.
+   Blocked ranges:
+     • loopback:      127.0.0.0/8
+     • private A:     10.0.0.0/8
+     • private B:     172.16.0.0/12
+     • private C:     192.168.0.0/16
+     • link-local:    169.254.0.0/16  (AWS/GCP metadata endpoint)
+     • IPv6 loopback: ::1
+     • plain hostname: localhost, *.local, *.internal                          */
+function isPrivateHost(hostname) {
   const h = (hostname || "").toLowerCase();
-  if (!h) return false;
-  // Block IP literals and internal-looking names outright (defense in depth).
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":") ||
-      h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) {
-    return false;
+  if (!h) return true;
+
+  // IPv6 loopback / link-local
+  if (h === "::1" || h.startsWith("fe80:") || h.startsWith("[::1]") || h.startsWith("[fe80:")) return true;
+
+  // Named internal hosts
+  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return true;
+
+  // IPv4 literal check
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (a === 127)                        return true;  // loopback
+    if (a === 10)                         return true;  // private A
+    if (a === 172 && b >= 16 && b <= 31)  return true;  // private B
+    if (a === 192 && b === 168)           return true;  // private C
+    if (a === 169 && b === 254)           return true;  // link-local / metadata
+    return true; // all other bare IP literals — block by default
   }
-  if (IMG_HOST_ALLOWLIST.has(h)) return true;
-  return IMG_HOST_SUFFIXES.some((s) => h.endsWith(s));
+
+  return false;
+}
+
+function isProxyHostAllowed(hostname, protocol) {
+  if (protocol !== "https:") return false;  // HTTPS only
+  return !isPrivateHost(hostname);
 }
 
 /* ── Image proxy — fetches garment images server-side to sidestep CORS restrictions
@@ -743,8 +753,8 @@ app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
     return res.status(400).json({ error: "invalid_url", message: "url must be an absolute http(s) URL" });
   }
 
-  // SSRF guard — only proxy known garment-image CDNs, never arbitrary/internal hosts.
-  if (!isProxyHostAllowed(parsed.hostname)) {
+  // SSRF guard — block private/internal hosts; require HTTPS.
+  if (!isProxyHostAllowed(parsed.hostname, parsed.protocol)) {
     console.warn(`[img-proxy] blocked disallowed host: "${parsed.hostname}"`);
     return res.status(403).json({ error: "host_not_allowed", message: "This image host is not permitted." });
   }
