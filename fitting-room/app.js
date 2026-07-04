@@ -292,6 +292,13 @@ function stopStatsMonitor() {
 }
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
+/* Catalog item shape: { id, name, price, type, subType, color, img, imgBack?, images? }.
+   `img` is the FRONT asset (required — every legacy consumer reads it: catalog cards,
+   thumbnails, store handoff). Multi-Image Gallery Sync adds product angles two ways,
+   which galleryOf() merges into one { front, back?, side? } map:
+     • the legacy `imgBack` (back), and/or
+     • an `images:{ front?, back?, side? }` gallery object (extensible — add any angle).
+   A missing angle simply drops its selector tab and falls back to the front image. */
 const PEAR_CATALOG = [
   /* ── Shirts ── */
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a",
@@ -305,7 +312,12 @@ const PEAR_CATALOG = [
   { id: 5,  name: "Circuit Tee",       price: 90,  type: "shirt", subType: "short_sleeve", color: "#149c7a",
     img: "https://burst.shopifycdn.com/photos/teal-t-shirt.jpg?width=1600&format=pjpg&quality=90" },
   { id: 6,  name: "Strata Longsleeve", price: 128, type: "shirt", subType: "long_sleeve",  color: "#2b2b30",
-    img: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=2048" },
+    // Multi-image gallery demo (real store, same -1/-2/-3 naming). `img`/`imgBack` supply
+    // front+back for legacy consumers; the `images` object adds the extensible SIDE angle.
+    // galleryOf() merges them → { front, back, side }. Swap in your own PIM URLs per item.
+    img:     "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=2048",
+    imgBack: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-2.jpg?v=1732626199&width=2048",
+    images:  { side: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=2048" } },
   { id: 7,  name: "Nimbus Henley",     price: 134, type: "shirt", subType: "long_sleeve",  color: "#8e7bd0",
     img: "https://cdn.shopify.com/s/files/1/0831/9103/products/DK_LS_Henley_Dark_Purple-Final-Web.jpg?v=1665703111" },
   { id: 8,  name: "Echo Longsleeve",   price: 118, type: "shirt", subType: "long_sleeve",  color: "#d8d4cb",
@@ -346,6 +358,12 @@ let currentUserSize = null;
 let activeTryOnSize = null;   // size the user has selected in the Screen 2 override selector
 let activeItem = null;
 let focusMode = false;
+
+/* Multi-Image Product Gallery Sync — which product angle the live engine is warping.
+   The SINGLE rtClient session is reused across switches: changing the angle only
+   re-issues rtClient.set() with the matching gallery image + an angle-oriented prompt
+   clause. It NEVER reconnects, re-mints a token, or touches the strict live window. */
+let currentAngle = "front";   // "front" | "back" | "side" (extensible — see ANGLES)
 
 /* "Complete the Look" — incremental outfit state (the SINGLE source of truth).
    activeOutfit holds at most ONE upper-body garment (top) and ONE lower-body
@@ -599,6 +617,9 @@ function parseHandoff() {
       subType: "",                          // no catalog subType → generic custom prompt
       color: "#8a8f98",                     // neutral placeholder; the image is the reference
       img: widgetUrl,
+      // Dual-View: optional back-of-garment asset the storefront can pass alongside the
+      // front. Absent → the Back toggle falls back to the front image + prompt steering.
+      imgBack: q.get("garment_url_back") || q.get("imgBack") || undefined,
     };
     console.log("[PEAR] parseHandoff() — widget embed garment:", result);
     return result;
@@ -632,6 +653,8 @@ function parseHandoff() {
     subType: q.get("subType") || (fromCatalog ? fromCatalog.subType : (type === "pants" ? "regular" : "short_sleeve")),
     color,
     img: q.get("img") || (fromCatalog ? fromCatalog.img : ""),
+    // Dual-View back asset: explicit ?imgBack= wins, else the catalog entry's imgBack.
+    imgBack: q.get("imgBack") || (fromCatalog ? fromCatalog.imgBack : undefined) || undefined,
   };
   console.log("[PEAR] parseHandoff() — resolved handoff:", result);
   return result;
@@ -789,6 +812,8 @@ function enterRoom() {
   }
 
   $("completeLook").hidden = false;
+  currentAngle = "front";            // every room entry opens on the front perspective
+  renderPerspectiveSelector();
   setConn("idle");
 
   // Reset the size override to the Screen-1 recommendation and rebuild the selector UI.
@@ -812,6 +837,7 @@ function setActiveItem(item, opts = {}) {
   renderActiveGarment();             // shows either the single item or the full look
   renderCompleteTheLook(item);
   highlightCatalog(item.id);
+  renderPerspectiveSelector();       // rebuild angle tabs + source preview for the new selection
 
   if (!opts.silent) {
     toast(`עכשיו מודדים: <b>${item.name}</b>`);
@@ -820,6 +846,71 @@ function setActiveItem(item, opts = {}) {
     // session shirt/pants swap restyles the whole outfit), else just this garment.
     if (isLive()) applyActive().catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
+}
+
+/* =============================================================================
+   Multi-Image Product Gallery Sync — perspective selector
+   ─────────────────────────────────────────────────────────────────────────
+   Switch the live product angle without ever reconnecting. If a billable session is
+   already live we re-issue the garment via the existing applyActive() pipeline
+   (one rtClient.set(), same session, same ek_ token, same strict window); otherwise
+   we just remember the choice so the next go-live opens on the chosen angle.
+   ============================================================================= */
+function setAngle(angle) {
+  // Only honour angles the active product actually ships an image for; else front.
+  const next = galleryOf(activeItem)[angle] ? angle : "front";
+  if (next === currentAngle) return;
+  currentAngle = next;
+  renderPerspectiveSelector();       // active-tab state + source-preview thumbnail
+
+  if (isLive()) {
+    // Seamless in-session warp of the correct angle onto the WebRTC stream.
+    applyActive().catch((e) => console.warn("angle switch apply:", e?.message || e));
+    toast(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
+  }
+}
+
+/* Rebuild the segmented perspective tabs from the active product's gallery (so a
+   Side image auto-adds a Side tab, etc.) and refresh the source-preview thumbnail.
+   Data-driven: with fewer than two angles the whole selector is hidden. */
+function renderPerspectiveSelector() {
+  const sel = $("perspectiveSelector");
+  if (!sel) return;
+
+  const angles = anglesOf(activeItem);
+  if (!angles.includes(currentAngle)) currentAngle = angles[0] || "front";
+
+  if (angles.length < 2) {
+    sel.hidden = true;
+    sel.innerHTML = "";
+  } else {
+    sel.hidden = false;
+    sel.innerHTML = angles.map((a) => {
+      const on = a === currentAngle;
+      return `<button type="button" class="persp-tab${on ? " is-active" : ""}" ` +
+             `data-angle="${a}" aria-pressed="${on}">` +
+             `<span class="persp-tab__he">${ANGLE_LABEL_HE[a]}</span>` +
+             `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]} View</span></button>`;
+    }).join("");
+  }
+  updateSourcePreview();
+}
+
+/* Show a small thumbnail of the EXACT product image currently being fed to the AI,
+   so the user always sees which gallery angle the model is processing. Updated on
+   every item swap and every angle switch. */
+function updateSourcePreview() {
+  const box = $("sourcePreview");
+  if (!box) return;
+  const src = activeImageOf(activeItem);
+  if (!src) { box.hidden = true; return; }
+
+  box.hidden = false;
+  const img   = $("sourcePreviewImg");
+  const label = $("sourcePreviewLabel");
+  if (img && img.getAttribute("src") !== src) img.setAttribute("src", src);
+  if (label) label.textContent = ANGLE_LABEL_EN[currentAngle] || currentAngle;
+  box.classList.toggle("is-fallback", !hasDedicatedAngle(activeItem));
 }
 
 /**
@@ -1497,20 +1588,76 @@ function abbrevImg(ref) {
   return ref.length > 100 ? ref.slice(0, 100) + "…" : ref;
 }
 
+/* ── Multi-Image Product Gallery — angle resolution + prompt steering ────────────
+   A real store item carries a gallery object: images:{ front, back, side? }. Legacy
+   items (the built-in catalog, store handoff, custom uploads) only know a single
+   `img` (front) + optional `imgBack`; galleryOf() normalizes BOTH shapes into one
+   { front, back?, side? } map so everything downstream is gallery-driven. Angles are
+   fully extensible — add a key to ANGLES + the label maps and the selector, source
+   preview and prompt steering all pick it up automatically. */
+const ANGLES = ["front", "back", "side"];   // ordered render/priority list — extend freely
+const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד"   };
+const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side" };
+
+/** Normalize any item into a { front, back?, side? } image gallery. */
+function galleryOf(item) {
+  if (!item) return {};
+  const g = {};
+  if (item.images && typeof item.images === "object") {
+    for (const a of ANGLES) if (item.images[a]) g[a] = item.images[a];
+  }
+  // Legacy fallbacks so the entire existing catalog / handoff / upload flow keeps working.
+  if (!g.front && item.img)     g.front = item.img;
+  if (!g.back  && item.imgBack) g.back  = item.imgBack;
+  return g;
+}
+
+/** Ordered list of angles this item actually ships an image for. */
+function anglesOf(item) { const g = galleryOf(item); return ANGLES.filter((a) => g[a]); }
+
+/* The EXACT source image fed to the AI for the active angle. Falls back to the front
+   asset when the active angle has no dedicated image, so a Back/Side toggle never
+   breaks — it reuses the front reference and lets the prompt clause steer the warp. */
+function activeImageOf(item) {
+  if (!item) return undefined;
+  const g = galleryOf(item);
+  return g[currentAngle] || g.front || item.img;
+}
+
+/* True when the active angle has its OWN dedicated image (not a front fallback) — for
+   a single garment or BOTH halves of a full look. Drives the "real image" UI hint. */
+function hasDedicatedAngle(item) {
+  const look = resolveLook();
+  if (look) return !!(galleryOf(look.top)[currentAngle] && galleryOf(look.bottom)[currentAngle]);
+  return !!(item && galleryOf(item)[currentAngle]);
+}
+
+/* Angle-oriented prompt clauses. Switching the image alone isn't enough — Lucy
+   regenerates every frame, so the prompt must ALSO name the viewing angle or the
+   model keeps rendering a front. Front needs no clause. */
+const ANGLE_CLAUSE = {
+  front: "",
+  back:  " The person is viewed from BEHIND: render the BACK of the garment — its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams — wrapping naturally around the body from the rear. Do not render the front of the garment.",
+  side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
+};
+function angleClause() { return ANGLE_CLAUSE[currentAngle] || ""; }
+
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
 
-  const imageRef = garmentImageRef(item.img);
+  const activeImg = activeImageOf(item);
+  const imageRef  = garmentImageRef(activeImg);
   const payload = {
-    prompt: buildPrompt(item),
+    prompt: buildPrompt(item) + angleClause(),
     enhance: true,
     ...(imageRef ? { image: imageRef } : {}),
   };
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType}${item.custom ? ", custom upload" : ""})`);
+  console.log("angle    :", currentAngle, hasDedicatedAngle(item) ? "(dedicated gallery image)" : "(front fallback + prompt)");
   console.log("subType  :", item.subType, "| color:", item.color);
-  console.log("img URL  :", abbrevImg(item.img));   // data: URLs abbreviated so a base64 blob can't flood the console
+  console.log("img URL  :", abbrevImg(activeImg));   // data: URLs abbreviated so a base64 blob can't flood the console
   console.log("img ref  :", abbrevImg(imageRef));
   console.log("prompt   :", payload.prompt);
   console.groupEnd();
@@ -1680,9 +1827,12 @@ async function applyActive() {
 async function applyLook(top, bottom) {
   if (!rtClient) throw new Error("not connected");
 
-  const prompt = buildLookPrompt(top, bottom);
-  const primaryImage = garmentImageRef(top.img) ?? null;   // proxy URL — fast Decart-side fetch
-  const images = [top.img, bottom.img].filter(Boolean).map(garmentImageRef).filter(Boolean);
+  // Gallery sync: resolve each half against the active angle, then append the shared
+  // angle clause once so the whole look renders from the same perspective.
+  const topImg = activeImageOf(top), bottomImg = activeImageOf(bottom);
+  const prompt = buildLookPrompt(top, bottom) + angleClause();
+  const primaryImage = garmentImageRef(topImg) ?? null;   // proxy URL — fast Decart-side fetch
+  const images = [topImg, bottomImg].filter(Boolean).map(garmentImageRef).filter(Boolean);
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
@@ -1691,8 +1841,8 @@ async function applyLook(top, bottom) {
     image: primaryImage,              // SDK single-image reference (the top, as URL)
     images,                           // both verified proxy URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
-      { category: "top",    type: top.garmentType,    image: top.img,    color: top.color,    subType: top.subType,    name: top.name },
-      { category: "bottom", type: bottom.garmentType, image: bottom.img, color: bottom.color, subType: bottom.subType, name: bottom.name },
+      { category: "top",    type: top.garmentType,    image: topImg,    color: top.color,    subType: top.subType,    name: top.name,    angle: currentAngle },
+      { category: "bottom", type: bottom.garmentType, image: bottomImg, color: bottom.color, subType: bottom.subType, name: bottom.name, angle: currentAngle },
     ],
   };
 
@@ -4117,6 +4267,15 @@ function init() {
   $("startCamBtn").addEventListener("click", () => startCamera());
   $("captureBtn").addEventListener("click", onLiveToggle);
   $("retakeBtn").addEventListener("click", onRetake);
+
+  // Multi-Image Gallery — perspective selector. Delegated over the (dynamically
+  // rebuilt) tabs so one listener survives every re-render; setAngle() no-ops when
+  // the angle is unchanged and re-warps the live stream in place when it isn't.
+  const perspSelector = $("perspectiveSelector");
+  if (perspSelector) perspSelector.addEventListener("click", (e) => {
+    const b = e.target.closest(".persp-tab");
+    if (b) setAngle(b.dataset.angle);
+  });
 
   // PEAR Live-Action Gallery — render persisted looks + wire tray/clear/retake
   loadGallery();

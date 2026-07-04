@@ -261,6 +261,25 @@
         <div class="camera-card" id="cameraCard">
             <span class="camera-card__live" id="liveBadge"><i></i>LIVE</span>
 
+            <!-- ░░ Multi-Image Gallery — perspective selector ░░
+                 Pinned over the camera stage so it stays reachable DURING the live
+                 stream (above #aiVideo). Tabs are built at runtime from the active
+                 product's gallery (renderPerspectiveSelector); tapping one re-warps the
+                 matching angle onto the same WebRTC session — no reconnect, no new token. -->
+            <div class="persp-selector" id="perspectiveSelector" role="group"
+                 aria-label="בחירת זווית · Product perspective" hidden></div>
+
+            <!-- ░░ Source-image preview — the exact product photo fed to the AI ░░
+                 Mirrors a real product-gallery thumbnail so the user always sees which
+                 angle the model is processing. Updated on every item/angle change. -->
+            <figure class="source-preview" id="sourcePreview" hidden aria-live="polite">
+                <img id="sourcePreviewImg" alt="" width="52" height="66" decoding="async">
+                <figcaption class="source-preview__cap">
+                    <span class="source-preview__eyebrow">מקור · AI source</span>
+                    <span class="source-preview__label" id="sourcePreviewLabel">Front</span>
+                </figcaption>
+            </figure>
+
             <video id="webcam" playsinline autoplay muted></video>
             <!-- hidden source video carrying the Lucy-VTON-edited realtime stream -->
             <video id="aiVideo" playsinline autoplay muted></video>

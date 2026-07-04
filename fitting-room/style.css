@@ -585,6 +585,106 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .camera-card.show-live #webcam { visibility: hidden; }
 .camera-card.show-live .camera-card__guide { display: none; }
 
+/* ── Multi-Image Gallery — perspective selector ──────────────────────────────
+   A glass segmented control pinned to the top-centre of the camera stage. It sits
+   ABOVE the live #aiVideo (z-index 7 > the video) so the angle can be switched
+   mid-stream. Switching only crossfades tab colour/background — nothing in the
+   layout moves, so the stage never jumps as the angle changes. */
+.persp-selector {
+  position: absolute;
+  top: 14px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--pill, 999px);
+  background: rgba(10, 10, 11, .46);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .28);
+}
+.persp-selector[hidden] { display: none; }
+.persp-tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 64px;
+  padding: 6px 15px;
+  border: 0;
+  border-radius: var(--pill, 999px);
+  background: transparent;
+  color: rgba(255, 255, 255, .72);
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.05;
+  cursor: pointer;
+  /* colour + background crossfade only → zero layout shift when switching */
+  transition: color .26s var(--ease, ease), background .26s var(--ease, ease),
+              box-shadow .26s var(--ease, ease);
+}
+.persp-tab__he { font-size: .92rem; }
+.persp-tab__en { font-size: .6rem; letter-spacing: .05em; text-transform: uppercase; opacity: .8; }
+.persp-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--pear-ring, rgba(141, 182, 0, .5));
+}
+.persp-tab.is-active {
+  color: #0a0a0b;
+  background: linear-gradient(180deg, #ffffff, #eef0ea);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .22);
+}
+
+/* ── Source-image preview — the exact product photo fed to the AI ─────────────
+   A small glass gallery-thumbnail pinned to the bottom-start corner of the stage,
+   visible during the live stream so the user sees which angle is being processed. */
+.source-preview {
+  position: absolute;
+  bottom: 14px; inset-inline-start: 14px;
+  z-index: 7;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 11px 6px 6px;
+  border-radius: 14px;
+  background: rgba(10, 10, 11, .5);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .3);
+  animation: sourcePreviewIn .28s var(--ease, ease) both;
+}
+.source-preview[hidden] { display: none; }
+.source-preview img {
+  width: 40px; height: 50px;
+  object-fit: cover;
+  border-radius: 9px;
+  background: #1a1a1c;
+  border: 1px solid rgba(255, 255, 255, .18);
+  transition: opacity .2s var(--ease, ease);
+}
+.source-preview__cap { display: inline-flex; flex-direction: column; line-height: 1.15; }
+.source-preview__eyebrow {
+  font-size: .56rem; letter-spacing: .06em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .6);
+}
+.source-preview__label { font-size: .86rem; font-weight: 800; color: #fff; }
+/* Subtle amber hint when the angle has no dedicated image (front fallback + prompt). */
+.source-preview.is-fallback .source-preview__label { color: #f0c36d; }
+@keyframes sourcePreviewIn {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .persp-tab { transition: none; }
+  .source-preview { animation: none; }
+}
+
 /* CLIP replay: a saved history clip plays in #aiVideo (no live billing) */
 .camera-card.show-clip #aiVideo { display: block; transform: none; }
 .camera-card.show-clip #webcam { visibility: hidden; }
