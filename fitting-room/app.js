@@ -1593,6 +1593,11 @@ function getFitModifier(delta, garmentType) {
    Kept as a module constant so changing it in one place affects all call sites. */
 const QUALITY_SUFFIX = ", photorealistic real-world fabric texture, visible seams and stitching, micro-detailed weave, natural environmental lighting matching the user's room, cinematic shading, ultra-realistic physical garment appearance, strictly maintain flawless fabric integrity, continuous realistic 3D mesh, and natural material physics without any glitching, strange horizontal bands, tearing, or unnatural structural folds";
 
+/* Bias the model toward keeping graphics/logos/text and the bottom-hem edge details in
+   their original scale, proportion and relative position, and to render the full hem in
+   frame. Lucy regenerates every frame, so this is a probabilistic bias, not a guarantee. */
+const HEM_DETAIL = " Preserve the garment's printed graphics, logos, and text, and its bottom-hem edge details (including any small corner monogram or brand mark), at their original scale, proportion, and relative position on the garment; render the complete hem in-frame without cropping, stretching, or drifting details toward the center.";
+
 /* Layer-isolation clauses. Lucy VTON regenerates the WHOLE frame every pass, so a
    single-garment prompt that never mentions the opposite layer lets that layer
    drift (e.g. trying a shirt silently restyles the user's real pants). These hard
@@ -1615,11 +1620,11 @@ function buildPrompt(item) {
   const fitMod = getFitModifier(delta, item.garmentType);
 
   if (item.garmentType === "lower_body") {
-    return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_TOP}`
+    return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${HEM_DETAIL}${KEEP_TOP}`
       .replace(/\s+/g, " ").trim();
   }
   const noun = SHIRT_NOUN[item.subType] || "top";
-  return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_BOTTOMS}`
+  return `Substitute the current top with a ${colorWord} ${sub} ${noun}. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${HEM_DETAIL}${KEEP_BOTTOMS}`
     .replace(/\s+/g, " ").trim();
 }
 
@@ -1637,10 +1642,10 @@ function buildCustomPrompt(item) {
   const ref = "the exact garment shown in the reference image — a custom uploaded garment — replicating its precise color, pattern, print, fabric texture and silhouette";
 
   if (item.garmentType === "lower_body") {
-    return `Substitute the current bottoms with ${ref}, worn as trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_TOP}`
+    return `Substitute the current bottoms with ${ref}, worn as trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${HEM_DETAIL}${KEEP_TOP}`
       .replace(/\s+/g, " ").trim();
   }
-  return `Substitute the current top with ${ref}, worn on the upper body. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${KEEP_BOTTOMS}`
+  return `Substitute the current top with ${ref}, worn on the upper body. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${HEM_DETAIL}${KEEP_BOTTOMS}`
     .replace(/\s+/g, " ").trim();
 }
 
@@ -3461,6 +3466,31 @@ function guessGarmentType(box, iw, ih) {
  * @param {{xmin:number,ymin:number,width:number,height:number}} box  (natural coords, already padded)
  * @returns {{dataUrl:string, color:string, aspect:number}}
  */
+/**
+ * Mild in-place unsharp mask (3x3) on a canvas context — lifts the edge gradients of
+ * logos/prints/text against the fabric so they read as sharper landmarks in the
+ * reference image handed to Lucy. RGB only; alpha is passed through. Border pixels drop
+ * the missing neighbour weights (they're background, so the slight brightening is moot).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} w @param {number} h
+ * @param {number} amount  0 = identity; ~0.6 mild; >1.2 starts adding halos Lucy will copy
+ */
+function sharpenCrop(ctx, w, h, amount) {
+  const src = ctx.getImageData(0, 0, w, h), out = ctx.createImageData(w, h);
+  const s = src.data, d = out.data, c = 1 + 4 * amount, n = -amount;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    for (let k = 0; k < 3; k++) {
+      let v = s[i+k]*c
+        + (x>0 ? s[i-4+k]*n : 0) + (x<w-1 ? s[i+4+k]*n : 0)
+        + (y>0 ? s[i-w*4+k]*n : 0) + (y<h-1 ? s[i+w*4+k]*n : 0);
+      d[i+k] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+    d[i+3] = s[i+3];
+  }
+  ctx.putImageData(out, 0, 0);
+}
+
 function cropRegion(img, box) {
   const U = CONFIG.UPLOAD;
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
@@ -3481,6 +3511,9 @@ function cropRegion(img, box) {
 
   let color = "#8a8f98";
   try { color = averageColor(ctx, cw, ch); } catch (_) {}
+
+  // Sharpen AFTER sampling the average colour so the halo pixels don't skew it.
+  try { if (U.SHARPEN_AMOUNT > 0) sharpenCrop(ctx, cw, ch, U.SHARPEN_AMOUNT); } catch (_) {}
 
   let dataUrl;
   try { dataUrl = cv.toDataURL("image/jpeg", U.CROP_QUALITY); }

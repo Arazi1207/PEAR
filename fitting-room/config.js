@@ -93,6 +93,7 @@ export const CONFIG = Object.freeze({
     BOX_PAD_FRAC:            0.05,  // expand the crop outward by this fraction so seams/edges aren't clipped
     CROP_MAX_DIM:            1024,  // longest side of the exported cropped garment
     CROP_QUALITY:            0.92,  // JPEG quality of the exported crop (data URL handed to rtClient.set)
+    SHARPEN_AMOUNT:          0.6,   // mild unsharp mask on the crop to improve graphic/logo legibility without halos (0 = off)
 
     DETECT_RENDER_DELAY_MS:  240,   // let the modal paint its loading state before the (synchronous) detect pass
 
