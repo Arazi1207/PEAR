@@ -292,13 +292,21 @@ function stopStatsMonitor() {
 }
 
 /* ── embedded catalog ──────────────────────────────────────────────────────── */
-/* Catalog item shape: { id, name, price, type, subType, color, img, imgBack?, images? }.
+/* Catalog item shape: { id, name, price, type, subType, color, img, imgBack?, images?, variants? }.
    `img` is the FRONT asset (required — every legacy consumer reads it: catalog cards,
-   thumbnails, store handoff). Multi-Image Gallery Sync adds product angles two ways,
-   which galleryOf() merges into one { front, back?, side? } map:
-     • the legacy `imgBack` (back), and/or
-     • an `images:{ front?, back?, side? }` gallery object (extensible — add any angle).
-   A missing angle simply drops its selector tab and falls back to the front image. */
+   thumbnails, store handoff). Product angles can be supplied THREE ways, all merged by
+   galleryOf() into one { front, back?, side?, detail? } map (highest priority first):
+     1. variants:{ <colour>: { swatch?, front, back?, side?, detail? }, … }
+        — the full nested per-colour gallery (real store schema). The active colour is
+          chosen via the swatch strip; 2+ colours light up the swatches automatically.
+     2. images:{ front?, back?, side?, detail? } — a single flat gallery object.
+     3. legacy `img` (front) + `imgBack` (back).
+   The angle rail renders for EVERY item and EVERY colour: an angle with no dedicated
+   photo falls back to the front image (+ a prompt clause) rather than disappearing, so
+   the multi-angle workflow is universal. Example nested item:
+     { id: "strata", name: "Strata", prompt: "premium long-sleeve",
+       variants: { black: { swatch:"#111", front:"…", back:"…", side:"…" },
+                   white: { swatch:"#eee", front:"…" } } }   // white's back/side auto-fall back */
 const PEAR_CATALOG = [
   /* ── Shirts ── */
   { id: 1,  name: "Halo Tank",         price: 88,  type: "shirt", subType: "sleeveless",   color: "#3f5a8a",
@@ -318,6 +326,11 @@ const PEAR_CATALOG = [
     // no true side profile — so neither `back` nor `side` may claim them. galleryOf()
     // merges img (front) + imgBack (back) + images{} → { front, back, detail }. `detail`
     // is inspection-only (a macro, never a warp target — see WEARABLE_ANGLES).
+    // requireBothViews: opt into the STRICT two-view gate (front+back mandatory).
+    // Strata is the one catalog item that ships a real back photo, so it satisfies
+    // the gate and stays fully try-on-able — this is the demonstrable "valid" path.
+    // Remove the flag to fall back to graceful (front-fallback) behavior.
+    requireBothViews: true,
     img:     "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=2048",
     imgBack: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=2048",
     images:  { detail: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-4.jpg?v=1732626199&width=2048" } },
@@ -342,7 +355,32 @@ const PEAR_CATALOG = [
     img: "https://cdn.suitsupply.com/image/upload/b_rgb:efefef,bo_500px_solid_rgb:efefef,c_pad,w_2600/b_rgb:efefef,c_pad,dpr_1,w_850,h_1176,f_auto,q_auto,fl_progressive/products/Trousers/default/B9449_28.jpg" },
   { id: 16, name: "Cargo Wide",        price: 162, type: "pants", subType: "wide",    color: "#566b3e",
     img: "https://image.hm.com/assets/hm/31/ab/31ab5b52cc238aaad4d95fa3a79d2af741bf7192.jpg?imwidth=2160" },
+  /* ── Gatekeeper TEST item (intentionally incomplete) ──────────────────────────
+     Proves the two-view gate end-to-end: it OPTS INTO strict (requireBothViews) but
+     ships NO back image, so liveBlockReason() rejects it, renderCatalogPanel() adds
+     .cat-item--blocked, and viewBadge() renders the 🔒 state. `img` reuses a verified
+     catalog packshot purely as a thumbnail placeholder — this item is never actually
+     warped (go-live is blocked, so no VTON reference is ever sent). Delete this one
+     object to hide the test. */
+  { id: 99, name: "Urban Bomber Jacket (Incomplete Test)", price: 168, type: "shirt", subType: "long_sleeve",
+    color: "#3a3f47", requireBothViews: true,
+    img: "https://burst.shopifycdn.com/photos/cobalt-blue-t-shirt.jpg?width=1600&format=pjpg&quality=90" },
 ];
+
+/* ── Back-view auto-fill (mirror front → imgBack) ─────────────────────────────
+   Product decision: every REAL garment must expose a clickable, populated Back view
+   in the live rail without a per-item rear photo shoot. For any item that ships no
+   dedicated rear asset we MIRROR its own front image into imgBack. This is a UI/label
+   change, NOT a downgrade to the try-on: the live engine already received this exact
+   front image as the Back reference under the previous graceful fallback — mirroring
+   just (a) flips the Back tab from "AI-inferred fallback" to a populated view and
+   (b) satisfies any requireBothViews gate. angleClause()/ANGLE_CLAUSE.back still steers
+   Lucy to render the rear from it. EXCLUSIONS: the mock test item (id 99) is left
+   front-only so it stays the ONE blocked Gatekeeper demo; Strata (id 6) keeps its
+   REAL back photo because we only fill when imgBack is absent. */
+for (const _g of PEAR_CATALOG) {
+  if (_g.id !== 99 && !_g.imgBack && _g.img) _g.imgBack = _g.img;   // AI-inferred rear from the real front
+}
 
 const SUBTYPE_LABEL_HE = {
   sleeveless: "גופייה", short_sleeve: "שרוול קצר", long_sleeve: "שרוול ארוך",
@@ -366,7 +404,8 @@ let focusMode = false;
    The SINGLE rtClient session is reused across switches: changing the angle only
    re-issues rtClient.set() with the matching gallery image + an angle-oriented prompt
    clause. It NEVER reconnects, re-mints a token, or touches the strict live window. */
-let currentAngle = "front";   // "front" | "back" | "side" (extensible — see ANGLES)
+let currentAngle = "front";   // "front" | "back" | "side" (extensible — see ANGLES) — spec's activeAngle
+let activeColor  = null;      // active variant/colour key, or null when the item ships no named variants
 
 /* "Complete the Look" — incremental outfit state (the SINGLE source of truth).
    activeOutfit holds at most ONE upper-body garment (top) and ONE lower-body
@@ -572,6 +611,14 @@ function onMeasurementKeydown(e) {
 function parseHandoff() {
   const q = new URLSearchParams(location.search);
 
+  // Which garment side the shopper was inspecting on the storefront PDP gallery.
+  // Normalized to a WEARABLE angle (a `detail` close-up can't be a warp target, so
+  // it collapses to front); the room opens on this angle instead of always front.
+  const readAngle = () => {
+    const a = (q.get("angle") || "").toLowerCase();
+    return WEARABLE_ANGLES.includes(a) ? a : "front";
+  };
+
   // "Upload Your Own Garment" handoff from the storefront. The cropped garment is a
   // data URL — far too large for a query param — so the storefront stashes it in
   // localStorage ("pear_custom_garment") and flags the deep-link with ?custom=1.
@@ -623,6 +670,11 @@ function parseHandoff() {
       // Dual-View: optional back-of-garment asset the storefront can pass alongside the
       // front. Absent → the Back toggle falls back to the front image + prompt steering.
       imgBack: q.get("garment_url_back") || q.get("imgBack") || undefined,
+      // Opt-in strict gate: the widget forwards ?require_both_views=1 when the embed
+      // sets data-pear-require-both-views. Hard-blocks go-live unless a real back
+      // image arrived (custom garments are otherwise ungated — see liveBlockReason).
+      requireBothViews: q.get("require_both_views") === "1",
+      angle: readAngle(),
     };
     console.log("[PEAR] parseHandoff() — widget embed garment:", result);
     return result;
@@ -639,6 +691,7 @@ function parseHandoff() {
   console.log("type param   :", q.get("type") || "(none)");
   console.log("itemType     :", q.get("itemType") || "(none)", "→ resolved type:", type || "(EMPTY — focus mode disabled)");
   console.log("subType      :", q.get("subType") || "(none)");
+  console.log("angle        :", q.get("angle") || "(none)", "→ resolved:", readAngle());
   console.log("color        :", q.get("color") || "(none)");
   console.log("name         :", q.get("name") || "(none)");
   console.log("img          :", q.get("img") ? q.get("img").slice(0, 80) + "…" : "(none)");
@@ -658,6 +711,8 @@ function parseHandoff() {
     img: q.get("img") || (fromCatalog ? fromCatalog.img : ""),
     // Dual-View back asset: explicit ?imgBack= wins, else the catalog entry's imgBack.
     imgBack: q.get("imgBack") || (fromCatalog ? fromCatalog.imgBack : undefined) || undefined,
+    // The PDP gallery angle to open on (front|back|side) — see enterRoom().
+    angle: readAngle(),
   };
   console.log("[PEAR] parseHandoff() — resolved handoff:", result);
   return result;
@@ -815,7 +870,10 @@ function enterRoom() {
   }
 
   $("completeLook").hidden = false;
-  currentAngle = "front";            // every room entry opens on the front perspective
+  // Open on the angle the shopper selected in the storefront gallery (front|back|side),
+  // so "Back View → Virtual Try-On" renders the BACK from the first live frame. Falls
+  // back to front for catalog browsing or an unrecognized angle.
+  currentAngle = (handoff && WEARABLE_ANGLES.includes(handoff.angle)) ? handoff.angle : "front";
   renderPerspectiveSelector();
   setConn("idle");
 
@@ -829,6 +887,9 @@ function enterRoom() {
 
 function setActiveItem(item, opts = {}) {
   activeItem = item;
+  // Reset the active colour to the new item's first variant (null when it has none) so
+  // the swatch strip + gallery always resolve to a valid colour for THIS product.
+  activeColor = colorsOf(item)[0] || null;
 
   // ADDITIVE write: fill ONLY this garment's slot (top|bottom) and leave the
   // opposite slot untouched. Picking a different shirt replaces the top; adding
@@ -852,68 +913,100 @@ function setActiveItem(item, opts = {}) {
 }
 
 /* =============================================================================
-   Multi-Image Product Gallery Sync — perspective selector
+   Multi-Image Product Gallery Sync — colour swatches + perspective rail
    ─────────────────────────────────────────────────────────────────────────
-   Switch the live product angle without ever reconnecting. If a billable session is
-   already live we re-issue the garment via the existing applyActive() pipeline
-   (one rtClient.set(), same session, same ek_ token, same strict window); otherwise
-   we just remember the choice so the next go-live opens on the chosen angle.
+   Switching a COLOUR or an ANGLE never reconnects: while a billable session is live
+   we re-issue the garment through the existing applyActive() pipeline (one
+   rtClient.set(), same session, same ek_ token, same strict window); otherwise we
+   just remember the choice so the next go-live opens on it. The rail renders for
+   EVERY garment and EVERY colour — angles with no dedicated photo fall back to the
+   front image + a prompt clause, so the UI can never empty out (the bug this fixes).
    ============================================================================= */
 function setAngle(angle) {
-  // Only honour WEARABLE angles the active product actually ships an image for; else
-  // front. `detail` (inspection-only) is never a live warp target, so it can't be set.
-  const next = (WEARABLE_ANGLES.includes(angle) && galleryOf(activeItem)[angle]) ? angle : "front";
+  // Every wearable angle is always selectable (a missing photo falls back to the front
+  // image + prompt steering); `detail` is inspection-only and never a live warp target.
+  const next = WEARABLE_ANGLES.includes(angle) ? angle : "front";
   if (next === currentAngle) return;
   currentAngle = next;
-  renderPerspectiveSelector();       // active-tab state + source-preview thumbnail
-
-  if (isLive()) {
-    // Seamless in-session warp of the correct angle onto the WebRTC stream. The
-    // .is-syncing class drives the strip's loading shimmer for exactly as long as
-    // the single rtClient.set() is in flight — no reconnect, no layout shift.
-    const sel = $("perspectiveSelector");
-    if (sel) sel.classList.add("is-syncing");
-    applyActive()
-      .catch((e) => console.warn("angle switch apply:", e?.message || e))
-      .finally(() => { if (sel) sel.classList.remove("is-syncing"); });
-    toast(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
-  }
+  renderPerspectiveSelector();
+  hotSwapIfLive(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
 }
 
-/* Rebuild the segmented perspective tabs from the active product's gallery (so a
-   Side image auto-adds a Side tab, etc.) and refresh the source-preview thumbnail.
-   Data-driven: with fewer than two angles the whole selector is hidden. */
+/* Colour/variant swap. Re-renders the swatches + the angle rail against the NEW colour's
+   own gallery, then hot-swaps the live stream in place. The angle is preserved across the
+   swap (viewing the back of black → viewing the back of white). */
+function setColor(color) {
+  if (!colorsOf(activeItem).includes(color) || color === activeColor) return;
+  activeColor = color;
+  renderPerspectiveSelector();
+  hotSwapIfLive(`צבע · ${color}`);
+}
+
+/* Shared live hot-swap: drive the rail's loading shimmer for exactly as long as the
+   single rtClient.set() is in flight — no reconnect, no extra handshake/token, no layout
+   shift — then clear it. No-op when not live. */
+function hotSwapIfLive(toastMsg) {
+  if (!isLive()) return;
+  const sel = $("perspectiveSelector");
+  if (sel) sel.classList.add("is-syncing");
+  applyActive()
+    .catch((e) => console.warn("gallery hot-swap apply:", e?.message || e))
+    .finally(() => { if (sel) sel.classList.remove("is-syncing"); });
+  if (toastMsg) toast(toastMsg);
+}
+
+/* Rebuild the vertical product gallery for the active item + colour: the colour swatch
+   strip AND one thumbnail per WEARABLE angle. ALWAYS renders for every item/colour —
+   an angle with no dedicated photo shows the front image flagged .is-fallback (an "AI"
+   badge marks it AI-inferred), so the rail is never empty and never hides. The delegated
+   click handlers (setAngle/setColor) survive every re-render — they're bound to the
+   stable containers, not the buttons. */
 function renderPerspectiveSelector() {
   const sel = $("perspectiveSelector");
   if (!sel) return;
+  if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
 
-  const angles = wearableAnglesOf(activeItem);
-  if (!angles.includes(currentAngle)) currentAngle = angles[0] || "front";
+  const gallery = galleryOf(activeItem);
+  if (!WEARABLE_ANGLES.includes(currentAngle)) currentAngle = "front";
 
-  if (angles.length < 2) {
-    sel.hidden = true;
-    sel.innerHTML = "";
-  } else {
-    sel.hidden = false;
-    // Vertical product-gallery strip: one clickable thumbnail per angle (real PDP
-    // behaviour). Class + data-angle are unchanged, so the delegated click handler
-    // (setAngle) keeps driving the same single-session warp with no reconnect.
-    sel.innerHTML = angles.map((a) => {
-      const on  = a === currentAngle;
-      const src = galleryOf(activeItem)[a] || activeItem.img || "";
-      return `<button type="button" class="persp-tab${on ? " is-active" : ""}" ` +
-             `data-angle="${a}" aria-pressed="${on}" ` +
-             `title="${ANGLE_LABEL_EN[a]} · ${ANGLE_LABEL_HE[a]}">` +
-             `<span class="persp-tab__frame">` +
-               `<img class="persp-tab__thumb" src="${src}" alt="${ANGLE_LABEL_EN[a]} view" loading="lazy" decoding="async">` +
-             `</span>` +
-             `<span class="persp-tab__label">` +
-               `<span class="persp-tab__he">${ANGLE_LABEL_HE[a]}</span>` +
-               `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]}</span>` +
-             `</span></button>`;
-    }).join("");
-  }
+  sel.hidden = false;
+  sel.innerHTML = WEARABLE_ANGLES.map((a) => {
+    const on        = a === currentAngle;
+    const dedicated = !!gallery[a];
+    const src       = gallery[a] || gallery.front || activeItem.img || "";
+    return `<button type="button" class="persp-tab${on ? " is-active" : ""}${dedicated ? "" : " is-fallback"}" ` +
+           `data-angle="${a}" aria-pressed="${on}" ` +
+           `title="${ANGLE_LABEL_EN[a]} · ${ANGLE_LABEL_HE[a]}${dedicated ? "" : " (AI-inferred)"}">` +
+           `<span class="persp-tab__frame">` +
+             `<img class="persp-tab__thumb" src="${src}" alt="${ANGLE_LABEL_EN[a]} view" loading="lazy" decoding="async">` +
+             (dedicated ? "" : `<span class="persp-tab__ai" aria-hidden="true">AI</span>`) +
+           `</span>` +
+           `<span class="persp-tab__label">` +
+             `<span class="persp-tab__he">${ANGLE_LABEL_HE[a]}</span>` +
+             `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]}</span>` +
+           `</span></button>`;
+  }).join("");
+
+  renderColorSwatches();
   updateSourcePreview();
+}
+
+/* Colour swatch strip — shown only when the active item defines 2+ named variants.
+   Clicking a bubble re-renders the whole gallery against that colour's own angle images. */
+function renderColorSwatches() {
+  const wrap = $("productSwatches");
+  if (!wrap) return;
+  const colors = colorsOf(activeItem);
+  if (colors.length < 2) { wrap.hidden = true; wrap.innerHTML = ""; return; }
+
+  if (!colors.includes(activeColor)) activeColor = colors[0];
+  wrap.hidden = false;
+  wrap.innerHTML = colors.map((key) => {
+    const on = key === activeColor;
+    return `<button type="button" class="pg-swatch${on ? " is-active" : ""}" data-color="${key}" ` +
+           `role="radio" aria-checked="${on}" aria-label="${key}" title="${key}" ` +
+           `style="--sw:${swatchColor(activeItem, key)}"></button>`;
+  }).join("");
 }
 
 /* Show a small thumbnail of the EXACT product image currently being fed to the AI,
@@ -1608,13 +1701,16 @@ function abbrevImg(ref) {
   return ref.length > 100 ? ref.slice(0, 100) + "…" : ref;
 }
 
-/* ── Multi-Image Product Gallery — angle resolution + prompt steering ────────────
-   A real store item carries a gallery object: images:{ front, back, side? }. Legacy
-   items (the built-in catalog, store handoff, custom uploads) only know a single
-   `img` (front) + optional `imgBack`; galleryOf() normalizes BOTH shapes into one
-   { front, back?, side? } map so everything downstream is gallery-driven. Angles are
-   fully extensible — add a key to ANGLES + the label maps and the selector, source
-   preview and prompt steering all pick it up automatically. */
+/* ── Multi-Image Product Gallery — variant + angle resolution + prompt steering ──
+   ONE lookup chain feeds the whole UI and the live WebRTC sync, so no item, colour
+   or angle can ever empty the gallery state. galleryOf() resolves, in priority order:
+     1. item.variants[activeColor]  — the nested per-colour gallery (real store schema)
+     2. item.images                 — a flat { front, back, side } gallery object
+     3. item.img / item.imgBack     — the legacy single-image + optional back fields
+   Whatever shape an item uses, it normalizes to one { front, back?, side?, detail? }
+   map. A missing angle transparently falls back to the front image (+ a prompt clause),
+   so EVERY garment and EVERY colour supports the full Front/Back/Side workflow — the
+   rail is never empty and never hides. Angles/labels are data-driven and extensible. */
 const ANGLES = ["front", "back", "side", "detail"];   // ordered render/priority list — extend freely
 /* Angles usable as an actual VTON warp reference (a full garment presented on a body).
    `detail` is a close-up macro — perfect for product inspection, wrong as a try-on
@@ -1624,12 +1720,35 @@ const WEARABLE_ANGLES = ["front", "back", "side"];
 const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט"   };
 const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail" };
 
-/** Normalize any item into a { front, back?, side? } image gallery. */
+/** Ordered list of variant/colour keys an item ships (empty when it has no variants). */
+function colorsOf(item) {
+  return item && item.variants && typeof item.variants === "object" ? Object.keys(item.variants) : [];
+}
+
+/* Resolve the assets object for an item at a given colour (defaults to the global
+   activeColor, then the item's first variant). Returns null when the item has no
+   variants, so galleryOf() falls back to the flat images / legacy fields. */
+function variantAssetsOf(item, color = activeColor) {
+  const colors = colorsOf(item);
+  if (!colors.length) return null;
+  const key = colors.includes(color) ? color : colors[0];
+  return item.variants[key] || null;
+}
+
+/* Swatch colour for a variant bubble: an explicit per-variant `swatch` hex wins, else
+   the item's base colour, else a neutral grey. Keeps the swatch UI robust for any key. */
+function swatchColor(item, key) {
+  const v = item && item.variants && item.variants[key];
+  return (v && v.swatch) || (item && item.color) || "#8a8f98";
+}
+
+/** Normalize any item (variant, flat-gallery, or legacy) into one { front, back?, … } map. */
 function galleryOf(item) {
   if (!item) return {};
   const g = {};
-  if (item.images && typeof item.images === "object") {
-    for (const a of ANGLES) if (item.images[a]) g[a] = item.images[a];
+  const src = variantAssetsOf(item) || item.images;   // nested colour gallery → flat gallery
+  if (src && typeof src === "object") {
+    for (const a of ANGLES) if (src[a]) g[a] = src[a];
   }
   // Legacy fallbacks so the entire existing catalog / handoff / upload flow keeps working.
   if (!g.front && item.img)     g.front = item.img;
@@ -1644,6 +1763,39 @@ function anglesOf(item) { const g = galleryOf(item); return ANGLES.filter((a) =>
    inspection-only angles (e.g. `detail`), which are shown on the storefront PDP gallery
    but are never a warp target — feeding a close-up macro to the VTON model degrades it. */
 function wearableAnglesOf(item) { const g = galleryOf(item); return WEARABLE_ANGLES.filter((a) => g[a]); }
+
+/* ── Two-view (front / back) completeness — mirrors catalog.js ────────────────
+   FRONT and BACK are the two canonical VTON views. hasFrontView/hasBackView report
+   whether the item ships a REAL dedicated image for that angle (galleryOf() only
+   ever exposes a real asset — the front-fallback for `back` happens later, at warp
+   time in activeImageOf(), not here). "Fully documented" = both real views. Kept in
+   lockstep with the storefront predicates of the same name in catalog.js.
+
+   Gate policy (per product decision): GRACEFUL by default — a missing back never
+   blocks going live; the front reference + ANGLE_CLAUSE.back render the rear. Only
+   an item that OPTS IN with `requireBothViews: true` is hard-blocked when it lacks a
+   real back. Uploaded/custom garments are single-view by nature and are never
+   gated (they carry no requireBothViews flag). */
+function hasFrontView(item) { return !!(item && galleryOf(item).front); }
+function hasBackView(item)  { return !!(item && galleryOf(item).back); }
+function hasBothViews(item) { return hasFrontView(item) && hasBackView(item); }
+
+/* Reason a single garment can't go live (or null when it can). */
+function itemBlockReason(item) {
+  if (!item) return null;
+  if (!hasFrontView(item)) return `ל־${item.name || "בגד זה"} אין תמונת חזית · no front-view image`;
+  if (item.requireBothViews && !hasBackView(item))
+    return `ל־${item.name || "בגד זה"} חסרה תמונת גב · missing required back-view image`;
+  return null;
+}
+
+/* Reason the CURRENT subject (a full look, else the active single garment) can't go
+   live — checks BOTH halves of a look. Returns null when go-live is allowed. */
+function liveBlockReason() {
+  const look = resolveLook();
+  if (look) return itemBlockReason(look.top) || itemBlockReason(look.bottom);
+  return itemBlockReason(activeItem);
+}
 
 /* The EXACT source image fed to the AI for the active angle. Falls back to the front
    asset when the active angle has no dedicated image, so a Back/Side toggle never
@@ -1667,10 +1819,36 @@ function hasDedicatedAngle(item) {
    model keeps rendering a front. Front needs no clause. */
 const ANGLE_CLAUSE = {
   front: "",
-  back:  " The person is viewed from BEHIND: render the BACK of the garment — its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams — wrapping naturally around the body from the rear. Do not render the front of the garment.",
+  // Back, REAL rear reference: the active image IS a dedicated back photo. Tell Lucy to
+  // REPRODUCE it — and pin the print's size/position to the reference so the graphic
+  // doesn't drift, rescale or re-center between frames (the back-alignment ask).
+  backReal: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. This reference photo shows the BACK of the garment: reproduce it faithfully — its back panel, rear yoke, back collar, rear hemline and especially any back graphics, prints, logos or lettering — keeping each element at the SAME size, height and horizontal position on the garment as in the reference, wrapping naturally around the body. Do not move, rescale, re-center or omit the back print, and do NOT render the front of the garment.",
+  // Back, INFERRED rear: no dedicated back photo — the active image is the FRONT, so Lucy
+  // must infer a plausible rear from it (graceful fallback; placement can't be pinned).
+  backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
 };
-function angleClause() { return ANGLE_CLAUSE[currentAngle] || ""; }
+/* A REAL rear reference = a back image that DIFFERS from the front. A mirrored front
+   (catalog auto-fill at load, or the graceful front-fallback) has g.back === g.front and
+   is NOT a true back photo — so it must NOT claim "reproduce the back" steering. Only a
+   distinct back asset (a storefront data-pear-back, or a catalog item's real rear photo)
+   qualifies. For a full look, BOTH halves must ship a real back. */
+function activeBackIsReal(item) {
+  const real = (it) => { if (!it) return false; const g = galleryOf(it); return !!(g.back && g.back !== g.front); };
+  const look = resolveLook();
+  if (look) return real(look.top) && real(look.bottom);
+  return real(item);
+}
+
+/* Pick the angle clause for the active view. Back splits on whether a REAL back photo is
+   in play (backReal — reproduce + pin the print's placement) vs a mirrored/inferred front
+   (backInferred). `item` is the single garment; for a full look it's resolved internally. */
+function angleClause(item) {
+  if (currentAngle === "back") {
+    return activeBackIsReal(item) ? ANGLE_CLAUSE.backReal : ANGLE_CLAUSE.backInferred;
+  }
+  return ANGLE_CLAUSE[currentAngle] || "";
+}
 
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
@@ -1678,7 +1856,7 @@ async function applyGarment(item) {
   const activeImg = activeImageOf(item);
   const imageRef  = garmentImageRef(activeImg);
   const payload = {
-    prompt: buildPrompt(item) + angleClause(),
+    prompt: buildPrompt(item) + angleClause(item),
     enhance: true,
     ...(imageRef ? { image: imageRef } : {}),
   };
@@ -2316,6 +2494,13 @@ function onLiveToggle() {
  */
 async function goLive() {
   if (busy || isLive()) return;
+
+  // Two-view gate — runs BEFORE any token mint / WebRTC connect / billing. Graceful
+  // by default; only opt-in requireBothViews items (or a garment with no front) are
+  // blocked. Bail out with a toast and never open a session for a blocked garment.
+  const blockReason = liveBlockReason();
+  if (blockReason) { toast(blockReason); return; }
+
   busy = true;                         // Task 10 — claim the flow before ANY await
   $("captureBtn").disabled = true;
   $("camError").hidden = true;
@@ -3084,6 +3269,24 @@ function renderCompleteTheLook(item) {
     </article>`).join("");
 }
 
+/* Corner badge on a catalog card conveying its two-view completeness at a glance:
+   a filled dot = a real image ships for that view, hollow = rendered from the front.
+   A ✓ pill marks fully-documented (front+back) items; a blocked item (opt-in strict
+   without a back) shows a lock. Purely informational — the actual gate lives in
+   goLive()/liveBlockReason(). */
+function viewBadge(p) {
+  const front = hasFrontView(p), back = hasBackView(p);
+  const blocked = !!itemBlockReason(p);
+  const cls = blocked ? "viewbadge--blocked" : (front && back) ? "viewbadge--complete" : "viewbadge--partial";
+  const title = blocked ? "חסרה תמונת גב · back view required"
+              : (front && back) ? "חזית + גב · front + back ready"
+              : "חזית בלבד · front only";
+  const dot = (on) => `<i class="viewbadge__dot${on ? " is-on" : ""}"></i>`;
+  const mark = blocked ? "🔒" : (front && back) ? "✓" : "";
+  return `<span class="viewbadge ${cls}" title="${title}" aria-label="${title}">`
+       + `${dot(front)}${dot(back)}${mark ? `<b class="viewbadge__mark">${mark}</b>` : ""}</span>`;
+}
+
 function renderCatalogPanel() {
   // "Upload Your Own Garment" — the first, prominent tile in the garment selector.
   // Clicking it opens the native file picker (delegated [data-upload] handler).
@@ -3106,8 +3309,8 @@ function renderCatalogPanel() {
     </div>`;
 
   $("catalogGrid").innerHTML = uploadCard + PEAR_CATALOG.map((p) => `
-    <div class="cat-item" data-pick="${p.id}">
-      <div class="cat-item__media">${garmentThumb(p)}</div>
+    <div class="cat-item${itemBlockReason(p) ? " cat-item--blocked" : ""}" data-pick="${p.id}">
+      <div class="cat-item__media">${garmentThumb(p)}${viewBadge(p)}</div>
       <div class="cat-item__body">
         <span class="cat-item__name">${p.name}</span>
         <span class="cat-item__price">$${p.price}</span>
@@ -4305,6 +4508,14 @@ function init() {
   if (perspSelector) perspSelector.addEventListener("click", (e) => {
     const b = e.target.closest(".persp-tab");
     if (b) setAngle(b.dataset.angle);
+  });
+
+  // Colour swatches — same delegation pattern; setColor() re-renders the rail against
+  // the chosen colour's own angle images and hot-swaps the live stream in place.
+  const swatches = $("productSwatches");
+  if (swatches) swatches.addEventListener("click", (e) => {
+    const b = e.target.closest(".pg-swatch");
+    if (b) setColor(b.dataset.color);
   });
 
   // PEAR Live-Action Gallery — render persisted looks + wire tray/clear/retake

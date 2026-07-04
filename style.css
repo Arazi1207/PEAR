@@ -523,6 +523,25 @@ body.tryon-open { overflow: hidden; }
   transition: transform 0.2s var(--ease), box-shadow 0.25s var(--ease);
 }
 .pdp__tryon:hover { transform: translateY(-2px); box-shadow: 0 22px 38px -14px rgba(11,60,149,0.8); }
+.pdp__tryon[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.pdp__tryon[disabled]:hover { transform: none; box-shadow: none; }
+
+/* ── two-view (front/back) completeness chip, above the try-on CTA ──────────── */
+.viewchip {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 2px; padding: 8px 12px; border-radius: var(--radius);
+  background: rgba(11,60,149,0.06); border: 1px solid rgba(11,60,149,0.14);
+  font-size: 12.5px; color: var(--ink, #1a1a1a);
+}
+.viewchip--complete { background: rgba(46,120,58,0.08); border-color: rgba(46,120,58,0.28); }
+.viewchip--blocked  { background: rgba(150,40,40,0.08);  border-color: rgba(150,40,40,0.30); }
+.viewchip__views { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
+.viewchip__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid currentColor; background: transparent; opacity: 0.55;
+}
+.viewchip__dot.is-on { background: currentColor; opacity: 1; }
+.viewchip__label { opacity: 0.85; }
 .pdp__tryon-he { grid-column: 1; font-size: 19px; font-weight: 800; letter-spacing: -0.2px; }
 .pdp__tryon-en { grid-column: 1; font-size: 12.5px; font-weight: 500; opacity: 0.82; letter-spacing: 0.4px; }
 .pdp__tryon-icon { grid-column: 2; grid-row: 1 / span 2; font-size: 30px; }

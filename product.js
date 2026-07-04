@@ -46,23 +46,33 @@ function pdpSvgOf(color) {
    garment-shape reference regardless of which color variant is active.
    Color is communicated separately via the `color` query param (and the
    PEAR text prompt uses colorName() to describe it to the VTON model). */
-function pearUrl(p, color) {
+function pearUrl(p, color, angle) {
   const params = {
     id: p.id,
     itemType: p.type,
     subType: p.subType,
     color: color.replace("#", ""),
     name: p.name,
-    img: p.imageUrl || "",
+    angle: angle || "front",       // ← the view the shopper is inspecting (front|back|side|detail)
+    img: p.imageUrl || "",         // real FRONT packshot stays the VTON reference; the angle
+                                   //   param (not a placeholder photo) tells PEAR which side to render
   };
   return `${PEAR_PATH}?${new URLSearchParams(params).toString()}`;
+}
+
+/* The angle key of the thumbnail the shopper currently has open — this is the
+   piece of gallery state the try-on needs, so the AI renders THAT side. */
+function activeAngleKey() {
+  const imgs = productImages(product);
+  const cur = imgs[activeImageIndex];
+  return (cur && cur.angle) || "front";
 }
 
 /* ── state ── */
 let product = null;         // the selected product object == the spec's `activeGarment`
 let activeColor = null;
 let activeSize = "M";
-let activeAngle = "front";  // which gallery angle the main viewport is showing
+let activeImageIndex = 0;   // index into productImages(product) shown in the main viewport
 
 function findProduct() {
   const id = parseInt(new URLSearchParams(location.search).get("id"), 10);
@@ -100,8 +110,11 @@ function render() {
         <div class="pdp__sizes" id="sizes"></div>
       </div>
 
+      <!-- Two-view (front/back) completeness indicator — mirrors the fitting-room badge -->
+      ${viewStatusChip(product)}
+
       <!-- Prominent Virtual Try-On CTA, directly below the product image column -->
-      <button class="pdp__tryon" id="tryonBtn">
+      <button class="pdp__tryon" id="tryonBtn"${canTryOn(product) ? "" : " disabled aria-disabled=\"true\""}>
         <span class="pdp__tryon-he">מדידה וירטואלית</span>
         <span class="pdp__tryon-en">Virtual Try-On · PEAR Camera</span>
         <span class="pdp__tryon-icon" aria-hidden="true">👕</span>
@@ -142,7 +155,13 @@ function renderSwatches() {
   wrap.querySelectorAll(".swatch").forEach((b) => {
     b.addEventListener("click", () => {
       activeColor = b.dataset.color;
-      $("#pdpSvg").innerHTML = pdpSvgOf(activeColor);
+      // SVG media (single-image products) OR the hidden broken-image fallback
+      // (gallery products) — update whichever is present. In gallery mode the
+      // photos are fixed, so the swatch just tracks activeColor for the handoff.
+      const svg = $("#pdpSvg");
+      if (svg) svg.innerHTML = pdpSvgOf(activeColor);
+      const fb = $(".pdp__main-fallback");
+      if (fb) fb.innerHTML = pdpSvgOf(activeColor);
       wrap.querySelectorAll(".swatch").forEach((x) => x.classList.toggle("is-active", x === b));
     });
   });
@@ -160,54 +179,56 @@ function renderSizes() {
   });
 }
 
-/* ── Multi-angle product gallery (main viewport + vertical thumbnail strip) ───
-   Only rendered for products with a real photo set (hasPhotoGallery). Clicking a
-   thumbnail crossfades the main viewport to that angle and moves the active
-   border — a real retail PDP gallery. The exact same angle model (activeAngle +
-   product.gallery) drives the fitting-room live rail, so the storefront and the
-   live try-on stay in lock-step. */
-function galleryUrl(p, angle) {
-  const hit = productGallery(p).find((i) => i.angle === angle);
-  return hit ? hit.url : (p.imageUrl || "");
-}
-
+/* ── Multi-image product gallery (main viewport + thumbnail strip) ────────────
+   Fully generic: driven only by productImages(product) + activeImageIndex, so
+   EVERY product with 2+ images renders a gallery — nothing is hard-coded to a
+   specific item. Products with a single image never reach here (the
+   hasPhotoGallery() gate in render() keeps them on the recolour SVG), so the
+   strip is never empty or broken. Clicking a thumbnail crossfades the main
+   viewport and moves the active border — a real retail PDP gallery. */
 function renderProductGallery(p) {
   const host = $("#pdpGallery");
   if (!host) return;
-  const items = productGallery(p);
-  if (!items.length) return;
-  if (!items.some((i) => i.angle === activeAngle)) activeAngle = items[0].angle;
+  const images = productImages(p);
+  if (images.length < 2) return;                          // safety: single/no image → no strip
+  if (activeImageIndex < 0 || activeImageIndex >= images.length) activeImageIndex = 0;
+  const current = images[activeImageIndex];
 
   host.innerHTML = `
     <ul class="product-thumbnails" id="pdpThumbs" role="listbox" aria-label="Product views">
-      ${items.map((i) => `
+      ${images.map((img, i) => `
         <li role="presentation">
-          <button type="button" class="product-thumb${i.angle === activeAngle ? " is-active" : ""}"
-                  data-angle="${i.angle}" role="option" aria-selected="${i.angle === activeAngle}"
-                  aria-label="${i.label} view">
-            <img src="${i.url}" alt="${p.name} — ${i.label}" loading="lazy" decoding="async">
-            <span class="product-thumb__label">${i.label}</span>
+          <button type="button" class="product-thumb${i === activeImageIndex ? " is-active" : ""}"
+                  data-index="${i}" data-angle="${img.angle}"
+                  role="option" aria-selected="${i === activeImageIndex}"
+                  aria-label="${img.label} view">
+            <img src="${img.url}" alt="${p.name} — ${img.label}" loading="lazy" decoding="async"
+                 onerror="this.closest('.product-thumb')?.setAttribute('hidden','');">
+            <span class="product-thumb__label">${img.label}</span>
           </button>
         </li>`).join("")}
     </ul>
     <div class="pdp__stage">
       <span class="pdp__badge"${p.isNew ? "" : " hidden"}>New Arrival</span>
-      <img class="pdp__main" id="pdpMain" src="${galleryUrl(p, activeAngle)}"
-           alt="${p.name} — ${ANGLE_LABEL[activeAngle]}" decoding="async">
+      <img class="pdp__main" id="pdpMain" style="grid-area:1/1" src="${current.url}"
+           alt="${p.name} — ${current.label}" decoding="async"
+           onerror="this.style.display='none';var f=this.parentNode.querySelector('.pdp__main-fallback');if(f)f.style.display='flex';">
+      <span class="pdp__main-fallback" style="grid-area:1/1;display:none;width:100%;height:100%;align-items:center;justify-content:center">${pdpSvgOf(activeColor)}</span>
     </div>`;
 
   host.querySelectorAll(".product-thumb").forEach((btn) => {
-    btn.addEventListener("click", () => setProductAngle(p, btn.dataset.angle));
+    btn.addEventListener("click", () => setActiveImage(p, parseInt(btn.dataset.index, 10)));
   });
 }
 
-function setProductAngle(p, angle) {
-  if (!angle || angle === activeAngle) return;
-  activeAngle = angle;                                    // == updates the spec's activeAngle
+function setActiveImage(p, index) {
+  const images = productImages(p);
+  if (Number.isNaN(index) || index === activeImageIndex || !images[index]) return;
+  activeImageIndex = index;
 
   // active border on the clicked thumb
   document.querySelectorAll("#pdpThumbs .product-thumb").forEach((b) => {
-    const on = b.dataset.angle === angle;
+    const on = parseInt(b.dataset.index, 10) === index;
     b.classList.toggle("is-active", on);
     b.setAttribute("aria-selected", String(on));
   });
@@ -216,24 +237,57 @@ function setProductAngle(p, angle) {
   // Preloading first guarantees no flicker / blank frame during the swap.
   const main = $("#pdpMain");
   if (!main) return;
-  const url = galleryUrl(p, angle);
+  const fallback = main.parentNode.querySelector(".pdp__main-fallback");
+  const { url, label } = images[index];
   const pre = new Image();
   pre.decoding = "async";
   pre.onload = () => {
     main.classList.add("is-fade");
     setTimeout(() => {
       main.src = url;
-      main.alt = `${p.name} — ${ANGLE_LABEL[angle]}`;
+      main.alt = `${p.name} — ${label}`;
+      main.style.display = "";                            // restore if a prior view had errored
+      if (fallback) fallback.style.display = "none";
       main.classList.remove("is-fade");
     }, 170);                                              // matches .pdp__main opacity transition
   };
-  pre.onerror = () => { main.src = url; };                // still swap even if preload fails
+  pre.onerror = () => {                                   // broken image → show the SVG stand-in
+    main.style.display = "none";
+    if (fallback) fallback.style.display = "flex";
+  };
   pre.src = url;
+}
+
+/* Two-view completeness chip shown above the try-on CTA. Reflects the SAME
+   hasFrontView/hasBackView predicates the fitting room uses, so what the shopper
+   sees here matches what the live engine will (or won't) let them do. A garment
+   with both real views reads "Front + Back ready"; one missing its back reads as
+   front-only (and, if the item opts into requireBothViews, the CTA is disabled). */
+function viewStatusChip(p) {
+  const front = hasFrontView(p), back = hasBackView(p);
+  const both = front && back;
+  const blocked = !canTryOn(p);
+  const dot = (on) => `<span class="viewchip__dot${on ? " is-on" : ""}" aria-hidden="true"></span>`;
+  const label = blocked
+    ? tryOnBlockReason(p)
+    : both ? "Front + Back views ready"
+           : "Front view · back rendered from front";
+  return `<div class="viewchip${both ? " viewchip--complete" : ""}${blocked ? " viewchip--blocked" : ""}"
+               role="status" aria-label="${label}">
+    <span class="viewchip__views">${dot(front)}Front ${dot(back)}Back</span>
+    <span class="viewchip__label">${label}</span>
+  </div>`;
 }
 
 /* ── handoff to PEAR (remembers the garment; PEAR runs the calculator first) ── */
 function launchPear() {
-  const url = pearUrl(product, activeColor);
+  // Two-view gate: graceful by default (front stands in for a missing back), but a
+  // product flagged requireBothViews is hard-blocked until it ships a real back view.
+  const blockReason = tryOnBlockReason(product);
+  if (blockReason) { showToast(`<b>Try-on unavailable</b> — ${blockReason}`); return; }
+
+  const angle = activeAngleKey();                 // ← current gallery selection drives the try-on view
+  const url = pearUrl(product, activeColor, angle);
   const payload = {
     id:       product.id,
     itemType: product.type,
@@ -241,6 +295,7 @@ function launchPear() {
     color:    activeColor.replace("#", ""),
     name:     product.name,
     size:     activeSize,
+    angle:    angle,                              // persisted so PEAR opens on the same side the shopper chose
     img:      product.imageUrl || "(none)",
   };
 
@@ -248,6 +303,7 @@ function launchPear() {
   console.log("product :", product.name, `(id=${product.id})`);
   console.log("type    :", product.type, "| subType:", product.subType);
   console.log("color   :", activeColor, "| size:", activeSize);
+  console.log("angle   :", angle, "(active gallery thumbnail)");
   console.log("img URL :", product.imageUrl || "(no imageUrl on this product)");
   console.log("target  :", url);
   console.log("payload :", payload);
@@ -260,7 +316,7 @@ function launchPear() {
   try {
     localStorage.setItem(LS_TRYON, JSON.stringify(payload));
   } catch (_) {}
-  showToast(`Launching <b>PEAR Camera</b> — ${product.name}…`);
+  showToast(`Launching <b>PEAR Camera</b> — ${product.name} · ${angle} view…`);
   setTimeout(() => { location.href = url; }, 600);
 }
 

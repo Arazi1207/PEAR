@@ -585,18 +585,61 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .camera-card.show-live #webcam { visibility: hidden; }
 .camera-card.show-live .camera-card__guide { display: none; }
 
-/* ── Multi-Image Gallery — vertical perspective strip ────────────────────────
-   A real-PDP thumbnail rail pinned to the inline-start edge of the camera stage,
-   vertically centred. It sits ABOVE the live #aiVideo (z-index 7 > the video) so
-   the angle can be switched mid-stream. Only the active ring + thumbnail
-   saturation crossfade — the rail's box never resizes — so the stage never jumps
-   as the angle changes. */
-.persp-selector {
+/* ── Multi-Image Gallery — colour swatches + vertical perspective rail ────────
+   A real-PDP gallery pinned to the inline-start edge of the camera stage, vertically
+   centred, ABOVE the live #aiVideo (z-index 7 > the video) so colour + angle can be
+   switched mid-stream. The wrapper is absolutely positioned and out of flow, so the
+   swatch strip appearing/disappearing between products NEVER reflows the video stage.
+   The rail always holds a fixed set of same-size tiles, so it can't resize either —
+   the stage never jumps when a colour or variant changes. */
+.product-gallery {
   position: absolute;
   inset-inline-start: 12px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  /* reserve enough height for the full rail so nothing shifts as items/colours swap */
+  min-height: 210px;
+  justify-content: center;
+}
+
+/* Colour swatch strip — a glass pill of round variant bubbles. */
+.product-swatches {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(10, 10, 11, .42);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+}
+.product-swatches[hidden] { display: none; }
+.pg-swatch {
+  width: 22px; height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--sw, #8a8f98);
+  border: 2px solid rgba(255, 255, 255, .55);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  transition: transform .2s var(--ease, ease), box-shadow .2s var(--ease, ease),
+              border-color .2s var(--ease, ease);
+}
+.pg-swatch:hover { transform: translateY(-1px) scale(1.06); }
+.pg-swatch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--pear-glow, rgba(141, 182, 0, .5)); }
+.pg-swatch.is-active {
+  border-color: #8db600;
+  box-shadow: 0 0 0 2px #8db600, 0 2px 8px rgba(0, 0, 0, .4);
+}
+
+.persp-selector {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -685,6 +728,26 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 .persp-tab.is-active .persp-tab__thumb { filter: saturate(1.05) contrast(1.05); }
 
+/* Fallback angle (no dedicated photo → front image, AI-inferred at that angle):
+   desaturate the thumb and mark it with a small pear-green "AI" badge so the user
+   knows the back/side render is model-inferred rather than a real product shot. */
+.persp-tab.is-fallback .persp-tab__thumb { filter: grayscale(.75) saturate(.5) brightness(.82); }
+.persp-tab.is-fallback.is-active .persp-tab__thumb { filter: grayscale(.4) saturate(.9) brightness(.95); }
+.persp-tab__ai {
+  position: absolute;
+  bottom: 3px; inset-inline-end: 3px;
+  font-size: .5rem; font-weight: 900; letter-spacing: .04em; line-height: 1;
+  padding: 2px 4px; border-radius: 5px;
+  color: #0a0a0b; background: var(--pear, #8db600);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+
+/* Subtle fade-in on every rail rebuild (item / colour / angle swap) — masks the
+   split-second while a new variant's images decode, preventing any flicker. Because
+   renderPerspectiveSelector regenerates the thumbnails, each new <img> replays this. */
+.persp-tab__thumb { animation: thumbIn .34s var(--ease, ease) both; }
+@keyframes thumbIn { from { opacity: .3; } to { opacity: 1; } }
+
 @keyframes perspSync {
   from { transform: translateX(-120%); }
   to   { transform: translateX(120%); }
@@ -740,7 +803,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   to   { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .persp-tab, .persp-tab__frame, .persp-tab__thumb { transition: none; }
+  .persp-tab, .persp-tab__frame, .persp-tab__thumb, .pg-swatch { transition: none; }
+  .persp-tab__thumb { animation: none; }
   .persp-selector.is-syncing .persp-tab.is-active .persp-tab__frame::after { animation: none; opacity: 0; }
   .source-preview { animation: none; }
 }
@@ -1004,10 +1068,33 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   0%,100% { box-shadow: 0 0 0 2px rgba(141,182,0,.18), var(--shadow); }
   50%     { box-shadow: 0 0 0 4px rgba(141,182,0,.30), 0 0 24px rgba(141,182,0,.30); }
 }
-.cat-item__media { aspect-ratio: 3 / 4; background: rgba(255,255,255,.32); overflow: hidden; }
+.cat-item__media { position: relative; aspect-ratio: 3 / 4; background: rgba(255,255,255,.32); overflow: hidden; }
 .cat-item__body { padding: 10px 12px 12px; }
 .cat-item__name { display: block; font-weight: 700; font-size: .82rem; color: var(--ink); }
 .cat-item__price { font-size: .78rem; color: var(--muted); }
+
+/* ── two-view (front/back) completeness badge ────────────────────────────────
+   Top-right pill on each catalog card. Two dots (front · back) fill in when a real
+   image ships for that view; a ✓ marks fully-documented items, a 🔒 marks an
+   opt-in strict item still missing its back. */
+.viewbadge {
+  position: absolute; top: 7px; right: 7px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 6px; border-radius: 999px;
+  background: rgba(20,22,26,.58); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0,0,0,.22);
+  line-height: 1; pointer-events: none;
+}
+.viewbadge__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.85); background: transparent;
+}
+.viewbadge__dot.is-on { background: #fff; }
+.viewbadge__mark { font-size: .62rem; font-weight: 800; color: #fff; margin-left: 1px; }
+.viewbadge--complete { background: rgba(46,120,58,.72); }
+.viewbadge--blocked  { background: rgba(150,40,40,.74); }
+.cat-item--blocked { opacity: .82; }
+.cat-item--blocked .cat-item__media { filter: grayscale(.28); }
 
 /* ── complete the look — glass cards ───────────────────────────────────── */
 .complete-look { margin-top: 48px; }

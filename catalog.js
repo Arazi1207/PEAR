@@ -78,17 +78,23 @@ const PRODUCTS = [
   {
     id: 6, name: "Strata Longsleeve", price: 128, category: "Shirts", type: "shirt", subType: "long_sleeve",
     color: "#2b2b30", isNew: true, fav: true,
+    // Opt into the STRICT two-view gate — Strata ships a real Back photo (below), so
+    // it satisfies front+back and stays try-on-able. Mirrors PEAR_CATALOG id 6.
+    requireBothViews: true,
     imageUrl: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024",
-    /* ── Multi-angle hero (real, visually-verified assets) ──
-       Only the angles this product actually ships a photo for. universalcolours
-       -1/-3/-4 = front packshot / back-on-model / fabric+logo detail macro. There
-       is NO true side profile for this item, so `side` is deliberately omitted —
-       never faked. See productGallery() for the shared normalizer. */
-    gallery: {
-      front:  "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024",
-      back:   "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=1024",
-      detail: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-4.jpg?v=1732626199&width=1024",
-    },
+    /* ── Multi-image gallery (real, visually-verified assets) ──
+       A per-product `images` array is the single source of truth for the PDP
+       gallery. Each entry is { url, label } (a plain URL string is also accepted
+       and auto-labelled "View N"). ANY product gains a thumbnail gallery just by
+       listing 2+ images here — the renderer in product.js is fully generic and
+       hard-codes nothing about this item. universalcolours -1/-3/-4 = front
+       packshot / back-on-model / fabric+logo detail macro. No true side profile
+       exists for this item, so it is omitted — never faked. */
+    images: [
+      { url: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-1.jpg?v=1732626199&width=1024", label: "Front"  },
+      { url: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=1024", label: "Back"   },
+      { url: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-4.jpg?v=1732626199&width=1024", label: "Detail" },
+    ],
     variants: [
       { color: "#2b2b30", label: "Charcoal" },
       { color: "#f0ede6", label: "White"    },
@@ -196,7 +202,31 @@ const PRODUCTS = [
       { color: "#c8b89a", label: "Khaki" },
     ],
   },
+  // ── Gatekeeper TEST item (intentionally incomplete) ─────────────────────────
+  // Mirrors PEAR_CATALOG id 99. Ships a front (imageUrl) but NO back, and opts into
+  // strict via requireBothViews → canTryOn() is false, so the PDP try-on CTA renders
+  // disabled and viewStatusChip() shows the blocked state. imageUrl is a verified
+  // placeholder packshot (the item is never tried on). Delete to hide the test.
+  {
+    id: 99, name: "Urban Bomber Jacket (Incomplete Test)", price: 168, category: "Shirts", type: "shirt", subType: "long_sleeve",
+    color: "#3a3f47", isNew: false, fav: false,
+    requireBothViews: true,
+    imageUrl: "https://burst.shopifycdn.com/photos/cobalt-blue-t-shirt.jpg",
+    variants: [
+      { color: "#3a3f47", label: "Slate" },
+    ],
+  },
 ];
+
+/* ── product imagery policy ───────────────────────────────────────────────────
+   A product gets a multi-thumbnail gallery ONLY from REAL photos it actually
+   ships — declared as an `images` array (see Strata, id 6) or the legacy
+   `gallery` map. We do NOT synthesize placeholder angles (a random stock photo is
+   not the garment, and a duplicated front is a fake angle). Products with a single
+   real photo therefore show one accurate view — the recolourable garmentSVG on the
+   PDP — with no thumbnail rail, which is the correct graceful state. To give any
+   product a real gallery, add its true photos to an `images: [{url,label,angle}]`
+   array here and the PDP + PEAR angle handoff light up automatically. */
 
 const SUBTYPE_LABEL = {
   sleeveless: "Sleeveless", short_sleeve: "Short Sleeve", long_sleeve: "Long Sleeve",
@@ -205,30 +235,113 @@ const SUBTYPE_LABEL = {
 
 const SIZES = ["S", "M", "L", "XL"];
 
-/* ── Multi-angle product gallery (shared source of truth) ────────────────────
-   Ordered inspection angles a product ships REAL photos for. `front` falls back
-   to the canonical imageUrl so every product yields at least a single-image
-   gallery; products carrying a `gallery` map add whatever real angles exist
-   (back / side / detail). Angles with no real photo are simply omitted — never
-   duplicated or faked. Consumed by the storefront PDP (product.js) and mirrored
-   by the fitting-room live rail. */
+/* ── Product image gallery (shared source of truth) ──────────────────────────
+   productImages(p) is the ONE normalizer every consumer uses. It returns an
+   ordered [{ url, label }] list from whichever shape a product declares, so the
+   renderer never has to branch per product:
+
+     1. p.images  — preferred. An array of { url, label } objects (or plain URL
+                    strings, auto-labelled "View N"). Add 2+ entries to ANY
+                    product and it gets a gallery — nothing else to touch.
+     2. p.gallery — legacy angle map { front, back, side, detail }; kept working
+                    for backward compatibility, front falling back to imageUrl.
+     3. p.imageUrl — a single packshot → a one-image list.
+
+   Angles/views with no real photo are simply omitted — never duplicated or
+   faked. Consumed by the storefront PDP (product.js). */
 const GALLERY_ANGLES = ["front", "back", "side", "detail"];
 const ANGLE_LABEL = { front: "Front", back: "Back", side: "Side", detail: "Detail" };
 
-function productGallery(p) {
-  if (!p) return [];
-  const g = (p.gallery && typeof p.gallery === "object") ? p.gallery : {};
-  const out = [];
-  for (const a of GALLERY_ANGLES) {
-    const url = g[a] || (a === "front" ? p.imageUrl : null);
-    if (url) out.push({ angle: a, label: ANGLE_LABEL[a], url });
-  }
-  return out;
+/* Normalized angle key ("front"|"back"|"side"|"detail"|…) for one image entry.
+   An explicit `angle` field wins; otherwise it's derived from the label (so
+   { label: "Back" } → "back"), with index 0 defaulting to "front". This key is
+   what the PDP forwards to the PEAR Camera so the try-on renders the right side. */
+function imageAngleKey(it, i) {
+  if (it && it.angle) return String(it.angle).toLowerCase();
+  const l = (it && it.label ? String(it.label) : "").trim().toLowerCase();
+  if (l) return l;
+  return i === 0 ? "front" : `view${i + 1}`;
 }
 
-/* True when a product has a real multi-angle photo set worth rendering as a
-   gallery (vs. the procedural recolour SVG). One angle (front-only) stays SVG. */
-function hasPhotoGallery(p) { return !!(p && p.gallery) && productGallery(p).length >= 2; }
+function productImages(p) {
+  if (!p) return [];
+
+  // 1) explicit images array — strings or { url, label, angle? } objects
+  if (Array.isArray(p.images) && p.images.length) {
+    return p.images
+      .map((it, i) => (typeof it === "string"
+        ? { url: it, label: `View ${i + 1}`, angle: imageAngleKey({ label: `View ${i + 1}` }, i) }
+        : { url: it && it.url, label: (it && it.label) || `View ${i + 1}`, angle: imageAngleKey(it, i) }))
+      .filter((it) => it.url);
+  }
+
+  // 2) legacy angle map (back-compat with older catalog entries)
+  if (p.gallery && typeof p.gallery === "object") {
+    const out = [];
+    for (const a of GALLERY_ANGLES) {
+      const url = p.gallery[a] || (a === "front" ? p.imageUrl : null);
+      if (url) out.push({ url, label: ANGLE_LABEL[a], angle: a });
+    }
+    if (out.length) return out;
+  }
+
+  // 3) single packshot
+  return p.imageUrl ? [{ url: p.imageUrl, label: "Front", angle: "front" }] : [];
+}
+
+/* Back-compat alias: older callers used productGallery(). */
+function productGallery(p) { return productImages(p); }
+
+/* True when a product ships a real multi-image set worth rendering as a gallery
+   (vs. the procedural recolour SVG). Single-image products stay on the SVG. */
+function hasPhotoGallery(p) { return productImages(p).length >= 2; }
+
+/* ── Two-view (front / back) completeness — shared source of truth ────────────
+   The PEAR VTON model treats FRONT and BACK as the two canonical garment views.
+   hasView() reports whether a product ships a REAL image for an angle — never a
+   duplicated or faked one, since productImages() already omits absent angles. A
+   product is "fully documented" only when it ships BOTH a real front AND a real
+   back. These predicates are mirrored verbatim in fitting-room/app.js so the
+   storefront PDP and the live fitting room judge completeness identically.
+
+   Design note (per product decision): the gate is GRACEFUL by default — a missing
+   back never blocks try-on; the front image stands in and a prompt clause steers
+   the rear render. Only a product that OPTS IN with `requireBothViews: true` is
+   hard-blocked when it lacks a real back view. Nothing in the catalog sets this
+   flag today, so default try-on is unchanged; flip it on any item to demand the
+   full two-view set for that item. */
+function hasView(p, angle) { return productImages(p).some((it) => it.angle === angle); }
+function hasFrontView(p) { return hasView(p, "front"); }
+/* Back counts as available when the product ships a REAL back photo OR carries a
+   mirrored-front back reference (backFromFront, populated by the init loop below).
+   The mirror is deliberately kept OUT of productImages() so it never adds a
+   duplicated front to the PDP thumbnail strip — it only satisfies the try-on gate
+   and the two-view chip. */
+function hasBackView(p)  { return hasView(p, "back") || !!(p && p.backFromFront); }
+function hasBothViews(p) { return hasFrontView(p) && hasBackView(p); }
+
+/* Returns a human-readable reason string when the product may NOT be tried on, or
+   null when it may. Front is always required (no garment reference otherwise);
+   back is only required for opt-in strict items. */
+function tryOnBlockReason(p) {
+  if (!p) return "No garment selected.";
+  if (!hasFrontView(p)) return "This garment has no front-view image yet.";
+  if (p.requireBothViews && !hasBackView(p)) return "This garment is missing its required back-view image.";
+  return null;
+}
+function canTryOn(p) { return !tryOnBlockReason(p); }
+
+/* ── Back-view auto-fill (storefront mirror) — parity with PEAR_CATALOG ────────
+   Every real product's own front image doubles as its Back try-on reference, so the
+   two-view chip reads complete and the PEAR handoff has a populated Back asset. We
+   store it on `backFromFront` (a plain reference URL) rather than pushing it into
+   productImages(): a duplicated front in the PDP gallery would be a FAKE angle (see
+   the imagery policy above) AND would flip single-photo items out of their recolour-
+   SVG mode. The mock test item (id 99) is excluded so it stays the one blocked demo;
+   items with a REAL back photo already report hasBackView() true and are left alone. */
+for (const _p of PRODUCTS) {
+  if (_p.id !== 99 && !hasBackView(_p) && _p.imageUrl) _p.backFromFront = _p.imageUrl;
+}
 
 /* ── color helper ── */
 function shade(hex, p) {
