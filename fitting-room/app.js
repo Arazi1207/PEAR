@@ -579,6 +579,31 @@ function parseHandoff() {
     } catch (e) { console.warn("[PEAR] parseHandoff() — custom garment parse failed:", e && e.message); }
   }
 
+  // PEAR widget embed handoff (widget/pear-widget.js on a third-party store):
+  // ?garment_url=…&garment_type=…&garment_name=…  The widget knows only the
+  // product image URL, a keyword-detected category and the page's product name,
+  // so we map those onto a standard focus-mode item. Returning a handoff here
+  // hides the catalog entirely (enterRoom → focus mode), shows the garment name
+  // in the focus bar above the camera, and loads the garment image directly
+  // through the normal applyGarment → rtClient.set() pipeline. custom:true makes
+  // buildCustomPrompt() point the model at the reference image itself instead of
+  // a catalog color/subType we don't have.
+  const widgetUrl = q.get("garment_url");
+  if (widgetUrl) {
+    const wType   = (q.get("garment_type") || "tops").toLowerCase();
+    const isPants = wType === "pants" || wType === "bottoms";
+    const result = {
+      id: null, custom: true,
+      name: q.get("garment_name") || "Garment",
+      type: isPants ? "pants" : "shirt",   // toItem() → garmentType (lower_body|upper_body)
+      subType: "",                          // no catalog subType → generic custom prompt
+      color: "#8a8f98",                     // neutral placeholder; the image is the reference
+      img: widgetUrl,
+    };
+    console.log("[PEAR] parseHandoff() — widget embed garment:", result);
+    return result;
+  }
+
   const id = parseInt(q.get("id"), 10);
   const fromCatalog = !isNaN(id) ? PEAR_CATALOG.find((p) => p.id === id) : null;
 
