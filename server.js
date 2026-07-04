@@ -69,10 +69,17 @@ app.use((req, res, next) => {
   res.header("Referrer-Policy", "strict-origin-when-cross-origin");
   res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   const isAdmin = /(^|\/)admin(\.html|\.js|\.css)?(\/|$)/i.test(req.path);
+  // The fitting room is embedded cross-origin by the pear-widget.js modal on
+  // third-party store pages, so it (and the widget assets) must be frameable
+  // from anywhere. It is a public, unauthenticated surface — the clickjacking
+  // protections stay in force on the admin dashboard and the rest of the site.
+  const isEmbeddable = /^\/(fitting-room|widget)(\/|$)/i.test(req.path);
   if (isAdmin) {
     res.header("X-Frame-Options", "DENY");
     res.header("Content-Security-Policy", "frame-ancestors 'none'");
     res.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  } else if (isEmbeddable) {
+    res.header("Content-Security-Policy", "frame-ancestors *");
   } else {
     res.header("X-Frame-Options", "SAMEORIGIN");
     res.header("Content-Security-Policy", "frame-ancestors 'self'");
@@ -783,6 +790,21 @@ app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
 
 app.all("/api/*", (req, res) => {
   res.status(404).json({ error: "not_found", message: `No API route for ${req.method} ${req.path}` });
+});
+
+/* ── Embeddable widget (pear-widget.js) ────────────────────────────────────
+   Served with an explicit route so it carries CORS + cache headers — stores
+   embed it with a plain <script src> from any origin. */
+app.get("/widget/pear-widget.js", (req, res) => {
+  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.sendFile(path.join(__dirname, "widget/pear-widget.js"));
+});
+
+/* Store-integration guide (widget/pear-widget-guide.html). */
+app.get("/widget/guide", (req, res) => {
+  res.sendFile(path.join(__dirname, "widget/pear-widget-guide.html"));
 });
 
 /* ── Static hosting ──────────────────────────────────────────────────────── */
