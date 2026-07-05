@@ -1014,6 +1014,18 @@ function renderPerspectiveSelector() {
           `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
           `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
         `</span></button>`);
+
+    // External FRONT | BACK legend — shown while combined is active. Keeps the labels OFF the
+    // canvas (the AI gets raw pixels, no text artifacts) while still orienting the user: a mini
+    // schematic of the stitched reference — FRONT segment, black separator bar, BACK segment.
+    if (currentAngle === COMBINED_ANGLE) {
+      sel.insertAdjacentHTML("beforeend",
+        `<div class="combined-legend" role="note" aria-label="Stitched reference layout: front on the left, back on the right">` +
+          `<span class="combined-legend__seg"><span class="combined-legend__tag">FRONT</span></span>` +
+          `<span class="combined-legend__bar" aria-hidden="true"></span>` +
+          `<span class="combined-legend__seg"><span class="combined-legend__tag">BACK</span></span>` +
+        `</div>`);
+    }
   }
 
   // Dual-view custom upload: while a custom garment has only a front, offer a real
