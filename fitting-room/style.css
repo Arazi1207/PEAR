@@ -784,7 +784,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 .persp-tab--ai .persp-tab__en { color: var(--pear, #8db600); opacity: .9; }
 /* Split preview: front on the left half, back on the right; the 1px grid gap shows the
-   pear-green backing through as a divider, echoing the real stitched 2px separator. */
+   pear-green backing through as a divider (a scaled-down hint of the real 100px black
+   separator bar in the stitched reference). */
 .persp-tab__frame--split {
   display: grid;
   grid-template-columns: 1fr 1fr;

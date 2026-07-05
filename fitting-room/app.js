@@ -1711,19 +1711,32 @@ async function fetchGarmentBlob(imgUrl) {
 }
 
 /* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
-   Draws the front asset (left) and the back asset (right) side-by-side on a
-   1024×512 canvas with a 2px vertical separator, and returns ONE JPEG Blob for
-   rtClient.set({ image }) (the realtime SDK accepts Blob | File | string). The
-   matching COMBINED prompt clause (see ANGLE_CLAUSE.combined) tells Lucy which
-   half to use for which body orientation, so a single live pass renders the
-   front while the user faces the camera and the back once they turn away.
+   Draws the front asset into the left 512px column and the back asset into the
+   right 512px column of a 1124×512 canvas, separated by a 100px SOLID OPAQUE BLACK
+   BAR, and returns ONE JPEG Blob for rtClient.set({ image }) (the realtime SDK
+   accepts Blob | File | string). The matching COMBINED prompt clause (see
+   ANGLE_CLAUSE.combined) names the bar and tells Lucy which side to use for which
+   body orientation, so a single live pass renders the front while the user faces
+   the camera and the back once they turn away — without the back bleeding onto the front.
+
+   WHY A 100px BLACK BAR (composite-bleeding fix): Lucy 2.1 is a diffusion model, so a
+   hairline separator does nothing to stop cross-attention from bleeding the back view
+   onto the front. A wide, fully-opaque black band is a hard, low-information region the
+   model reads as a scene boundary, so it segments the two views cleanly. Each image is
+   clipped to its own column so a wide packshot can't overflow into or across the bar.
 
    High-performance: both images decode off the main thread via createImageBitmap
    and composite on an OffscreenCanvas when available; the finished Blob is
    memoized per front+back URL pair, so repeated go-lives / hot-swaps of the same
    garment never re-stitch. Cross-origin CDN images route through /api/img-proxy
    (same-origin, ACAO:*), so the canvas is never tainted and toBlob() can't throw. */
-const COMBINED_W = 1024, COMBINED_H = 512, COMBINED_SEP = 2;
+/* Composite-bleeding fix: a 100px SOLID OPAQUE BLACK BAR (not a hairline) between two
+   512×512 columns. Lucy 2.1 is a diffusion model — a thin line does nothing to stop
+   cross-attention bleeding the back view onto the front; a wide, fully-opaque band is a
+   hard scene boundary the model segments on. Each image is clipped to its own column so a
+   wide packshot can never overflow into/across the bar. Canvas = 512 + 100 + 512 = 1124. */
+const COMBINED_H = 512, COMBINED_HALF = 512, COMBINED_SEP = 100;
+const COMBINED_W = COMBINED_HALF * 2 + COMBINED_SEP;   // 1124
 const _stitchCache = new Map();   // `${frontUrl} ${backUrl}` → Promise<Blob|null>
 
 /* Decode a garment URL into an ImageBitmap without tainting the canvas: http(s) CDN
@@ -1750,8 +1763,9 @@ function drawImageCover(ctx, img, dx, dy, dw, dh) {
 }
 
 /**
- * Stitch a front + back garment asset into ONE 1024×512 reference Blob: front on the
- * left half, back on the right half, a 2px vertical separator line between them.
+ * Stitch a front + back garment asset into ONE 1124×512 reference Blob: front in the
+ * left 512px column, back in the right 512px column, a 100px opaque black bar between
+ * them (the impermeable diffusion boundary that fixes composite bleeding).
  * @param {string} frontUrl  front garment image URL (http(s)/data:/blob:)
  * @param {string} backUrl   back garment image URL
  * @returns {Promise<Blob|null>}  JPEG Blob, or null on any failure (caller falls back
@@ -1765,7 +1779,8 @@ function stitchReferenceBlob(frontUrl, backUrl) {
   const job = (async () => {
     try {
       const [front, back] = await Promise.all([loadGarmentBitmap(frontUrl), loadGarmentBitmap(backUrl)]);
-      const halfW = (COMBINED_W - COMBINED_SEP) / 2;   // 511px per side (511 + 2 + 511 = 1024)
+      const halfW  = COMBINED_HALF;                 // 512px per column
+      const rightX = halfW + COMBINED_SEP;          // 612 — start of the back column (after the bar)
 
       const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(COMBINED_W, COMBINED_H) : null;
       const canvas = off || Object.assign(document.createElement("canvas"), { width: COMBINED_W, height: COMBINED_H });
@@ -1773,11 +1788,24 @@ function stitchReferenceBlob(frontUrl, backUrl) {
 
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, COMBINED_W, COMBINED_H);
-      drawImageCover(ctx, front, 0, 0, halfW, COMBINED_H);                     // left  = FRONT
-      drawImageCover(ctx, back,  halfW + COMBINED_SEP, 0, halfW, COMBINED_H);  // right = BACK
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(halfW, 0, COMBINED_SEP, COMBINED_H);                        // 2px vertical separator
-      front.close?.(); back.close?.();                                        // release decoded bitmaps
+
+      // Left = FRONT, clipped to its own 512px column so a wide packshot can't bleed
+      // toward (or across) the black bar — the boundary must stay impermeable.
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, halfW, COMBINED_H); ctx.clip();
+      drawImageCover(ctx, front, 0, 0, halfW, COMBINED_H);
+      ctx.restore();
+
+      // Right = BACK, clipped to its own 512px column (starts after the 100px bar).
+      ctx.save();
+      ctx.beginPath(); ctx.rect(rightX, 0, halfW, COMBINED_H); ctx.clip();
+      drawImageCover(ctx, back, rightX, 0, halfW, COMBINED_H);
+      ctx.restore();
+
+      // Impermeable 100px SOLID OPAQUE BLACK separator bar between the two views.
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(halfW, 0, COMBINED_SEP, COMBINED_H);
+      front.close?.(); back.close?.();             // release decoded bitmaps
 
       return off
         ? await off.convertToBlob({ type: "image/jpeg", quality: 0.92 })
@@ -1955,10 +1983,11 @@ const ANGLE_CLAUSE = {
   // must infer a plausible rear from it (graceful fallback; placement can't be pinned).
   backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
-  // AI Combined View: the reference is a single STITCHED image (left = front, right = back).
-  // Name it as composite and pin which half maps to which body orientation, so ONE live
-  // stream shows the front while the user faces the camera and the back once they turn away.
-  combined: " This is a composite reference image. The left half is the front view; the right half is the back view. Use the left half when the user faces the camera and the right half when the user faces away.",
+  // AI Combined View: the reference is a single STITCHED image — front | 100px black bar |
+  // back. Name the black separator explicitly so the diffusion model treats it as a hard
+  // boundary and segments the two views (composite-bleeding fix), and pin which side maps
+  // to which body orientation so one live stream transitions front→back as the user turns.
+  combined: " This is a composite reference image containing two distinct views separated by a solid black bar. The left view (before the black bar) is the front. The right view (after the black bar) is the back. Use the left view when the user faces the camera, and the right view when the user faces away. Completely ignore the black separator bar.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
