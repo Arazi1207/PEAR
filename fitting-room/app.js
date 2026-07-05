@@ -1711,14 +1711,16 @@ async function fetchGarmentBlob(imgUrl) {
 }
 
 /* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
-   Draws the front asset into a left square column and the back asset into a right
-   square column of a RESOLUTION-ADAPTIVE canvas (column edge 512→1024, tracking the
-   source assets so high-res back detail survives), separated by a SOLID OPAQUE BLACK
-   BAR, and returns ONE JPEG Blob for rtClient.set({ image }) (the realtime SDK
-   accepts Blob | File | string). The matching COMBINED prompt clause (see
-   ANGLE_CLAUSE.combined) names the bar and tells Lucy which side to use for which
-   body orientation, so a single live pass renders the front while the user faces
-   the camera and the back once they turn away — without the back bleeding onto the front.
+   Draws the FRONT view into a rigid 974×1024 box on the LEFT and the BACK view into a
+   rigid 974×1024 box on the RIGHT of a FIXED 2048×1024 canvas, separated by a 100px
+   high-contrast SOLID BLACK BAR (a "no-man's-land"), plus a high-contrast WHITE label box
+   ("FRONT" top-left, "BACK" top-right) burned into each section as a hard architectural
+   marker. Returns ONE JPEG Blob for rtClient.set({ image }) (the realtime SDK accepts
+   Blob | File | string). The matching COMBINED prompt clause (ANGLE_CLAUSE.combined) is an
+   aggressive "exclusive mode" instruction: each labeled section is the ONLY valid source for
+   its orientation and blending pixels across the bar is strictly forbidden — so a single live
+   pass renders the front while the user faces the camera and the back once they turn away,
+   without the two views bleeding into each other.
 
    WHY A 100px BLACK BAR (composite-bleeding fix): Lucy 2.1 is a diffusion model, so a
    hairline separator does nothing to stop cross-attention from bleeding the back view
@@ -1731,16 +1733,13 @@ async function fetchGarmentBlob(imgUrl) {
    memoized per front+back URL pair, so repeated go-lives / hot-swaps of the same
    garment never re-stitch. Cross-origin CDN images route through /api/img-proxy
    (same-origin, ACAO:*), so the canvas is never tainted and toBlob() can't throw. */
-/* Geometry is DYNAMIC (high-res). Square columns whose edge tracks the SOURCE asset
-   resolution — floored at 512, capped at MAX_COMBINED_COL — so a high-res back packshot's
-   graphics/fine detail survive instead of being downscaled to 512. The opaque black bar (the
-   composite-bleeding boundary: a wide, low-information band Lucy reads as a scene boundary and
-   segments on) scales WITH the column, so the layout ratio (bar ≈ 19.5% of a column) holds at
-   any resolution. Base 512/100 → canvas 1124×512; cap 1024 → canvas ~2248×1024. Each image is
-   clipped to its own column so a wide packshot can never overflow into/across the bar. */
-const COMBINED_HALF    = 512;    // base + FLOOR square-column edge (px)
-const COMBINED_SEP     = 100;    // base separator-bar width at the 512 floor (scaled with the column)
-const MAX_COMBINED_COL = 1024;   // cap the column edge → canvas ≤ ~2248×1024 (bounds memory + upload size)
+/* FIXED high-res framing (rigid geometry defeats front/back bleeding): a 2048×1024 canvas =
+   FRONT box (left, 974×1024) + 100px SOLID BLACK separator (no-man's-land) + BACK box (right,
+   974×1024). Each view is clipped to its box so a wide packshot can never overflow into or
+   across the bar, and the wide opaque band is a hard, low-information scene boundary the
+   diffusion model refuses to blend across. */
+const COMBINED_W   = 2048, COMBINED_H = 1024, COMBINED_SEP = 100;
+const COMBINED_BOX = (COMBINED_W - COMBINED_SEP) / 2;   // 974px per view box
 const _stitchCache = new Map();   // `${frontUrl} ${backUrl}` → Promise<Blob|null>
 
 /* Decode a garment URL into an ImageBitmap without tainting the canvas: http(s) CDN
@@ -1766,33 +1765,39 @@ function drawImageCover(ctx, img, dx, dy, dw, dh) {
   ctx.drawImage(img, dx + (dw - w) / 2, dy + (dh - h) / 2, w, h);
 }
 
-/* In-canvas section label ("FRONT"/"BACK") as an architectural marker for the model. Drawn
-   as a small, centered, semi-transparent dark pill at the TOP of a column (`cx` = column
-   centre-x, `top` = y inset) so it never covers the main garment area lower down. Clean
-   bold sans-serif, white on dark for legibility. Size scales with the column so it stays
-   crisp at any resolution. roundRect where supported, else a plain rect. */
-function drawSectionLabel(ctx, text, cx, top, fontPx) {
+/* In-canvas section label ("FRONT"/"BACK") as a HARD architectural marker for the model: a
+   high-contrast SOLID WHITE box with a black border and black bold sans-serif text, pinned to
+   the TOP corner of its section (`anchorX`/`top`, `align` = "left" anchors the box's left edge,
+   "right" anchors its right edge) so it stamps the view's identity without covering the main
+   garment area below. Size scales with the canvas. roundRect where supported, else a rect. */
+function drawSectionLabel(ctx, text, anchorX, top, fontPx, align) {
   ctx.save();
-  ctx.font = `700 ${fontPx}px system-ui, -apple-system, "Segoe UI", Arial, sans-serif`;
+  ctx.font = `800 ${fontPx}px system-ui, -apple-system, "Segoe UI", Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const padX = Math.round(fontPx * 0.6), padY = Math.round(fontPx * 0.38);
+  const padX = Math.round(fontPx * 0.5), padY = Math.round(fontPx * 0.32);
   const boxW = Math.round(ctx.measureText(text).width) + padX * 2;
   const boxH = fontPx + padY * 2;
-  const x = Math.round(cx - boxW / 2), r = Math.round(boxH * 0.28);
-  ctx.fillStyle = "rgba(0, 0, 0, .55)";
-  if (typeof ctx.roundRect === "function") { ctx.beginPath(); ctx.roundRect(x, top, boxW, boxH, r); ctx.fill(); }
-  else ctx.fillRect(x, top, boxW, boxH);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(text, cx, top + boxH / 2);
+  const x = align === "right" ? Math.round(anchorX - boxW) : Math.round(anchorX);
+  const r = Math.round(boxH * 0.18);
+  const hasRound = typeof ctx.roundRect === "function";
+
+  ctx.fillStyle   = "#ffffff";                                   // high-contrast white box
+  ctx.strokeStyle = "#000000";                                   // black border for a hard, defined edge
+  ctx.lineWidth   = Math.max(2, Math.round(fontPx * 0.06));
+  if (hasRound) { ctx.beginPath(); ctx.roundRect(x, top, boxW, boxH, r); ctx.fill(); ctx.stroke(); }
+  else { ctx.fillRect(x, top, boxW, boxH); ctx.strokeRect(x, top, boxW, boxH); }
+
+  ctx.fillStyle = "#000000";                                     // black text on white = max contrast
+  ctx.fillText(text, x + boxW / 2, top + boxH / 2);
   ctx.restore();
 }
 
 /**
- * Stitch a front + back garment asset into ONE high-res reference Blob: front in the left
- * square column, back in the right square column, an opaque black bar between them (the
- * impermeable diffusion boundary that fixes composite bleeding). The canvas resolution
- * ADAPTS to the source assets (column edge 512→1024) so back-view detail is not downscaled.
+ * Stitch a front + back garment asset into ONE fixed 2048×1024 reference Blob: FRONT boxed
+ * on the left (974×1024) + "FRONT" white marker, a 100px opaque black separator bar, BACK
+ * boxed on the right (974×1024) + "BACK" white marker. Rigid geometry + the wide bar give the
+ * diffusion model a hard boundary it won't blend across (the front/back bleeding fix).
  * @param {string} frontUrl  front garment image URL (http(s)/data:/blob:)
  * @param {string} backUrl   back garment image URL
  * @returns {Promise<Blob|null>}  JPEG Blob, or null on any failure (caller falls back
@@ -1807,50 +1812,44 @@ function stitchReferenceBlob(frontUrl, backUrl) {
     try {
       const [front, back] = await Promise.all([loadGarmentBitmap(frontUrl), loadGarmentBitmap(backUrl)]);
 
-      // HIGH-RES: size the square column to the source detail — the largest square croppable
-      // from BOTH images without upscaling (cover samples the min dimension), floored at 512,
-      // capped at MAX_COMBINED_COL. Bar + canvas scale with it, preserving the layout ratio.
-      const nativeCol = Math.min(front.width, front.height, back.width, back.height) || COMBINED_HALF;
-      const col    = Math.max(COMBINED_HALF, Math.min(MAX_COMBINED_COL, Math.round(nativeCol)));
-      const sep    = Math.round(col * (COMBINED_SEP / COMBINED_HALF));   // bar stays ≈19.5% of a column
-      const W = col * 2 + sep, H = col;
-      const rightX = col + sep;                     // start of the back column (after the bar)
+      // FIXED 2048×1024 framing: 974px FRONT box | 100px black bar | 974px BACK box.
+      const boxW = COMBINED_BOX, H = COMBINED_H;
+      const rightX = boxW + COMBINED_SEP;           // 1074 — start of the back box (after the bar)
 
-      const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(W, H) : null;
-      const canvas = off || Object.assign(document.createElement("canvas"), { width: W, height: H });
+      const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(COMBINED_W, COMBINED_H) : null;
+      const canvas = off || Object.assign(document.createElement("canvas"), { width: COMBINED_W, height: COMBINED_H });
       const ctx    = canvas.getContext("2d");
 
       ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, COMBINED_W, COMBINED_H);
 
-      // Left = FRONT, clipped to its own column so a wide packshot can't bleed toward (or
-      // across) the black bar — the boundary must stay impermeable.
+      // Left = FRONT, clipped to its box so a wide packshot can't bleed toward (or across)
+      // the black bar — the boundary must stay impermeable.
       ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, col, H); ctx.clip();
-      drawImageCover(ctx, front, 0, 0, col, H);
+      ctx.beginPath(); ctx.rect(0, 0, boxW, H); ctx.clip();
+      drawImageCover(ctx, front, 0, 0, boxW, H);
       ctx.restore();
 
-      // Right = BACK, clipped to its own column (starts after the bar).
+      // Right = BACK, clipped to its box (starts after the bar).
       ctx.save();
-      ctx.beginPath(); ctx.rect(rightX, 0, col, H); ctx.clip();
-      drawImageCover(ctx, back, rightX, 0, col, H);
+      ctx.beginPath(); ctx.rect(rightX, 0, boxW, H); ctx.clip();
+      drawImageCover(ctx, back, rightX, 0, boxW, H);
       ctx.restore();
 
-      // Impermeable SOLID OPAQUE BLACK separator bar between the two views.
+      // High-contrast 100px SOLID BLACK separator bar — the diffusion "no-man's-land".
       ctx.fillStyle = "#000000";
-      ctx.fillRect(col, 0, sep, H);
+      ctx.fillRect(boxW, 0, COMBINED_SEP, COMBINED_H);
 
-      // In-canvas architectural markers: "FRONT" top-centre of the left column, "BACK"
-      // top-centre of the right column. Contained in a small semi-transparent dark pill at
-      // the very top so they never obstruct the garment; the prompt tells the model these
-      // are markers and NOT to render them on the clothing (see ANGLE_CLAUSE.combined).
-      const fontPx = Math.round(col * 0.06);
-      const topPad = Math.round(col * 0.03);
-      drawSectionLabel(ctx, "FRONT", col / 2, topPad, fontPx);           // left / front column centre
-      drawSectionLabel(ctx, "BACK",  rightX + col / 2, topPad, fontPx);  // right / back column centre
+      // Hard architectural markers: "FRONT" white box in the TOP-LEFT of the front box, "BACK"
+      // white box in the TOP-RIGHT of the back box. The prompt names these + forbids rendering
+      // the marker text on the garment (see ANGLE_CLAUSE.combined exclusive instruction set).
+      const fontPx = Math.round(COMBINED_H * 0.05);   // ~51px
+      const inset  = Math.round(COMBINED_H * 0.02);   // ~20px from the edges
+      drawSectionLabel(ctx, "FRONT", inset, inset, fontPx, "left");                // top-left of FRONT box
+      drawSectionLabel(ctx, "BACK",  COMBINED_W - inset, inset, fontPx, "right");  // top-right of BACK box
       front.close?.(); back.close?.();             // release decoded bitmaps
 
-      // quality 0.95 — retain the back's fine graphics/detail now that we ship a high-res canvas.
+      // quality 0.95 — retain each view's fine graphics/detail at this high resolution.
       return off
         ? await off.convertToBlob({ type: "image/jpeg", quality: 0.95 })
         : await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.95));
@@ -2027,16 +2026,16 @@ const ANGLE_CLAUSE = {
   // must infer a plausible rear from it (graceful fallback; placement can't be pinned).
   backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
-  // AI Combined View: the reference is a single STITCHED image — front (left 512px) | 100px
-  // black bar | back (right 512px), NO text labels. This clause is very explicit about the
-  // pixel segments and tells Lucy to auto-switch which segment to render as the user turns.
-  combined: " This is a composite reference. The LEFT 512px segment is the FRONT view. The RIGHT 512px segment is the BACK view. The center black bar is a separator. Use the left segment when the user faces the camera and the right segment when the user turns their back. Strictly ignore the center black bar." +
-    // Back-fidelity weighting: the stitched reference now ships high-res, so push the model to
-    // reproduce the back segment's detail exactly (graphics + layout) when it renders the rear.
-    " The right segment is the back view. Maintain 100% fidelity to the source image details, specifically the graphics and layout." +
-    // Internal labels: the canvas now carries "FRONT"/"BACK" text markers at the top of each
-    // section — acknowledge them AND forbid rendering that text onto the garment.
-    " The reference image is explicitly labeled 'FRONT' and 'BACK' inside the canvas. Use the 'FRONT' section when the user faces the camera and the 'BACK' section when the user turns away. The text labels are architectural markers—do not render them on the clothing itself.",
+  // AI Combined View — AGGRESSIVE "exclusive mode": the reference is one stitched image with a
+  // FRONT box (left, white "FRONT" marker), a black no-man's-land bar, and a BACK box (right,
+  // white "BACK" marker). The instruction forbids blending across the bar (the bleeding fix),
+  // pins each labeled section as the ONLY valid source for its orientation, then forbids
+  // rendering the marker text onto the garment.
+  combined:
+    " This image is divided by a high-contrast black separator bar into two rigid boxes that must be treated as a strict no-man's-land." +
+    " The provided image contains two distinct, mutually exclusive garment views. The LEFT section marked 'FRONT' is the only valid source for frontal renders. The RIGHT section marked 'BACK' is the only valid source for rear renders. You are strictly forbidden from blending pixels between these two sections. When the user faces the camera, use ONLY the 'FRONT' section. When the user turns away, use ONLY the 'BACK' section. Failure to adhere to this separation will result in an invalid render." +
+    " Reproduce the selected section's garment with 100% fidelity to its graphics and layout." +
+    " The 'FRONT' and 'BACK' text markers are architectural labels only — never render that text onto the clothing itself.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
