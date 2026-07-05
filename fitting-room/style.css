@@ -801,6 +801,41 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   bottom: 4px;
 }
 
+/* AI Combined View — explicit FRONT / BACK focus toggle, shown only while combined is active.
+   This drives userOrientation (the section the prompt focuses on). Compact segmented control. */
+.persp-orient {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  padding: 4px;
+  border-radius: 11px;
+  background: rgba(141, 182, 0, .12);
+  border: 1px solid var(--pear, #8db600);
+}
+.persp-orient__btn {
+  flex: 1 1 0;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, .82);
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s var(--ease, ease), color .2s var(--ease, ease);
+}
+.persp-orient__btn:hover { color: #fff; background: rgba(141, 182, 0, .22); }
+.persp-orient__btn.is-active {
+  color: #0a0a0b;
+  background: var(--pear, #8db600);
+  box-shadow: 0 1px 6px var(--pear-glow, rgba(141, 182, 0, .5));
+}
+.persp-orient__btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--pear-glow, rgba(141, 182, 0, .55));
+}
+
 /* Subtle fade-in on every rail rebuild (item / colour / angle swap) — masks the
    split-second while a new variant's images decode, preventing any flicker. Because
    renderPerspectiveSelector regenerates the thumbnails, each new <img> replays this. */
