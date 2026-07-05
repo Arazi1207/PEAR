@@ -654,6 +654,34 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 .persp-selector[hidden] { display: none; }
 
+/* Dual-view custom upload: "＋ Add back view" — a dashed call-to-action that only
+   appears while a custom garment still lacks a real back photo. */
+.persp-upload-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 8px;
+  border-radius: 12px;
+  border: 1.5px dashed rgba(255, 255, 255, .32);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .86);
+  font: 600 11px/1.2 inherit;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: border-color .2s var(--ease, ease), background .2s var(--ease, ease), color .2s var(--ease, ease);
+}
+.persp-upload-back:hover {
+  border-color: rgba(120, 170, 255, .7);
+  background: rgba(120, 170, 255, .12);
+  color: #fff;
+}
+.persp-upload-back:focus-visible {
+  outline: none;
+  border-color: rgba(120, 170, 255, .9);
+  box-shadow: 0 0 0 3px rgba(120, 170, 255, .28);
+}
+
 /* Mid-stream angle warp in flight: soften the rail and sweep a shimmer across the
    active thumb for exactly as long as the single rtClient.set() is resolving. */
 .persp-selector.is-syncing { opacity: .94; }

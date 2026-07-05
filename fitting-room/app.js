@@ -987,6 +987,14 @@ function renderPerspectiveSelector() {
            `</span></button>`;
   }).join("");
 
+  // Dual-view custom upload: while a custom garment has only a front, offer a real
+  // back photo. Uploading one flips the Back tab from AI-inferred → a reproduced photo.
+  if (activeItem.custom && !hasBackView(activeItem)) {
+    sel.insertAdjacentHTML("beforeend",
+      `<button type="button" class="persp-upload-back" data-upload-back>` +
+      `＋ הוסף תמונת גב · Add back view</button>`);
+  }
+
   renderColorSwatches();
   updateSourcePreview();
 }
@@ -1828,6 +1836,18 @@ const ANGLE_CLAUSE = {
   backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
 };
+
+/* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
+   generic backInferred. Product-approved wording: a clean, plain rear (front graphics
+   stripped) that keeps the front's fabric/colour/seams/drape. The "negative prompt" is
+   folded IN as an inline clause because Decart's realtime set() accepts only
+   { prompt, image, enhance } — there is NO separate negative_prompt field to pass. */
+const CUSTOM_BACK_INFERRED =
+  " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera." +
+  " Render the BACK of this custom garment. The back of the garment must be a clean, plain version of the" +
+  " front's fabric and color, strictly without the front graphics or logos. Maintain the same seams," +
+  " material texture, and drape as the front view. Do not mirror front-specific details to the back." +
+  " Negative constraint — avoid printing, logos, or graphic motifs on the back side.";
 /* A REAL rear reference = a back image that DIFFERS from the front. A mirrored front
    (catalog auto-fill at load, or the graceful front-fallback) has g.back === g.front and
    is NOT a true back photo — so it must NOT claim "reproduce the back" steering. Only a
@@ -1845,7 +1865,12 @@ function activeBackIsReal(item) {
    (backInferred). `item` is the single garment; for a full look it's resolved internally. */
 function angleClause(item) {
   if (currentAngle === "back") {
-    return activeBackIsReal(item) ? ANGLE_CLAUSE.backReal : ANGLE_CLAUSE.backInferred;
+    // Dual asset (front + a REAL back photo, incl. a user's uploaded back) → reproduce it.
+    if (activeBackIsReal(item)) return ANGLE_CLAUSE.backReal;
+    // Custom upload with only a front → the strict "clean plain rear, no front graphics"
+    // constraint (+ inlined negative). Catalog items keep the generic inferred clause.
+    if (item && item.custom) return CUSTOM_BACK_INFERRED;
+    return ANGLE_CLAUSE.backInferred;
   }
   return ANGLE_CLAUSE[currentAngle] || "";
 }
@@ -2421,17 +2446,33 @@ async function submitIdentity() {
       body:    JSON.stringify({ deviceId, name, phone }),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) {
-      throw new Error((data && (data.message || data.error)) || ("server " + res.status));
+
+    // Saved (or this device was already known) → link the session and continue.
+    if (res.ok && data?.ok) {
+      setDeviceId(deviceId);                 // remember this browser from now on
+      PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
+      console.log("[identity] registered user:", data.user?.name, "→", PEAR_USER_ID);
+      return showSizeForm();
     }
-    setDeviceId(deviceId);                 // remember this browser from now on
-    PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
-    console.log("[identity] registered user:", data.user?.name, "→", PEAR_USER_ID);
+
+    // Fixable INPUT problem (400/422) → the visitor can correct it, so surface the
+    // server's message and let them retry. This is the only case that stays on the gate.
+    if (res.status === 400 || res.status === 422) {
+      if (btn) btn.disabled = false;
+      return showErr((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+    }
+
+    // INFRA failure (503 storage_unconfigured, 5xx, …) must NOT trap the visitor on
+    // Screen 1 — mirror the graceful profile-lookup path: remember the device locally
+    // and proceed. The session simply won't be linked to a server profile.
+    console.warn("[identity] save unavailable (status", res.status, ") — proceeding without server profile");
+    setDeviceId(deviceId);
     showSizeForm();
   } catch (err) {
-    console.error("[identity] registration failed:", err?.message || err);
-    showErr("שמירת הפרטים נכשלה — נסה/י שוב.");
-    if (btn) btn.disabled = false;
+    // Network error / API server down → same graceful degrade, never a dead end.
+    console.warn("[identity] save failed, proceeding offline:", err?.message || err);
+    setDeviceId(deviceId);
+    showSizeForm();
   }
 }
 
@@ -3341,10 +3382,21 @@ let detectedBoxes  = [];    // [{ xmin, ymin, width, height, score }] in NATURAL
 let detectedOutfit = null;  // { topBounds, bottomBounds, … } when a full worn outfit is detected → TOP/BOTTOM toggle
 let activeSide     = "top"; // which sub-region the outfit toggle currently targets ("top" | "bottom")
 
-/** Open the native file picker (reset value so re-picking the SAME file re-fires change). */
-function openGarmentUpload() {
+/* Dual-view custom upload (front required, back optional). uploadTarget routes the
+   NEXT confirmed crop to the right slot; customFrontItem is the live custom garment a
+   later back crop attaches to as imgBack. With both, galleryOf() exposes { front, back }
+   and the existing angle hot-swap (activeImageOf → g.back, angleClause → backReal) drives
+   a CLEAN single-view rear reference — no stitching, so the front print can't bleed. */
+let uploadTarget    = "front";  // "front" | "back" — which slot the next confirmed crop fills
+let customFrontItem = null;     // the live custom item awaiting an optional back crop
+
+/** Open the native file picker (reset value so re-picking the SAME file re-fires change).
+ *  `target` routes the next confirmed crop: "back" fills the optional rear view of the
+ *  current custom garment, anything else (incl. a click Event) falls back to "front". */
+function openGarmentUpload(target = "front") {
   const inp = $("garmentUploadInput");
   if (!inp) return;
+  uploadTarget = target === "back" ? "back" : "front";
   inp.value = "";
   inp.click();
 }
@@ -3581,6 +3633,23 @@ function selectDetectedGarment(index) {
 
   const crop = cropRegion(uploadedImg, box);
 
+  // ── BACK view: attach to the pending front item as imgBack (no new item) ──────
+  // galleryOf() now exposes { front, back }, so the live Back tab hot-swaps THIS crop
+  // as a clean single-view reference (activeImageOf → g.back) and angleClause() upgrades
+  // to backReal ("reproduce the real back faithfully"). gtype is irrelevant here — the
+  // back always belongs to the same garment/slot as its front.
+  if (uploadTarget === "back" && customFrontItem) {
+    customFrontItem.imgBack = crop.dataUrl;
+    setTimeout(() => {
+      closeGarmentDetect();
+      uploadTarget = "front";
+      setActiveItem(customFrontItem);                  // re-render: Back tab is now a REAL view (no AI badge)
+      toast(`נוספה תמונת גב · back view added — <b>Front + Back</b> מוכן`);
+    }, CONFIG.UPLOAD.PICK_ANIM_MS);
+    return;
+  }
+
+  // ── FRONT view: build the custom item and remember it for an optional back crop ─
   const item = {
     id: null,
     custom: true,
@@ -3592,6 +3661,8 @@ function selectDetectedGarment(index) {
     color: crop.color,                                 // avg crop colour → recommendFor contrast + demo
     img: crop.dataUrl,                                 // the cropped garment as a data URL (rtClient image)
   };
+  customFrontItem = item;                              // a later "Add back view" crop attaches here
+  uploadTarget    = "front";
 
   // Let the pick animation play, then close + transition to the live room (Screen 2).
   setTimeout(() => {
@@ -3599,7 +3670,7 @@ function selectDetectedGarment(index) {
     setActiveItem(item);                               // fills its slot, paints chip, resets to live
     const cc = $("cameraCard");
     if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
-    toast(`נבחר בגד מותאם אישית — לחצ/י על <b>התחל מדידה חיה</b>`);
+    toast(`נבחר בגד מותאם — הוסף/י <b>תמונת גב</b> או שנשלים אותה ב־AI`);
   }, CONFIG.UPLOAD.PICK_ANIM_MS);
 }
 
@@ -4506,6 +4577,8 @@ function init() {
   // the angle is unchanged and re-warps the live stream in place when it isn't.
   const perspSelector = $("perspectiveSelector");
   if (perspSelector) perspSelector.addEventListener("click", (e) => {
+    // Dual-view custom upload: the "Add back view" button opens the picker in back mode.
+    if (e.target.closest("[data-upload-back]")) { openGarmentUpload("back"); return; }
     const b = e.target.closest(".persp-tab");
     if (b) setAngle(b.dataset.angle);
   });
