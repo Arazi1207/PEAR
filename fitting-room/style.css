@@ -785,10 +785,13 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .persp-tab--ai .persp-tab__en { color: var(--pear, #8db600); opacity: .9; }
 /* Split preview: front on the left half, back on the right; the 1px grid gap shows the
    pear-green backing through as a divider (a scaled-down hint of the real 100px black
-   separator bar in the stitched reference). */
+   separator bar in the stitched reference). direction:ltr FORCES front-left/back-right even
+   on the RTL (Hebrew) page — otherwise the grid flips and the preview lies about the layout,
+   which is exactly what the actual stitched reference does NOT do (front is always left). */
 .persp-tab__frame--split {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  direction: ltr;
   gap: 1px;
   background: var(--pear, #8db600);
 }
@@ -801,40 +804,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   bottom: 4px;
 }
 
-/* AI Combined View — explicit FRONT / BACK focus toggle, shown only while combined is active.
-   This drives userOrientation (the section the prompt focuses on). Compact segmented control. */
-.persp-orient {
-  display: flex;
-  gap: 4px;
-  width: 100%;
-  padding: 4px;
-  border-radius: 11px;
-  background: rgba(141, 182, 0, .12);
-  border: 1px solid var(--pear, #8db600);
-}
-.persp-orient__btn {
-  flex: 1 1 0;
-  padding: 6px 4px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(255, 255, 255, .82);
-  font-family: inherit;
-  font-size: .72rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background .2s var(--ease, ease), color .2s var(--ease, ease);
-}
-.persp-orient__btn:hover { color: #fff; background: rgba(141, 182, 0, .22); }
-.persp-orient__btn.is-active {
-  color: #0a0a0b;
-  background: var(--pear, #8db600);
-  box-shadow: 0 1px 6px var(--pear-glow, rgba(141, 182, 0, .5));
-}
-.persp-orient__btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--pear-glow, rgba(141, 182, 0, .55));
-}
 
 /* Subtle fade-in on every rail rebuild (item / colour / angle swap) — masks the
    split-second while a new variant's images decode, preventing any flicker. Because

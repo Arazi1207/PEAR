@@ -406,11 +406,6 @@ let focusMode = false;
    clause. It NEVER reconnects, re-mints a token, or touches the strict live window. */
 let currentAngle = "front";   // "front" | "back" | "side" (extensible — see ANGLES) — spec's activeAngle
 let activeColor  = null;      // active variant/colour key, or null when the item ships no named variants
-/* AI Combined View orientation — which labeled section of the stitched black-bar reference
-   the live pass should render. The old single "use left facing / right away" clause let Lucy
-   default to the front, so combined mode now exposes an EXPLICIT front/back focus (toggled in
-   the rail) that the prompt steers on. See currentOrientation() / FOCUS_CLAUSE. */
-let combinedOrientation = "front";   // "front" | "back"
 
 /* "Complete the Look" — incremental outfit state (the SINGLE source of truth).
    activeOutfit holds at most ONE upper-body garment (top) and ONE lower-body
@@ -949,24 +944,6 @@ function setColor(color) {
   hotSwapIfLive(`צבע · ${color}`);
 }
 
-/* Resolve the orientation ('front' | 'back') the prompt should focus on. In AI Combined
-   View this is the explicit user-toggled section; on the plain Back angle it's 'back'; else
-   'front'. This is the userOrientation value threaded into buildPrompt(). */
-function currentOrientation() {
-  if (currentAngle === COMBINED_ANGLE) return combinedOrientation;
-  return currentAngle === "back" ? "back" : "front";
-}
-
-/* Toggle which labeled section of the stitched combined reference is rendered. Hot-swaps
-   the live stream in place (one rtClient.set(), no reconnect) exactly like an angle switch. */
-function setCombinedOrientation(o) {
-  const next = o === "back" ? "back" : "front";
-  if (next === combinedOrientation) return;
-  combinedOrientation = next;
-  renderPerspectiveSelector();
-  hotSwapIfLive(`AI · ${ANGLE_LABEL_HE[next]} focus · ${ANGLE_LABEL_EN[next]}`);
-}
-
 /* Shared live hot-swap: drive the rail's loading shimmer for exactly as long as the
    single rtClient.set() is in flight — no reconnect, no extra handshake/token, no layout
    shift — then clear it. No-op when not live. */
@@ -1037,19 +1014,6 @@ function renderPerspectiveSelector() {
           `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
           `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
         `</span></button>`);
-
-    // While combined mode is active, expose the explicit FRONT/BACK focus toggle. This is the
-    // userOrientation the prompt steers on — the fix for Lucy defaulting to the front view.
-    if (currentAngle === COMBINED_ANGLE) {
-      const fOn = combinedOrientation === "front", bOn = combinedOrientation === "back";
-      sel.insertAdjacentHTML("beforeend",
-        `<div class="persp-orient" role="group" aria-label="AI combined orientation focus">` +
-          `<button type="button" class="persp-orient__btn${fOn ? " is-active" : ""}" data-orient="front" aria-pressed="${fOn}">` +
-            `${ANGLE_LABEL_HE.front} · Front</button>` +
-          `<button type="button" class="persp-orient__btn${bOn ? " is-active" : ""}" data-orient="back" aria-pressed="${bOn}">` +
-            `${ANGLE_LABEL_HE.back} · Back</button>` +
-        `</div>`);
-    }
   }
 
   // Dual-view custom upload: while a custom garment has only a front, offer a real
@@ -1798,24 +1762,6 @@ function drawImageCover(ctx, img, dx, dy, dw, dh) {
   ctx.drawImage(img, dx + (dw - w) / 2, dy + (dh - h) / 2, w, h);
 }
 
-/* Visual grounding: burn a white, dark-outlined view label ("FRONT"/"BACK") into a corner
-   of its column so the diffusion model has an explicit textual anchor for which side is
-   which — reinforcing the black-bar boundary and the prompt's per-section focus clause.
-   The heavy dark outline keeps it legible over both light and dark garment images. */
-function drawViewLabel(ctx, text, x, y, align) {
-  ctx.save();
-  ctx.font = "700 40px 'Segoe UI', system-ui, sans-serif";
-  ctx.textAlign = align;                 // "left" (front, top-left) | "right" (back, top-right)
-  ctx.textBaseline = "top";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = "rgba(0, 0, 0, .92)";
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(text, x, y);
-  ctx.restore();
-}
-
 /**
  * Stitch a front + back garment asset into ONE 1124×512 reference Blob: front in the
  * left 512px column, back in the right 512px column, a 100px opaque black bar between
@@ -1856,15 +1802,10 @@ function stitchReferenceBlob(frontUrl, backUrl) {
       drawImageCover(ctx, back, rightX, 0, halfW, COMBINED_H);
       ctx.restore();
 
-      // Impermeable 100px SOLID OPAQUE BLACK separator bar between the two views.
+      // Impermeable 100px SOLID OPAQUE BLACK separator bar between the two views. This clean
+      // black block is the ONLY separator — no text labels (they caused diffusion artifacts).
       ctx.fillStyle = "#000000";
       ctx.fillRect(halfW, 0, COMBINED_SEP, COMBINED_H);
-
-      // Visual-grounding labels: "FRONT" top-left of the front column, "BACK" top-right of
-      // the back column (drawn last, so they sit on top of the garment imagery).
-      const P = 20;
-      drawViewLabel(ctx, "FRONT", P, P, "left");
-      drawViewLabel(ctx, "BACK", COMBINED_W - P, P, "right");
       front.close?.(); back.close?.();             // release decoded bitmaps
 
       return off
@@ -2043,12 +1984,10 @@ const ANGLE_CLAUSE = {
   // must infer a plausible rear from it (graceful fallback; placement can't be pinned).
   backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
-  // AI Combined View: the reference is a single STITCHED image — front | 100px black bar |
-  // back, each column burned with a "FRONT"/"BACK" text label. This clause only DESCRIBES
-  // the layout + the impermeable black boundary; the EXPLICIT per-section focus ("render
-  // exclusively the FRONT/BACK view") and the hard negative are injected by buildPrompt's
-  // orientationSuffix, so the two never contradict (no lazy "use whichever" fallback).
-  combined: " This is a composite reference image containing two distinct views separated by a solid black bar. The left view (before the black bar) is the front, labeled FRONT in its top-left corner. The right view (after the black bar) is the back, labeled BACK in its top-right corner. Completely ignore the black separator bar.",
+  // AI Combined View: the reference is a single STITCHED image — front (left 512px) | 100px
+  // black bar | back (right 512px), NO text labels. This clause is very explicit about the
+  // pixel segments and tells Lucy to auto-switch which segment to render as the user turns.
+  combined: " This is a composite reference. The LEFT 512px segment is the FRONT view. The RIGHT 512px segment is the BACK view. The center black bar is a separator. Use the left segment when the user faces the camera and the right segment when the user turns their back. Strictly ignore the center black bar.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
@@ -2236,43 +2175,25 @@ const HEM_DETAIL = " Preserve the garment's printed graphics, logos, and text, a
 const KEEP_BOTTOMS = " Keep the person's existing lower body exactly as it is in the live camera — do not change, recolor, restyle, or re-render the trousers, shorts, skirt, shoes, or anything below the waist.";
 const KEEP_TOP     = " Keep the person's existing upper body exactly as it is in the live camera — do not change, recolor, restyle, or re-render the shirt, top, jacket, or anything above the waist.";
 
-/* Context-aware orientation steering for the stitched combined reference. Naming the exact
-   labeled section to render stops Lucy taking the lazy path (rendering the front for a back
-   request); the hard negative bars the opposite view's signature details from leaking in. */
-const FOCUS_CLAUSE = {
-  front: " Focus exclusively on the FRONT view section of the reference image.",
-  back:  " Focus exclusively on the BACK view section of the reference image.",
-};
+/* Universal hard negative appended to EVERY prompt (per product spec). Bars the opposite
+   view's signature details from leaking in when the back is being rendered. In AI Combined
+   View, the per-segment orientation steering (which half = front/back, and when to use each)
+   lives in the composite ANGLE_CLAUSE.combined clause — the model auto-switches from it. */
 const HARD_NEGATIVE = " Strictly prevent the rendering of FRONT details (like logos or front-pockets) when the BACK view is requested.";
 
-/* Suffix appended to EVERY prompt. The hard negative is universal (per product spec); the
-   per-section focus clause is added only when the reference is the stitched combined image,
-   since it refers to "sections of the reference image" that exist only in that mode. */
-function orientationSuffix(userOrientation) {
-  const focus = currentAngle === COMBINED_ANGLE ? (FOCUS_CLAUSE[userOrientation] || FOCUS_CLAUSE.front) : "";
-  return focus + HARD_NEGATIVE;
-}
-
-/**
- * Build the single-garment VTON prompt.
- * @param {object} item
- * @param {"front"|"back"} [userOrientation] which view to focus on (combined mode);
- *   defaults to the live-resolved orientation (currentOrientation()).
- * @returns {string}
- */
-function buildPrompt(item, userOrientation = currentOrientation()) {
+function buildPrompt(item) {
   // "Upload Your Own Garment": the reference image IS the garment, so we point the
   // model AT that image instead of naming a catalog color/subType. We still keep the
   // anatomical anchor, size-driven fit modifier and the opposite-layer lock, so a
   // custom upload behaves exactly like a built-in item in the strict live flow.
-  if (item.custom) return buildCustomPrompt(item, userOrientation);
+  if (item.custom) return buildCustomPrompt(item);
 
   const colorWord = colorName(item.color);
   const sub    = SUBTYPE_PROMPT[item.subType] || "";
   const anchor = getAnatomicalAnchor();
   const delta  = getSizeDelta();
   const fitMod = getFitModifier(delta, item.garmentType);
-  const suffix = orientationSuffix(userOrientation);   // per-section focus (combined) + hard negative
+  const suffix = HARD_NEGATIVE;   // universal hard negative (combined orientation lives in angleClause)
 
   if (item.garmentType === "lower_body") {
     return `Substitute the current bottoms with ${colorWord} ${sub} trousers. ${anchor} Render a ${fitMod}${QUALITY_SUFFIX}.${HEM_DETAIL}${KEEP_TOP}${suffix}`
@@ -2290,11 +2211,11 @@ function buildPrompt(item, userOrientation = currentOrientation()) {
  * @param {object} item — a custom item ({ custom:true, garmentType, img, color })
  * @returns {string}
  */
-function buildCustomPrompt(item, userOrientation = currentOrientation()) {
+function buildCustomPrompt(item) {
   const anchor = getAnatomicalAnchor();
   const delta  = getSizeDelta();
   const fitMod = getFitModifier(delta, item.garmentType);
-  const suffix = orientationSuffix(userOrientation);
+  const suffix = HARD_NEGATIVE;
   const ref = "the exact garment shown in the reference image — a custom uploaded garment — replicating its precise color, pattern, print, fabric texture and silhouette";
 
   if (item.garmentType === "lower_body") {
@@ -2371,7 +2292,7 @@ async function applyLook(top, bottom) {
  * simultaneously (a single pass), so a full outfit is rendered together rather
  * than as two separate substitutions.
  */
-function buildLookPrompt(top, bottom, userOrientation = currentOrientation()) {
+function buildLookPrompt(top, bottom) {
   const tColor = colorName(top.color), tSub = SUBTYPE_PROMPT[top.subType] || "";
   const tNoun  = SHIRT_NOUN[top.subType] || "top";
   const bColor = colorName(bottom.color), bSub = SUBTYPE_PROMPT[bottom.subType] || "";
@@ -2379,7 +2300,7 @@ function buildLookPrompt(top, bottom, userOrientation = currentOrientation()) {
   const delta  = getSizeDelta();
   const topFit = getFitModifier(delta, top.garmentType);
   const botFit = getFitModifier(delta, bottom.garmentType);
-  const suffix = orientationSuffix(userOrientation);
+  const suffix = HARD_NEGATIVE;
   return (
     `Dress the person in one complete outfit in a single pass: ` +
     `replace the top with a ${tColor} ${tSub} ${tNoun} rendered as a ${topFit}, ` +
@@ -4858,9 +4779,6 @@ function init() {
   if (perspSelector) perspSelector.addEventListener("click", (e) => {
     // Dual-view custom upload: the "Add back view" button opens the picker in back mode.
     if (e.target.closest("[data-upload-back]")) { openGarmentUpload("back"); return; }
-    // AI Combined View FRONT/BACK focus toggle (takes priority over the tab beneath it).
-    const orient = e.target.closest("[data-orient]");
-    if (orient) { setCombinedOrientation(orient.dataset.orient); return; }
     const b = e.target.closest(".persp-tab");
     if (b) setAngle(b.dataset.angle);
   });
