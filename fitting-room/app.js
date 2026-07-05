@@ -754,6 +754,11 @@ function goToFitting() {
     currentUserSize
   );
 
+  // Cache the two mandatory measurements locally (30-day TTL) so a returning
+  // visitor's form is pre-filled next time. saveProfile() self-validates, so
+  // out-of-range entries are silently skipped rather than cached.
+  saveProfile($("height")?.value, $("weight")?.value);
+
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
   const commitSwap = () => {
@@ -2584,6 +2589,86 @@ function newUuid() {
     "d-" + Date.now().toString(36) + "-" + Math.random().toString(16).slice(2));
 }
 
+/* =============================================================================
+   CACHED BODY PROFILE (height + weight)
+   -----------------------------------------------------------------------------
+   The name/phone identity gate above is skipped for returning visitors, but the
+   measurement form was still blank on every visit — the user re-typed their
+   height + weight each time. This caches those two mandatory values in
+   localStorage so a returning user's form is pre-filled and the size result
+   shows instantly, while FORCING a fresh re-entry every 30 days so a stale body
+   profile can't silently drive the fit for months.
+
+   Bounds mirror calculateSize()'s "mandatoryReady" gate exactly (height
+   130–240 cm, weight 35–220 kg) so we never cache a value the form itself would
+   flag as "not logical" — no garbage survives the round-trip.
+   ============================================================================= */
+const PEAR_PROFILE_KEY   = "pear_body_profile";
+const PROFILE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
+const PROFILE_HEIGHT_MIN = 130, PROFILE_HEIGHT_MAX = 240;
+const PROFILE_WEIGHT_MIN = 35,  PROFILE_WEIGHT_MAX = 220;
+
+function isSaneProfile(height, weight) {
+  return Number.isFinite(height) && Number.isFinite(weight) &&
+    height >= PROFILE_HEIGHT_MIN && height <= PROFILE_HEIGHT_MAX &&
+    weight >= PROFILE_WEIGHT_MIN && weight <= PROFILE_WEIGHT_MAX;
+}
+
+/* Read + parse the stored profile. Returns null if absent or corrupt. */
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(PEAR_PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !isSaneProfile(Number(p.height), Number(p.weight))) return null;
+    return { height: Number(p.height), weight: Number(p.weight), lastUpdated: Number(p.lastUpdated) || 0 };
+  } catch { return null; }
+}
+
+/**
+ * True only when a sane profile exists AND it is younger than 30 days.
+ * False (→ prompt the user to re-enter) when data is missing, corrupt, or stale.
+ * @returns {boolean}
+ */
+function checkProfileValidity() {
+  const p = loadProfile();
+  if (!p) return false;
+  return (Date.now() - p.lastUpdated) < PROFILE_MAX_AGE_MS;
+}
+
+/**
+ * Persist height + weight with a fresh timestamp. Rejects out-of-range values so
+ * the 30-day cache can never hold garbage. Returns whether it was saved.
+ * @param {number} height cm
+ * @param {number} weight kg
+ * @returns {boolean}
+ */
+function saveProfile(height, weight) {
+  const h = Number(height), w = Number(weight);
+  if (!isSaneProfile(h, w)) return false;
+  try {
+    localStorage.setItem(PEAR_PROFILE_KEY, JSON.stringify({
+      height: h, weight: w, lastUpdated: Date.now(),
+    }));
+    return true;
+  } catch { return false; }
+}
+
+/* Pre-fill the height/weight inputs from a valid (<30-day) cached profile, then
+   recompute so the returning user lands on their size instantly. No-op when the
+   cache is missing/stale (→ empty form, i.e. a natural re-prompt), or when the
+   user already typed something this session (never clobber live input). */
+function prefillProfileFromCache() {
+  if (!checkProfileValidity()) return false;
+  const p = loadProfile();
+  const hEl = $("height"), wEl = $("weight");
+  if (!hEl || !wEl) return false;
+  if (hEl.value || wEl.value) return false;   // don't overwrite in-progress entry
+  hEl.value = String(p.height);
+  wEl.value = String(p.weight);
+  return true;
+}
+
 /* Reveal the measurement form (and recompute, so a returning user with prefilled
    data sees the result immediately). */
 function showSizeForm() {
@@ -2593,6 +2678,7 @@ function showSizeForm() {
   // [hidden] attribute, so toggling `.hidden` alone can't hide/show it reliably.
   if (idForm)   { idForm.hidden = true;    idForm.style.display = "none"; }
   if (sizeForm) { sizeForm.hidden = false; sizeForm.style.display = "";   }
+  prefillProfileFromCache();      // restore cached height/weight if still fresh
   try { calculateSize(); } catch {}
 }
 
