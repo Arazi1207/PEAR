@@ -770,6 +770,36 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
 }
 
+/* AI Combined View tab — the visually DISTINCT third option. Always pear-green-bordered
+   (even at rest) so it reads as the special "stitched front+back" mode, with the label
+   accent tinted green and the frame showing a split front|back preview + a bold AI badge. */
+.persp-tab--ai .persp-tab__frame {
+  border-color: var(--pear, #8db600);
+  box-shadow: 0 0 0 1.5px var(--pear, #8db600), inset 0 0 0 1px rgba(0, 0, 0, .3);
+}
+.persp-tab--ai:hover .persp-tab__frame { transform: translateY(-1px); }
+.persp-tab--ai.is-active { color: #fff; }
+.persp-tab--ai.is-active .persp-tab__frame {
+  box-shadow: 0 0 0 2px var(--pear, #8db600), 0 4px 16px var(--pear-glow, rgba(141, 182, 0, .5));
+}
+.persp-tab--ai .persp-tab__en { color: var(--pear, #8db600); opacity: .9; }
+/* Split preview: front on the left half, back on the right; the 1px grid gap shows the
+   pear-green backing through as a divider, echoing the real stitched 2px separator. */
+.persp-tab__frame--split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--pear, #8db600);
+}
+.persp-tab__frame--split .persp-tab__thumb { width: 100%; height: 100%; }
+/* Centre the AI badge across the whole split frame (RTL-safe), not pinned to a corner. */
+.persp-tab__ai--combined {
+  inset-inline: 0;
+  margin-inline: auto;
+  width: max-content;
+  bottom: 4px;
+}
+
 /* Subtle fade-in on every rail rebuild (item / colour / angle swap) — masks the
    split-second while a new variant's images decode, preventing any flicker. Because
    renderPerspectiveSelector regenerates the thumbnails, each new <img> replays this. */

@@ -925,7 +925,9 @@ function setActiveItem(item, opts = {}) {
 function setAngle(angle) {
   // Every wearable angle is always selectable (a missing photo falls back to the front
   // image + prompt steering); `detail` is inspection-only and never a live warp target.
-  const next = WEARABLE_ANGLES.includes(angle) ? angle : "front";
+  // "combined" (AI Combined View) is selectable only while the item can be stitched.
+  const isCombined = angle === COMBINED_ANGLE && canCombineViews(activeItem);
+  const next = (WEARABLE_ANGLES.includes(angle) || isCombined) ? angle : "front";
   if (next === currentAngle) return;
   currentAngle = next;
   renderPerspectiveSelector();
@@ -967,7 +969,11 @@ function renderPerspectiveSelector() {
   if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
 
   const gallery = galleryOf(activeItem);
-  if (!WEARABLE_ANGLES.includes(currentAngle)) currentAngle = "front";
+  // Keep currentAngle valid across item swaps: allow "combined" only while the new item
+  // can actually be stitched, else fall back to front (so a non-combinable item can't get
+  // stuck in a mode it doesn't support).
+  if (!WEARABLE_ANGLES.includes(currentAngle) &&
+      !(currentAngle === COMBINED_ANGLE && canCombineViews(activeItem))) currentAngle = "front";
 
   sel.hidden = false;
   sel.innerHTML = WEARABLE_ANGLES.map((a) => {
@@ -986,6 +992,29 @@ function renderPerspectiveSelector() {
              `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]}</span>` +
            `</span></button>`;
   }).join("");
+
+  // AI Combined View — a visually DISTINCT (pear-green) third tab, appended only when the
+  // active subject ships a real front AND a real, distinct back (canCombineViews). Selecting
+  // it stitches both assets into one reference (stitchReferenceBlob) and steers Lucy with the
+  // composite prompt clause — all through the normal applyActive() → rtClient.set() hot-swap,
+  // so there is NO reconnect and no new token. The split thumbnail previews front|back.
+  if (canCombineViews(activeItem)) {
+    const cg = galleryOf(activeItem);
+    const on = currentAngle === COMBINED_ANGLE;
+    sel.insertAdjacentHTML("beforeend",
+      `<button type="button" class="persp-tab persp-tab--ai${on ? " is-active" : ""}" ` +
+      `data-angle="${COMBINED_ANGLE}" aria-pressed="${on}" ` +
+      `title="AI Combined View · ${ANGLE_LABEL_HE.combined} — stitched front + back reference">` +
+        `<span class="persp-tab__frame persp-tab__frame--split">` +
+          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
+          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
+          `<span class="persp-tab__ai persp-tab__ai--combined" aria-hidden="true">AI</span>` +
+        `</span>` +
+        `<span class="persp-tab__label">` +
+          `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
+          `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
+        `</span></button>`);
+  }
 
   // Dual-view custom upload: while a custom garment has only a front, offer a real
   // back photo. Uploading one flips the Back tab from AI-inferred → a reproduced photo.
@@ -1681,6 +1710,89 @@ async function fetchGarmentBlob(imgUrl) {
   }
 }
 
+/* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
+   Draws the front asset (left) and the back asset (right) side-by-side on a
+   1024×512 canvas with a 2px vertical separator, and returns ONE JPEG Blob for
+   rtClient.set({ image }) (the realtime SDK accepts Blob | File | string). The
+   matching COMBINED prompt clause (see ANGLE_CLAUSE.combined) tells Lucy which
+   half to use for which body orientation, so a single live pass renders the
+   front while the user faces the camera and the back once they turn away.
+
+   High-performance: both images decode off the main thread via createImageBitmap
+   and composite on an OffscreenCanvas when available; the finished Blob is
+   memoized per front+back URL pair, so repeated go-lives / hot-swaps of the same
+   garment never re-stitch. Cross-origin CDN images route through /api/img-proxy
+   (same-origin, ACAO:*), so the canvas is never tainted and toBlob() can't throw. */
+const COMBINED_W = 1024, COMBINED_H = 512, COMBINED_SEP = 2;
+const _stitchCache = new Map();   // `${frontUrl} ${backUrl}` → Promise<Blob|null>
+
+/* Decode a garment URL into an ImageBitmap without tainting the canvas: http(s) CDN
+   URLs go through the same-origin proxy (exactly like the live reference path); data:
+   and blob: URLs (custom uploads) are fetched directly — both yield a decodable Blob. */
+async function loadGarmentBitmap(url) {
+  if (!url) throw new Error("no image url");
+  let blob;
+  if (/^(data:|blob:)/i.test(url)) {
+    blob = await (await fetch(url)).blob();
+  } else {
+    blob = await fetchGarmentBlob(url);        // via /api/img-proxy → CORS-clean, decodable
+  }
+  if (!blob) throw new Error("image fetch failed: " + abbrevImg(url));
+  return await createImageBitmap(blob);
+}
+
+/* object-fit: cover — fill the target rect (cropping overflow), preserving aspect ratio,
+   so a portrait packshot never squashes into its half of the reference. */
+function drawImageCover(ctx, img, dx, dy, dw, dh) {
+  const scale = Math.max(dw / img.width, dh / img.height);
+  const w = img.width * scale, h = img.height * scale;
+  ctx.drawImage(img, dx + (dw - w) / 2, dy + (dh - h) / 2, w, h);
+}
+
+/**
+ * Stitch a front + back garment asset into ONE 1024×512 reference Blob: front on the
+ * left half, back on the right half, a 2px vertical separator line between them.
+ * @param {string} frontUrl  front garment image URL (http(s)/data:/blob:)
+ * @param {string} backUrl   back garment image URL
+ * @returns {Promise<Blob|null>}  JPEG Blob, or null on any failure (caller falls back
+ *   to the plain front reference so the live session is never left without one).
+ */
+function stitchReferenceBlob(frontUrl, backUrl) {
+  if (!frontUrl || !backUrl) return Promise.resolve(null);
+  const key = `${frontUrl} ${backUrl}`;
+  if (_stitchCache.has(key)) return _stitchCache.get(key);
+
+  const job = (async () => {
+    try {
+      const [front, back] = await Promise.all([loadGarmentBitmap(frontUrl), loadGarmentBitmap(backUrl)]);
+      const halfW = (COMBINED_W - COMBINED_SEP) / 2;   // 511px per side (511 + 2 + 511 = 1024)
+
+      const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(COMBINED_W, COMBINED_H) : null;
+      const canvas = off || Object.assign(document.createElement("canvas"), { width: COMBINED_W, height: COMBINED_H });
+      const ctx    = canvas.getContext("2d");
+
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, COMBINED_W, COMBINED_H);
+      drawImageCover(ctx, front, 0, 0, halfW, COMBINED_H);                     // left  = FRONT
+      drawImageCover(ctx, back,  halfW + COMBINED_SEP, 0, halfW, COMBINED_H);  // right = BACK
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(halfW, 0, COMBINED_SEP, COMBINED_H);                        // 2px vertical separator
+      front.close?.(); back.close?.();                                        // release decoded bitmaps
+
+      return off
+        ? await off.convertToBlob({ type: "image/jpeg", quality: 0.92 })
+        : await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+    } catch (e) {
+      console.warn("[PEAR] stitchReferenceBlob failed:", e?.message || e);
+      _stitchCache.delete(key);   // never cache a failure — allow a later retry
+      return null;
+    }
+  })();
+
+  _stitchCache.set(key, job);
+  return job;
+}
+
 /**
  * Return an absolute URL that the Decart server can reliably fetch.
  * Raw CDN URLs (suitsupply, magnific, etc.) can take 20-25 s for Decart's
@@ -1705,6 +1817,8 @@ function garmentImageRef(cdnUrl) {
 /** Console-safe image ref: abbreviate long/data URLs so a base64 crop can't flood DevTools. */
 function abbrevImg(ref) {
   if (!ref) return "(none)";
+  if (typeof Blob !== "undefined" && ref instanceof Blob)
+    return `Blob(${ref.type || "image"}, ${ref.size.toLocaleString()} bytes, stitched combined ref)`;
   if (/^data:/i.test(ref)) return `data:… (${ref.length.toLocaleString()} chars, custom crop)`;
   return ref.length > 100 ? ref.slice(0, 100) + "…" : ref;
 }
@@ -1725,8 +1839,14 @@ const ANGLES = ["front", "back", "side", "detail"];   // ordered render/priority
    reference — so it is inspection-only: it is never fed to rtClient.set() and never
    appears in the live rail. Only WEARABLE angles hot-swap the stream. */
 const WEARABLE_ANGLES = ["front", "back", "side"];
-const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט"   };
-const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail" };
+/* "AI Combined View" — a SYNTHETIC pseudo-angle, deliberately NOT in ANGLES/WEARABLE_ANGLES.
+   Instead of one gallery image it feeds Lucy a single STITCHED reference (front | 2px
+   separator | back) plus a composite prompt clause, so ONE live stream shows the correct
+   half as the user turns. Offered only when the item ships a real, DISTINCT back photo
+   (canCombineViews). Handled explicitly everywhere currentAngle is switched on. */
+const COMBINED_ANGLE = "combined";
+const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט",   combined: "משולב AI"   };
+const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail", combined: "AI Combined" };
 
 /** Ordered list of variant/colour keys an item ships (empty when it has no variants). */
 function colorsOf(item) {
@@ -1835,6 +1955,10 @@ const ANGLE_CLAUSE = {
   // must infer a plausible rear from it (graceful fallback; placement can't be pinned).
   backInferred: " The person is seen from BEHIND — rear view, turned around, the back of the body facing the camera. Render the BACK of the garment: its back panel, rear yoke, back collar, rear hemline and any back graphics, prints or seams, wrapping naturally around the body from the rear. This reference photo shows the front, so infer the corresponding rear; do NOT render the front of the garment.",
   side:  " The person is viewed from the SIDE in profile: render the garment's side profile — shoulder line, sleeve, side seam and the way the fabric drapes along the flank — in an accurate three-quarter/profile perspective.",
+  // AI Combined View: the reference is a single STITCHED image (left = front, right = back).
+  // Name it as composite and pin which half maps to which body orientation, so ONE live
+  // stream shows the front while the user faces the camera and the back once they turn away.
+  combined: " This is a composite reference image. The left half is the front view; the right half is the back view. Use the left half when the user faces the camera and the right half when the user faces away.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
@@ -1860,10 +1984,26 @@ function activeBackIsReal(item) {
   return real(item);
 }
 
+/* Whether the "AI Combined View" (stitched front+back reference) is MEANINGFUL for the
+   current subject. It needs a real front AND a real, DISTINCT back photo — a mirrored
+   front (g.back === g.front, the catalog auto-fill / graceful fallback) is pointless to
+   stitch, so it must NOT offer the mode. Same realness test as activeBackIsReal; for a
+   full look BOTH halves must qualify. Today only an item shipping a genuine rear asset
+   (e.g. Strata) exposes the AI button — deliberately consistent with the two-view gate. */
+function canCombineViews(item) {
+  const ok = (it) => { if (!it) return false; const g = galleryOf(it); return !!(g.front && g.back && g.back !== g.front); };
+  const look = resolveLook();
+  if (look) return ok(look.top) && ok(look.bottom);
+  return ok(item);
+}
+
 /* Pick the angle clause for the active view. Back splits on whether a REAL back photo is
    in play (backReal — reproduce + pin the print's placement) vs a mirrored/inferred front
    (backInferred). `item` is the single garment; for a full look it's resolved internally. */
 function angleClause(item) {
+  // AI Combined View — the image IS a stitched front|back composite, so the steering is
+  // the composite clause (which half to use for which orientation), not a per-angle one.
+  if (currentAngle === COMBINED_ANGLE) return ANGLE_CLAUSE.combined;
   if (currentAngle === "back") {
     // Dual asset (front + a REAL back photo, incl. a user's uploaded back) → reproduce it.
     if (activeBackIsReal(item)) return ANGLE_CLAUSE.backReal;
@@ -1875,11 +2015,29 @@ function angleClause(item) {
   return ANGLE_CLAUSE[currentAngle] || "";
 }
 
+/**
+ * Resolve the reference image handed to rtClient.set({ image }) for the active view.
+ * Normal angles → the proxied gallery URL (garmentImageRef, a string). AI Combined
+ * View → a freshly stitched front|back Blob (memoized). Falls back to the plain front
+ * reference if stitching fails, so a live session is never left without a reference.
+ * @param {object} item @param {string} [activeImg] pre-resolved activeImageOf(item)
+ * @returns {Promise<Blob|string|undefined>}
+ */
+async function referenceImageFor(item, activeImg = activeImageOf(item)) {
+  if (currentAngle === COMBINED_ANGLE) {
+    const g = galleryOf(item);
+    const blob = await stitchReferenceBlob(g.front || item.img, g.back || g.front || item.img);
+    if (blob) return blob;                 // Blob → set({ image }) accepts it directly
+    console.warn("[PEAR] AI Combined View — stitch failed; falling back to front reference");
+  }
+  return garmentImageRef(activeImg);
+}
+
 async function applyGarment(item) {
   if (!rtClient) throw new Error("not connected");
 
   const activeImg = activeImageOf(item);
-  const imageRef  = garmentImageRef(activeImg);
+  const imageRef  = await referenceImageFor(item, activeImg);   // Blob for combined, URL otherwise
   const payload = {
     prompt: buildPrompt(item) + angleClause(item),
     enhance: true,
@@ -1888,7 +2046,9 @@ async function applyGarment(item) {
 
   console.group("[PEAR] applyGarment() — VTON payload debug");
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType}${item.custom ? ", custom upload" : ""})`);
-  console.log("angle    :", currentAngle, hasDedicatedAngle(item) ? "(dedicated gallery image)" : "(front fallback + prompt)");
+  console.log("angle    :", currentAngle,
+    currentAngle === COMBINED_ANGLE ? "(stitched front+back composite reference)"
+      : hasDedicatedAngle(item) ? "(dedicated gallery image)" : "(front fallback + prompt)");
   console.log("subType  :", item.subType, "| color:", item.color);
   console.log("img URL  :", abbrevImg(activeImg));   // data: URLs abbreviated so a base64 blob can't flood the console
   console.log("img ref  :", abbrevImg(imageRef));
@@ -2064,7 +2224,9 @@ async function applyLook(top, bottom) {
   // angle clause once so the whole look renders from the same perspective.
   const topImg = activeImageOf(top), bottomImg = activeImageOf(bottom);
   const prompt = buildLookPrompt(top, bottom) + angleClause();
-  const primaryImage = garmentImageRef(topImg) ?? null;   // proxy URL — fast Decart-side fetch
+  // Combined view stitches the TOP's front+back (the single reference the SDK forwards);
+  // otherwise the proxied top URL — either way one fast, Decart-fetchable reference.
+  const primaryImage = (await referenceImageFor(top, topImg)) ?? null;
   const images = [topImg, bottomImg].filter(Boolean).map(garmentImageRef).filter(Boolean);
 
   // ONE combined payload — both garments, one pass, same session.
