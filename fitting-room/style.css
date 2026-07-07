@@ -797,11 +797,32 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 .persp-tab__frame--split .persp-tab__thumb { width: 100%; height: 100%; }
 /* Centre the AI badge across the whole split frame (RTL-safe), not pinned to a corner. */
-.persp-tab__ai--combined {
+.persp-tab__ai--combined,
+.persp-tab__ai--auto {
   inset-inline: 0;
   margin-inline: auto;
   width: max-content;
   bottom: 4px;
+}
+
+/* AI Auto tab — Context-Aware Asset Switching. Same pear-green special-mode framing as
+   Combined; the live FRONT/BACK chip (top of the frame) is repainted by the orientation
+   watcher on every confirmed flip, so the user sees which asset is currently driving the
+   render. data-orient="back" flips the chip to the warm accent to make the swap obvious. */
+.persp-tab__orient {
+  position: absolute;
+  top: 3px;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: max-content;
+  font-size: .5rem; font-weight: 900; letter-spacing: .06em; line-height: 1;
+  padding: 2px 5px; border-radius: 5px;
+  color: #fff; background: rgba(10, 10, 11, .82);
+  box-shadow: 0 0 0 1px var(--pear, #8db600), 0 1px 4px rgba(0, 0, 0, .4);
+  transition: background .25s var(--ease, ease), color .25s var(--ease, ease);
+}
+.persp-tab--auto[data-orient="back"] .persp-tab__orient {
+  color: #0a0a0b; background: var(--pear, #8db600);
 }
 
 

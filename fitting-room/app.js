@@ -930,11 +930,17 @@ function setActiveItem(item, opts = {}) {
 function setAngle(angle) {
   // Every wearable angle is always selectable (a missing photo falls back to the front
   // image + prompt steering); `detail` is inspection-only and never a live warp target.
-  // "combined" (AI Combined View) is selectable only while the item can be stitched.
-  const isCombined = angle === COMBINED_ANGLE && canCombineViews(activeItem);
-  const next = (WEARABLE_ANGLES.includes(angle) || isCombined) ? angle : "front";
+  // "combined" (AI Combined View) and "auto" (Context-Aware Asset Switching) are
+  // selectable only while the item ships a real, distinct back (canCombineViews).
+  const isSynthetic = (angle === COMBINED_ANGLE || angle === AUTO_ANGLE) && canCombineViews(activeItem);
+  const next = (WEARABLE_ANGLES.includes(angle) || isSynthetic) ? angle : "front";
   if (next === currentAngle) return;
   currentAngle = next;
+  if (next === AUTO_ANGLE) {
+    autoOrientation = "front";               // every auto session opens facing the camera
+    prewarmOrientationAssets();              // fire-and-forget: both Blobs cached before the first turn
+  }
+  syncOrientationWatcher();                  // start/stop the webcam orientation monitor
   renderPerspectiveSelector();
   hotSwapIfLive(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
 }
@@ -974,11 +980,14 @@ function renderPerspectiveSelector() {
   if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
 
   const gallery = galleryOf(activeItem);
-  // Keep currentAngle valid across item swaps: allow "combined" only while the new item
-  // can actually be stitched, else fall back to front (so a non-combinable item can't get
-  // stuck in a mode it doesn't support).
+  // Keep currentAngle valid across item swaps: allow "combined"/"auto" only while the new
+  // item actually ships both views, else fall back to front (so a non-combinable item can't
+  // get stuck in a mode it doesn't support). syncOrientationWatcher() then retires a watcher
+  // whose mode just got reset out from under it.
   if (!WEARABLE_ANGLES.includes(currentAngle) &&
-      !(currentAngle === COMBINED_ANGLE && canCombineViews(activeItem))) currentAngle = "front";
+      !((currentAngle === COMBINED_ANGLE || currentAngle === AUTO_ANGLE) &&
+        canCombineViews(activeItem))) currentAngle = "front";
+  syncOrientationWatcher();
 
   sel.hidden = false;
   sel.innerHTML = WEARABLE_ANGLES.map((a) => {
@@ -1018,6 +1027,27 @@ function renderPerspectiveSelector() {
         `<span class="persp-tab__label">` +
           `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
           `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
+        `</span></button>`);
+
+    // AI Auto — Context-Aware Asset Switching: no stitching at all. Both assets are
+    // pre-cached Blobs and the OrientationWatcher hot-swaps the SINGLE matching reference
+    // as the user turns (front facing camera / back turned away), so the model never sees
+    // both views at once and cannot bleed them. data-orient drives the live FRONT/BACK
+    // chip on the tab (the watcher re-renders this rail on every confirmed flip).
+    const autoOn = currentAngle === AUTO_ANGLE;
+    sel.insertAdjacentHTML("beforeend",
+      `<button type="button" class="persp-tab persp-tab--ai persp-tab--auto${autoOn ? " is-active" : ""}" ` +
+      `data-angle="${AUTO_ANGLE}" aria-pressed="${autoOn}" data-orient="${autoOrientation}" ` +
+      `title="AI Auto · ${ANGLE_LABEL_HE.auto} — auto front/back switching as you turn">` +
+        `<span class="persp-tab__frame persp-tab__frame--split">` +
+          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
+          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
+          `<span class="persp-tab__ai persp-tab__ai--auto" aria-hidden="true">AUTO</span>` +
+          (autoOn ? `<span class="persp-tab__orient" aria-hidden="true">${autoOrientation === "back" ? "BACK" : "FRONT"}</span>` : "") +
+        `</span>` +
+        `<span class="persp-tab__label">` +
+          `<span class="persp-tab__he">${ANGLE_LABEL_HE.auto}</span>` +
+          `<span class="persp-tab__en">${ANGLE_LABEL_EN.auto}</span>` +
         `</span></button>`);
   }
 
@@ -1646,6 +1676,10 @@ function teardown() {
   // Stop the diagnostic stats poller before the pc is torn down.
   stopStatsMonitor();
 
+  // Retire the AI Auto orientation watcher with the session — it samples the camera and
+  // issues live set() swaps, so it must never outlive isLive().
+  if (orientWatcher) { try { orientWatcher.stop(); } catch (_) {} orientWatcher = null; }
+
   // Feature 2 — flush the recorder while the edited tracks are still live, so the
   // download clip is finalized before disconnect ends the stream.
   stopRecording();
@@ -1713,6 +1747,192 @@ async function fetchGarmentBlob(imgUrl) {
     console.warn("[PEAR] img-proxy fetch error:", e?.message || e);
     return null;
   }
+}
+
+/* ── Context-Aware Asset Switching — pre-cached per-orientation Blobs ─────────
+   The instant-swap guarantee: rtClient.set({ image }) accepts a Blob directly, and a Blob
+   ships the bytes over the already-open session — Decart never has to fetch a URL server-
+   side (the 20-25s worst case that motivated /api/img-proxy). Pre-fetching BOTH orientation
+   assets the moment AI Auto is armed means an orientation flip costs exactly one in-flight
+   set() — no fetch, no reconnect, no flicker; the model transitions over a few frames.
+   Memoized per URL, and a failed fetch is never cached (same policy as _stitchCache). */
+const _assetBlobCache = new Map();   // url → Promise<Blob|null>
+
+function garmentBlobCached(url) {
+  if (!url) return Promise.resolve(null);
+  if (_assetBlobCache.has(url)) return _assetBlobCache.get(url);
+  const job = (async () => {
+    try {
+      // data:/blob: URLs (custom uploads) decode locally; http(s) rides the same-origin proxy.
+      const blob = /^(data:|blob:)/i.test(url)
+        ? await (await fetch(url)).blob()
+        : await fetchGarmentBlob(url);
+      if (!blob) _assetBlobCache.delete(url);      // never cache a failure — allow a retry
+      return blob;
+    } catch (e) {
+      console.warn("[PEAR] asset pre-cache failed:", e?.message || e);
+      _assetBlobCache.delete(url);
+      return null;
+    }
+  })();
+  _assetBlobCache.set(url, job);
+  return job;
+}
+
+/* Warm the cache with the front AND back assets of the active subject (both halves of a
+   full look) — fire-and-forget from setAngle/goLive so the fetches overlap the user's
+   next action (or the WebRTC handshake) instead of serialising into the first swap. */
+function prewarmOrientationAssets() {
+  const look = resolveLook();
+  for (const it of (look ? [look.top, look.bottom] : [activeItem])) {
+    if (!it) continue;
+    const g = galleryOf(it);
+    garmentBlobCached(g.front || it.img);
+    if (g.back && g.back !== g.front) garmentBlobCached(g.back);
+  }
+}
+
+/* ── Context-Aware Asset Switching — OrientationWatcher ───────────────────────
+   Watches the LOCAL camera (localStream — the raw preview feed, NOT the AI output) and
+   flips autoOrientation between "front" and "back" as the user turns, hot-swapping the
+   matching pre-cached reference through the normal applyActive() → rtClient.set() path
+   (same session, no reconnect, no flicker — the model transitions over a few frames).
+
+   Detection engines, best-first:
+     1. Native FaceDetector (Shape Detection API) — zero-dependency, fast; face present →
+        the user faces the camera. Demoted permanently after one runtime failure (some
+        builds expose the class but throw NotSupportedError at detect()).
+     2. Skin-ratio heuristic — % of skin-tone pixels in the head band (upper 45%, central
+        50%) of a tiny 96×96 frame. A frontal face shows far more skin than the back of a
+        head. DUAL thresholds (≥10% → front, ≤4% → back, dead-band between) so ambiguous
+        profile frames vote nothing instead of flapping.
+
+   Anti-flap discipline (what makes auto-switching stable enough for a live session):
+     • ORIENT_CONFIRM consecutive agreeing votes to flip (~750ms confirm latency);
+     • ORIENT_COOLDOWN_MS minimum gap between live set() swaps;
+     • a single in-flight guard — the 4Hz sampler itself is the retry loop, so a turn
+       completed mid-swap is picked up by the very next confirmed vote.
+   The watcher never touches the camera track (shared with the preview); stop() only
+   detaches its own <video> sampler. Lifecycle is owned by syncOrientationWatcher(). */
+const ORIENT_SAMPLE_MS   = 250;   // ~4 analyses/s — cheap on a 96px canvas
+const ORIENT_CONFIRM     = 3;     // consecutive agreeing samples to flip (~750ms)
+const ORIENT_COOLDOWN_MS = 1500;  // min gap between live reference swaps (anti-flap)
+const ORIENT_SIZE        = 96;    // analysis canvas edge — tiny on purpose
+
+let orientWatcher = null;         // { stop } while running, else null
+
+/* Idempotent lifecycle gate — safe to call from ANY state change (angle switch, item swap,
+   go-live, teardown): starts the watcher when AI Auto is live-armed, retires it otherwise. */
+function syncOrientationWatcher() {
+  const want = currentAngle === AUTO_ANGLE && isLive() && canCombineViews(activeItem) && !!localStream;
+  if (want && !orientWatcher) orientWatcher = createOrientationWatcher();
+  else if (!want && orientWatcher) { try { orientWatcher.stop(); } catch (_) {} orientWatcher = null; }
+}
+
+function createOrientationWatcher() {
+  const track = localStream && localStream.getVideoTracks()[0];
+  if (!track) return null;                       // no camera yet — sync will retry later
+
+  // Private sampler onto the SAME track the preview uses — reading is free, and we never
+  // stop the track itself (it belongs to the shared preview camera).
+  const video = document.createElement("video");
+  video.muted = true; video.playsInline = true; video.autoplay = true;
+  video.srcObject = new MediaStream([track]);
+  video.play().catch(() => {});
+
+  const canvas = document.createElement("canvas");
+  canvas.width = ORIENT_SIZE; canvas.height = ORIENT_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  const faceDetector = typeof FaceDetector !== "undefined"
+    ? (() => { try { return new FaceDetector({ fastMode: true, maxDetectedFaces: 1 }); } catch (_) { return null; } })()
+    : null;
+  let fdBroken = false;
+  console.log("[PEAR] AI Auto — orientation watcher armed (engine:",
+    faceDetector ? "FaceDetector + skin-ratio fallback)" : "skin-ratio heuristic)");
+
+  let lastVote = null, streak = 0, sampling = false, applying = false, lastSwapAt = 0, disposed = false;
+
+  /* One vote: "front" | "back" | null (abstain). */
+  async function classify() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const s = Math.max(ORIENT_SIZE / vw, ORIENT_SIZE / vh);   // cover-fit center crop
+    ctx.drawImage(video, (ORIENT_SIZE - vw * s) / 2, (ORIENT_SIZE - vh * s) / 2, vw * s, vh * s);
+
+    if (faceDetector && !fdBroken) {
+      try {
+        const faces = await faceDetector.detect(canvas);
+        return faces.length > 0 ? "front" : "back";
+      } catch (_) { fdBroken = true; console.log("[PEAR] AI Auto — FaceDetector unavailable at runtime; using skin-ratio heuristic"); }
+    }
+    return skinRatioVote();
+  }
+
+  /* Skin-tone share of the head band. Classic RGB skin rule — coarse, but the dual
+     thresholds + confirm streak absorb its noise. */
+  function skinRatioVote() {
+    const x = Math.round(ORIENT_SIZE * 0.25), w = Math.round(ORIENT_SIZE * 0.5);
+    const h = Math.round(ORIENT_SIZE * 0.45);
+    const d = ctx.getImageData(x, 0, w, h).data;
+    let skin = 0;
+    const total = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (r > 95 && g > 40 && b > 20 && mx - mn > 15 && Math.abs(r - g) > 15 && r > g && r > b) skin++;
+    }
+    const ratio = skin / total;
+    if (ratio >= 0.10) return "front";
+    if (ratio <= 0.04) return "back";
+    return null;                                  // ambiguous (profile/transition) — abstain
+  }
+
+  /* Confirmed flip → repaint the rail (orient chip + source preview) and hot-swap the live
+     reference. The sampler keeps voting during the swap, so a turn completed mid-flight is
+     re-confirmed and applied by a later tick — no queue needed. */
+  async function maybeSwap(next) {
+    if (applying || Date.now() - lastSwapAt < ORIENT_COOLDOWN_MS) return;
+    if (disposed || !isLive() || currentAngle !== AUTO_ANGLE) return;
+    applying = true;
+    lastSwapAt = Date.now();
+    autoOrientation = next;
+    console.log("[PEAR] AI Auto — orientation flip →", next.toUpperCase());
+    renderPerspectiveSelector();
+    const sel = $("perspectiveSelector");
+    if (sel) sel.classList.add("is-syncing");
+    try {
+      await applyActive();                       // one rtClient.set() — pre-cached Blob payload
+      toast(next === "back" ? "מציג גב · Back view" : "מציג חזית · Front view");
+    } catch (e) {
+      console.warn("[PEAR] AI Auto swap apply:", e?.message || e);
+    } finally {
+      if (sel) sel.classList.remove("is-syncing");
+      applying = false;
+    }
+  }
+
+  const timer = setInterval(async () => {
+    if (disposed || sampling) return;
+    sampling = true;
+    try {
+      const vote = await classify();
+      if (vote) {
+        streak = vote === lastVote ? streak + 1 : 1;
+        lastVote = vote;
+        if (vote !== autoOrientation && streak >= ORIENT_CONFIRM) await maybeSwap(vote);
+      }
+    } catch (_) {} finally { sampling = false; }
+  }, ORIENT_SAMPLE_MS);
+
+  return {
+    stop() {
+      disposed = true;
+      clearInterval(timer);
+      try { video.pause(); } catch (_) {}
+      video.srcObject = null;                    // detach only — the track is the preview's
+    },
+  };
 }
 
 /* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
@@ -1936,8 +2156,23 @@ const WEARABLE_ANGLES = ["front", "back", "side"];
    half as the user turns. Offered only when the item ships a real, DISTINCT back photo
    (canCombineViews). Handled explicitly everywhere currentAngle is switched on. */
 const COMBINED_ANGLE = "combined";
-const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט",   combined: "משולב AI"   };
-const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail", combined: "AI Combined" };
+/* "AI Auto" — Context-Aware Asset Switching, the anti-bleeding architecture that REPLACES
+   stitching with per-orientation references: both the front and back assets are pre-cached
+   as Blobs, an OrientationWatcher reads the local camera, and the live session hot-swaps
+   rtClient.set({ image }) to the SINGLE matching asset the instant the user turns. The model
+   only ever sees ONE orientation at a time, so front/back cross-contamination is impossible
+   by construction (there is no second view in the reference to bleed from). Like COMBINED,
+   it is a synthetic pseudo-angle offered only when canCombineViews() (a real, distinct back
+   photo exists). `autoOrientation` is the watcher-detected side currently in play; every
+   angle-sensitive resolver reads effectiveAngle() so auto mode transparently reuses the
+   entire existing front/back pipeline (images, clauses, fallbacks). */
+const AUTO_ANGLE = "auto";
+let autoOrientation = "front";        // "front" | "back" — the side the user shows the camera
+/* The angle every resolver should ACT on: auto mode delegates to the detected orientation,
+   every other mode is what the user picked. */
+function effectiveAngle() { return currentAngle === AUTO_ANGLE ? autoOrientation : currentAngle; }
+const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט",   combined: "משולב AI",  auto: "אוטומטי AI" };
+const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail", combined: "AI Combined", auto: "AI Auto" };
 
 /** Ordered list of variant/colour keys an item ships (empty when it has no variants). */
 function colorsOf(item) {
@@ -2018,19 +2253,21 @@ function liveBlockReason() {
 
 /* The EXACT source image fed to the AI for the active angle. Falls back to the front
    asset when the active angle has no dedicated image, so a Back/Side toggle never
-   breaks — it reuses the front reference and lets the prompt clause steer the warp. */
+   breaks — it reuses the front reference and lets the prompt clause steer the warp.
+   effectiveAngle() makes AI Auto transparent: the detected orientation picks the asset. */
 function activeImageOf(item) {
   if (!item) return undefined;
   const g = galleryOf(item);
-  return g[currentAngle] || g.front || item.img;
+  return g[effectiveAngle()] || g.front || item.img;
 }
 
 /* True when the active angle has its OWN dedicated image (not a front fallback) — for
    a single garment or BOTH halves of a full look. Drives the "real image" UI hint. */
 function hasDedicatedAngle(item) {
+  const a = effectiveAngle();
   const look = resolveLook();
-  if (look) return !!(galleryOf(look.top)[currentAngle] && galleryOf(look.bottom)[currentAngle]);
-  return !!(item && galleryOf(item)[currentAngle]);
+  if (look) return !!(galleryOf(look.top)[a] && galleryOf(look.bottom)[a]);
+  return !!(item && galleryOf(item)[a]);
 }
 
 /* Angle-oriented prompt clauses. Switching the image alone isn't enough — Lucy
@@ -2051,6 +2288,14 @@ const ANGLE_CLAUSE = {
   // white "BACK" marker). The instruction forbids blending across the bar (the bleeding fix),
   // pins each labeled section as the ONLY valid source for its orientation, then forbids
   // rendering the marker text onto the garment.
+  // AI Auto, facing camera: the reference is ONE clean front asset (no composite), so the
+  // clause pins it explicitly as the front and forbids inventing rear details — the
+  // orientation contract that makes Context-Aware Asset Switching bleed-proof.
+  autoFront:
+    " This reference photo shows the FRONT of the garment. The person is facing the camera:" +
+    " reproduce the garment's front faithfully — its front panel, collar, closure, hemline and" +
+    " any front graphics, prints, logos or lettering — keeping each element at the SAME size," +
+    " height and horizontal position as in the reference. Do NOT render the back of the garment.",
   combined:
     " This image is two completely separate garment photographs, each isolated inside its own black-framed panel and divided by a WIDE solid-black separator band that is a strict no-man's-land." +
     " The two panels are distinct, mutually exclusive garment views. The LEFT panel marked 'FRONT' is the ONLY valid source for frontal renders. The RIGHT panel marked 'BACK' is the ONLY valid source for rear renders. Treat the black band and black frames as an impassable wall: you are strictly forbidden from sampling, blending, copying or bleeding ANY pixel from one panel into the other. When the user faces the camera, use ONLY the 'FRONT' panel and completely ignore the 'BACK' panel. When the user turns away, use ONLY the 'BACK' panel and completely ignore the 'FRONT' panel. Mixing the two panels is an invalid render." +
@@ -2101,15 +2346,20 @@ function angleClause(item) {
   // AI Combined View — the image IS a stitched front|back composite, so the steering is
   // the composite clause (which half to use for which orientation), not a per-angle one.
   if (currentAngle === COMBINED_ANGLE) return ANGLE_CLAUSE.combined;
-  if (currentAngle === "back") {
+  const angle = effectiveAngle();      // AI Auto resolves to the DETECTED orientation
+  if (angle === "back") {
     // Dual asset (front + a REAL back photo, incl. a user's uploaded back) → reproduce it.
+    // AI Auto always lands here with a real back (canCombineViews gates the mode on one).
     if (activeBackIsReal(item)) return ANGLE_CLAUSE.backReal;
     // Custom upload with only a front → the strict "clean plain rear, no front graphics"
     // constraint (+ inlined negative). Catalog items keep the generic inferred clause.
     if (item && item.custom) return CUSTOM_BACK_INFERRED;
     return ANGLE_CLAUSE.backInferred;
   }
-  return ANGLE_CLAUSE[currentAngle] || "";
+  // AI Auto, facing the camera: unlike the plain front tab (no clause), pin the reference
+  // explicitly as the garment FRONT — the mode's whole contract is one unambiguous side.
+  if (currentAngle === AUTO_ANGLE) return ANGLE_CLAUSE.autoFront;
+  return ANGLE_CLAUSE[angle] || "";
 }
 
 /**
@@ -2126,6 +2376,13 @@ async function referenceImageFor(item, activeImg = activeImageOf(item)) {
     const blob = await stitchReferenceBlob(g.front || item.img, g.back || g.front || item.img);
     if (blob) return blob;                 // Blob → set({ image }) accepts it directly
     console.warn("[PEAR] AI Combined View — stitch failed; falling back to front reference");
+  }
+  // AI Auto — the pre-cached Blob for the DETECTED orientation (activeImg already resolved
+  // through effectiveAngle()). Sending bytes, not a URL, is what makes the swap instant.
+  if (currentAngle === AUTO_ANGLE) {
+    const blob = await garmentBlobCached(activeImg);
+    if (blob) return blob;
+    console.warn("[PEAR] AI Auto — Blob pre-cache miss; falling back to proxied URL reference");
   }
   return garmentImageRef(activeImg);
 }
@@ -2145,6 +2402,7 @@ async function applyGarment(item) {
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType}${item.custom ? ", custom upload" : ""})`);
   console.log("angle    :", currentAngle,
     currentAngle === COMBINED_ANGLE ? "(stitched front+back composite reference)"
+      : currentAngle === AUTO_ANGLE ? `(AI Auto — detected orientation: ${autoOrientation}, pre-cached Blob)`
       : hasDedicatedAngle(item) ? "(dedicated gallery image)" : "(front fallback + prompt)");
   console.log("subType  :", item.subType, "| color:", item.color);
   console.log("img URL  :", abbrevImg(activeImg));   // data: URLs abbreviated so a base64 blob can't flood the console
@@ -2911,6 +3169,10 @@ async function goLive() {
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
 
+    // AI Auto: warm the front+back Blob cache NOW so both assets download in parallel
+    // with the WebRTC handshake — the first orientation flip then costs zero fetches.
+    if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
+
     $("scanOverlay").hidden = false;
     $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
@@ -2935,6 +3197,7 @@ async function goLive() {
     $("scanOverlay").hidden = true;
     card().classList.add("show-live");
     setLiveControls(true);
+    syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
     startRecording();                  // Feature 2 — record while the session is live
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
