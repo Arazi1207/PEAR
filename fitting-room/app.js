@@ -1716,9 +1716,10 @@ async function fetchGarmentBlob(imgUrl) {
 }
 
 /* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
-   Draws the FRONT view into a rigid 974×1024 box on the LEFT and the BACK view into a
-   rigid 974×1024 box on the RIGHT of a FIXED 2048×1024 canvas, separated by a 100px
-   high-contrast SOLID BLACK BAR (a "no-man's-land"), plus a high-contrast WHITE label box
+   Draws the FRONT view into a rigid 924×1024 box on the LEFT and the BACK view into a
+   rigid 924×1024 box on the RIGHT of a FIXED 2048×1024 canvas, separated by a WIDE 200px
+   high-contrast SOLID BLACK BAR (a "no-man's-land") with a 44px black gutter framing each
+   view, plus a high-contrast WHITE label box
    ("FRONT" top-left, "BACK" top-right) burned into each section as a hard architectural
    marker. Returns ONE JPEG Blob for rtClient.set({ image }) (the realtime SDK accepts
    Blob | File | string). The matching COMBINED prompt clause (ANGLE_CLAUSE.combined) is an
@@ -1727,11 +1728,12 @@ async function fetchGarmentBlob(imgUrl) {
    pass renders the front while the user faces the camera and the back once they turn away,
    without the two views bleeding into each other.
 
-   WHY A 100px BLACK BAR (composite-bleeding fix): Lucy 2.1 is a diffusion model, so a
-   hairline separator does nothing to stop cross-attention from bleeding the back view
+   WHY A WIDE 200px BLACK BAR + GUTTER (composite-bleeding fix): Lucy 2.1 is a diffusion model,
+   so a hairline separator does nothing to stop cross-attention from bleeding the back view
    onto the front. A wide, fully-opaque black band is a hard, low-information region the
-   model reads as a scene boundary, so it segments the two views cleanly. Each image is
-   clipped to its own column so a wide packshot can't overflow into or across the bar.
+   model reads as a scene boundary, so it segments the two views cleanly; the extra 44px
+   gutter frames each view as an isolated panel whose pixels never even touch the band. Each
+   image is clipped to its own column so a wide packshot can't overflow into or across the bar.
 
    High-performance: both images decode off the main thread via createImageBitmap
    and composite on an OffscreenCanvas when available; the finished Blob is
@@ -1739,12 +1741,18 @@ async function fetchGarmentBlob(imgUrl) {
    garment never re-stitch. Cross-origin CDN images route through /api/img-proxy
    (same-origin, ACAO:*), so the canvas is never tainted and toBlob() can't throw. */
 /* FIXED high-res framing (rigid geometry defeats front/back bleeding): a 2048×1024 canvas =
-   FRONT box (left, 974×1024) + 100px SOLID BLACK separator (no-man's-land) + BACK box (right,
-   974×1024). Each view is clipped to its box so a wide packshot can never overflow into or
-   across the bar, and the wide opaque band is a hard, low-information scene boundary the
-   diffusion model refuses to blend across. */
-const COMBINED_W   = 2048, COMBINED_H = 1024, COMBINED_SEP = 100;
-const COMBINED_BOX = (COMBINED_W - COMBINED_SEP) / 2;   // 974px per view box
+   FRONT box (left, 924×1024) + 200px SOLID BLACK separator (no-man's-land) + BACK box (right,
+   924×1024), each view further inset by a 44px black gutter. Each view is clipped to its box so
+   a wide packshot can never overflow into or across the bar, and the wide opaque band is a hard,
+   low-information scene boundary the diffusion model refuses to blend across. */
+/* Strengthened geometry (front/back bleeding fix): a WIDE 200px black separator band plus a
+   44px black GUTTER framing every view. Widening the band from 100 to 200px enlarges the
+   low-information scene boundary the diffusion model refuses to blend across; the gutter turns
+   each view into an isolated black-framed panel so no garment pixel ever touches the shared
+   centre - the two levels of separation compound. */
+const COMBINED_W   = 2048, COMBINED_H = 1024, COMBINED_SEP = 200;
+const COMBINED_PAD = 44;                                // black gutter framing each view (isolated panel)
+const COMBINED_BOX = (COMBINED_W - COMBINED_SEP) / 2;   // 924px per view box
 const _stitchCache = new Map();   // `${frontUrl} ${backUrl}` → Promise<Blob|null>
 
 /* Decode a garment URL into an ImageBitmap without tainting the canvas: http(s) CDN
@@ -1800,8 +1808,9 @@ function drawSectionLabel(ctx, text, anchorX, top, fontPx, align) {
 
 /**
  * Stitch a front + back garment asset into ONE fixed 2048×1024 reference Blob: FRONT boxed
- * on the left (974×1024) + "FRONT" white marker, a 100px opaque black separator bar, BACK
- * boxed on the right (974×1024) + "BACK" white marker. Rigid geometry + the wide bar give the
+ * on the left (924×1024, inset by a 44px black gutter) + "FRONT" white marker, a WIDE 200px
+ * opaque black separator bar, BACK boxed on the right (924×1024, same gutter) + "BACK" white
+ * marker. Rigid geometry + the wide bar + the gutter give the
  * diffusion model a hard boundary it won't blend across (the front/back bleeding fix).
  * @param {string} frontUrl  front garment image URL (http(s)/data:/blob:)
  * @param {string} backUrl   back garment image URL
@@ -1817,9 +1826,9 @@ function stitchReferenceBlob(frontUrl, backUrl) {
     try {
       const [front, back] = await Promise.all([loadGarmentBitmap(frontUrl), loadGarmentBitmap(backUrl)]);
 
-      // FIXED 2048×1024 framing: 974px FRONT box | 100px black bar | 974px BACK box.
+      // FIXED 2048×1024 framing: 924px FRONT box | 200px black bar | 924px BACK box.
       const boxW = COMBINED_BOX, H = COMBINED_H;
-      const rightX = boxW + COMBINED_SEP;           // 1074 — start of the back box (after the bar)
+      const rightX = boxW + COMBINED_SEP;           // 1124 — start of the back box (after the bar)
 
       const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(COMBINED_W, COMBINED_H) : null;
       const canvas = off || Object.assign(document.createElement("canvas"), { width: COMBINED_W, height: COMBINED_H });
@@ -1828,27 +1837,33 @@ function stitchReferenceBlob(frontUrl, backUrl) {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, COMBINED_W, COMBINED_H);
 
+      // Each view is drawn into an inset rect so a black GUTTER frames it on all four sides:
+      // the garment becomes an isolated panel whose pixels never touch the centre bar (or any
+      // edge), and the clip to the full box still guards against sub-pixel overflow.
+      const pad = COMBINED_PAD;
+      const innerW = boxW - pad * 2, innerH = H - pad * 2;
+
       // Left = FRONT, clipped to its box so a wide packshot can't bleed toward (or across)
       // the black bar — the boundary must stay impermeable.
       ctx.save();
       ctx.beginPath(); ctx.rect(0, 0, boxW, H); ctx.clip();
-      drawImageCover(ctx, front, 0, 0, boxW, H);
+      drawImageCover(ctx, front, pad, pad, innerW, innerH);
       ctx.restore();
 
       // Right = BACK, clipped to its box (starts after the bar).
       ctx.save();
       ctx.beginPath(); ctx.rect(rightX, 0, boxW, H); ctx.clip();
-      drawImageCover(ctx, back, rightX, 0, boxW, H);
+      drawImageCover(ctx, back, rightX + pad, pad, innerW, innerH);
       ctx.restore();
 
-      // High-contrast 100px SOLID BLACK separator bar — the diffusion "no-man's-land".
+      // High-contrast 200px SOLID BLACK separator bar — the diffusion "no-man's-land".
       ctx.fillStyle = "#000000";
       ctx.fillRect(boxW, 0, COMBINED_SEP, COMBINED_H);
 
       // Hard architectural markers: "FRONT" white box in the TOP-LEFT of the front box, "BACK"
       // white box in the TOP-RIGHT of the back box. The prompt names these + forbids rendering
       // the marker text on the garment (see ANGLE_CLAUSE.combined exclusive instruction set).
-      const fontPx = Math.round(COMBINED_H * 0.05);   // ~51px
+      const fontPx = Math.round(COMBINED_H * 0.06);   // ~61px — larger, harder-to-ignore marker
       const inset  = Math.round(COMBINED_H * 0.02);   // ~20px from the edges
       drawSectionLabel(ctx, "FRONT", inset, inset, fontPx, "left");                // top-left of FRONT box
       drawSectionLabel(ctx, "BACK",  COMBINED_W - inset, inset, fontPx, "right");  // top-right of BACK box
@@ -2037,10 +2052,10 @@ const ANGLE_CLAUSE = {
   // pins each labeled section as the ONLY valid source for its orientation, then forbids
   // rendering the marker text onto the garment.
   combined:
-    " This image is divided by a high-contrast black separator bar into two rigid boxes that must be treated as a strict no-man's-land." +
-    " The provided image contains two distinct, mutually exclusive garment views. The LEFT section marked 'FRONT' is the only valid source for frontal renders. The RIGHT section marked 'BACK' is the only valid source for rear renders. You are strictly forbidden from blending pixels between these two sections. When the user faces the camera, use ONLY the 'FRONT' section. When the user turns away, use ONLY the 'BACK' section. Failure to adhere to this separation will result in an invalid render." +
-    " Reproduce the selected section's garment with 100% fidelity to its graphics and layout." +
-    " The 'FRONT' and 'BACK' text markers are architectural labels only — never render that text onto the clothing itself.",
+    " This image is two completely separate garment photographs, each isolated inside its own black-framed panel and divided by a WIDE solid-black separator band that is a strict no-man's-land." +
+    " The two panels are distinct, mutually exclusive garment views. The LEFT panel marked 'FRONT' is the ONLY valid source for frontal renders. The RIGHT panel marked 'BACK' is the ONLY valid source for rear renders. Treat the black band and black frames as an impassable wall: you are strictly forbidden from sampling, blending, copying or bleeding ANY pixel from one panel into the other. When the user faces the camera, use ONLY the 'FRONT' panel and completely ignore the 'BACK' panel. When the user turns away, use ONLY the 'BACK' panel and completely ignore the 'FRONT' panel. Mixing the two panels is an invalid render." +
+    " Reproduce the selected panel's garment with 100% fidelity to its graphics and layout." +
+    " The 'FRONT' and 'BACK' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
