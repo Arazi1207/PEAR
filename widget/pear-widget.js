@@ -1,19 +1,38 @@
 /* ============================================================================
    PEAR Widget — embeddable virtual try-on button for any store
    ----------------------------------------------------------------------------
-   One-line embed:
-     <script src="https://pear-web-demo.vercel.app/widget/pear-widget.js"
-             data-pear-key="STORE_KEY"></script>
+   TWO WAYS TO EMBED — both work standalone: no build step, no extra setup,
+   just swap STORE_KEY for your key.
+
+   1) SCRIPT TAG (permanent — paste ONE line into your product page/template):
+
+        <script src="https://pear-web-demo.vercel.app/widget/pear-widget.js"
+                data-pear-key="STORE_KEY"></script>
+
+   2) BROWSER CONSOLE (instant test on ANY live site — no code changes). Open
+      DevTools → Console on a product page and paste:
+
+        var s=document.createElement('script');
+        s.src='https://pear-web-demo.vercel.app/widget/pear-widget.js';
+        s.setAttribute('data-pear-key','STORE_KEY');
+        document.head.appendChild(s);
+
+      The widget resolves its own <script> tag (and its data-pear-key) from the
+      DOM, so the console method boots exactly like the script-tag embed.
 
    What it does:
-     1. Scans the host page for product images (og:image → known product-image
-        selectors → generic large-image heuristic).
-     2. Injects a "👗 נסה עלי" button onto each product image.
+     1. Scans the host page for the product image (og:image → known product-image
+        selectors → generic large-image heuristic) and its gallery thumbnails.
+     2. Injects a "TRY IT ON YOURSELF" button styled like a native Add-to-Cart
+        button, placed right AFTER the store's Add-to-Cart button (falls back to
+        just below the product <h1> when no cart button is found).
      3. On click, opens a fullscreen modal with the PEAR fitting room in an
         iframe, handing over the garment via URL params
         (garment_url / garment_type / garment_name), plus an OPTIONAL
         garment_url_back so the live Back view warps from a real rear photo
-        instead of a prompt-steered guess off the front image.
+        instead of a prompt-steered guess off the front image, and an OPTIONAL
+        garment_images list (all gallery photos) that powers a thumbnail switcher
+        above the camera in the fitting room.
 
    Back-image discovery (opt-in, best-effort): an explicit data-pear-back on the
    product <img> or its container wins; otherwise the widget falls back to the
@@ -75,6 +94,19 @@
     ".woocommerce-product-gallery img",
     "[data-product-image]",
     ".product-photo img"
+  ].join(", ");
+
+  /* Gallery-thumbnail selectors — every product photo we can hand the fitting room
+     as a switchable reference (garment_images). Covers Shopify (product__media-list),
+     WooCommerce/generic (.thumbnails, .product-thumbnails), and the common carousels
+     (Slick, Swiper). */
+  var THUMB_SELECTORS = [
+    ".product-thumbnails img",
+    ".product__media-list img",
+    ".thumbnails img",
+    "[data-thumbnail] img",
+    ".slick-slide img",
+    ".swiper-slide img"
   ].join(", ");
 
   /* ── page metadata helpers ──────────────────────────────────────────────── */
@@ -202,21 +234,46 @@
     return entries;
   }
 
+  /* Collect every distinct product-gallery photo for the fitting-room thumbnail
+     switcher. The primary (og:image / scraped front) is forced first so it stays the
+     loaded-on-open garment; gallery thumbnails follow in DOM order. De-duped on the
+     path (CDNs vary query params), decorative images excluded. */
+  function collectGalleryImages(primaryUrl) {
+    var urls = [];
+    var seenPaths = [];
+    function add(u) {
+      if (!u || isExcludedSrc(u)) return;
+      var path = u.split("?")[0];
+      if (seenPaths.indexOf(path) !== -1) return;
+      seenPaths.push(path);
+      urls.push(u);
+    }
+    add(primaryUrl);
+    var imgs = d.querySelectorAll(THUMB_SELECTORS);
+    for (var i = 0; i < imgs.length; i++) {
+      var el = imgs[i];
+      if (el.tagName !== "IMG") el = el.querySelector && el.querySelector("img");
+      if (!el || el.tagName !== "IMG") continue;
+      add(el.currentSrc || el.src || "");
+    }
+    return urls;
+  }
+
   /* ── shared widget CSS (single removable style tag) ─────────────────────── */
   function injectStyles() {
     if (d.querySelector("style.pear-widget-styles")) return;
-    var isRTL = (d.dir || d.documentElement.getAttribute("dir") || "")
-                  .toLowerCase() === "rtl";
-    var side = isRTL ? "left" : "right";
     var css =
+      /* Styled to read as a native "Add to Cart" button — sits inline in the product
+         form (no longer floated over the image), and CHANGE-5 sizing copies the real
+         cart button's width/height/font-size/radius on top of this at inject time. */
       ".pear-widget-btn{" +
-        "position:absolute;bottom:12px;" + side + ":12px;z-index:9999;" +
-        "background:#000;color:#fff;border:none;border-radius:24px;" +
-        "padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;" +
-        "box-shadow:0 2px 12px rgba(0,0,0,0.25);transition:background 0.2s;" +
+        "display:block;box-sizing:border-box;width:100%;margin-top:8px;" +
+        "background:#000;color:#fff;border:none;border-radius:4px;" +
+        "padding:14px 24px;font-size:14px;font-weight:600;letter-spacing:0.08em;" +
+        "text-transform:uppercase;cursor:pointer;transition:background 0.2s;" +
         "font-family:inherit;line-height:1.2;" +
       "}" +
-      ".pear-widget-btn:hover{background:#00AA44;}" +
+      ".pear-widget-btn:hover{background:#222;}" +
       ".pear-widget-overlay{" +
         "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.88);" +
         "display:flex;align-items:center;justify-content:center;" +
@@ -261,6 +318,10 @@
       "&garment_type=" + encodeURIComponent(garment.type) +
       "&garment_name=" + encodeURIComponent(garment.name) +
       (garment.back ? "&garment_url_back=" + encodeURIComponent(garment.back) : "") +
+      /* All gallery photos (each encoded, comma-joined) → fitting-room thumbnail
+         switcher. Sent only when there's more than one distinct image. */
+      (garment.images && garment.images.length > 1
+        ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
@@ -298,40 +359,102 @@
     activeOverlay = overlay;
   }
 
-  /* ── STEP 2 — inject a try-on button onto each product image ────────────── */
-  function injectButton(entry, name, category) {
-    var img = entry.img;
-    var container = img.parentElement || img;
-    if (container.querySelector && container.querySelector(".pear-widget-btn")) return;
+  /* ── STEP 2 — locate the store's Add-to-Cart button ─────────────────────────
+     Three-tier match, most-specific first:
+       1. the submit control inside a cart <form> (Shopify's canonical markup),
+       2. well-known Add-to-Cart selectors (Shopify / WooCommerce / generic themes),
+       3. any <button> whose visible text reads like "add to cart" (EN + HE + buy-now).
+     Returns null when the page has no recognizable cart button. */
+  var ATC_SELECTORS = [
+    ".product-form__submit",
+    ".btn-addtocart",
+    ".single_add_to_cart_button",
+    "#AddToCart",
+    ".add-to-cart",
+    '[data-button-action="add-to-cart"]'
+  ].join(", ");
+  var ATC_TEXTS = ["add to cart", "הוסף לסל", "הוסף לעגלה", "buy now", "קנה עכשיו"];
 
-    var pos = "";
-    try { pos = w.getComputedStyle(container).position; } catch (_) {}
-    if (!pos || pos === "static") container.style.position = "relative";
+  function findAddToCartButton() {
+    /* Priority 1 — submit button inside a form that posts to the cart. */
+    var forms = d.querySelectorAll('form[action*="/cart"]');
+    for (var i = 0; i < forms.length; i++) {
+      var inForm = forms[i].querySelector('button[name="add"], button[type="submit"]');
+      if (inForm) return inForm;
+    }
+    /* Priority 2 — known Add-to-Cart selectors. */
+    var known = d.querySelector(ATC_SELECTORS);
+    if (known) return known;
+    /* Priority 3 — button text heuristic. */
+    var btns = d.querySelectorAll("button");
+    for (var j = 0; j < btns.length; j++) {
+      var t = (btns[j].textContent || "").trim().toLowerCase();
+      if (!t) continue;
+      for (var k = 0; k < ATC_TEXTS.length; k++) {
+        if (t.indexOf(ATC_TEXTS[k].toLowerCase()) !== -1) return btns[j];
+      }
+    }
+    return null;
+  }
+
+  /* CHANGE 5 — smart sizing: copy the real Add-to-Cart button's rendered box +
+     type metrics onto the PEAR button so it looks native to every theme. */
+  function matchButtonToAddToCart(pearBtn, addToCartBtn) {
+    try {
+      var rect = addToCartBtn.getBoundingClientRect();
+      var cs = w.getComputedStyle(addToCartBtn);
+      if (rect.width)  pearBtn.style.width  = rect.width + "px";
+      if (rect.height) pearBtn.style.height = rect.height + "px";
+      pearBtn.style.fontSize = cs.fontSize;
+      pearBtn.style.borderRadius = cs.borderRadius;
+    } catch (_) {}
+  }
+
+  /* ── STEP 2b — inject ONE native-looking try-on button next to Add-to-Cart ──
+     No longer floated over the product image: the button is inserted as the next
+     sibling AFTER the Add-to-Cart button (or, when none is found, right below the
+     product <h1>). Wired to the primary garment (og:image / scraped front), it also
+     scrapes the full gallery at click time for the fitting-room thumbnail switcher. */
+  function injectButton(entry, name, category) {
+    if (d.querySelector(".pear-widget-btn")) return;   // single instance per page
 
     var btn = d.createElement("button");
     btn.className = "pear-widget-btn";
     btn.type = "button";
-    btn.textContent = "👗 נסה עלי";
+    btn.textContent = "TRY IT ON YOURSELF";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      openModal({ url: entry.url, type: category, name: name, back: entry.back });
+      openModal({
+        url: entry.url, type: category, name: name, back: entry.back,
+        images: collectGalleryImages(entry.url)
+      });
     });
-    container.appendChild(btn);
+
+    var atc = findAddToCartButton();
+    if (atc && atc.parentNode) {
+      atc.parentNode.insertBefore(btn, atc.nextSibling);   // sibling right after ATC
+      matchButtonToAddToCart(btn, atc);
+      return;
+    }
+    /* Fallback — no Add-to-Cart button: place it just below the product title. */
+    var h1 = d.querySelector("h1");
+    if (h1 && h1.parentNode) h1.parentNode.insertBefore(btn, h1.nextSibling);
+    else d.body.appendChild(btn);
   }
 
   /* ── boot ───────────────────────────────────────────────────────────────── */
   function boot() {
     var entries = findProductImages();
-    if (!entries.length) return;
+    if (!entries.length) return;   // no garment reference → nothing to try on
 
     injectStyles();
     var name = getGarmentName();
     var category = detectCategory(name);
 
-    for (var i = 0; i < entries.length; i++) {
-      injectButton(entries[i], name, category);
-    }
+    /* One button per PDP, wired to the primary garment (og:image / scraped front)
+       and placed next to Add-to-Cart — not one per image. */
+    injectButton(entries[0], name, category);
   }
 
   if (d.readyState === "loading") {

@@ -660,13 +660,26 @@ function parseHandoff() {
   if (widgetUrl) {
     const wType   = (q.get("garment_type") || "tops").toLowerCase();
     const isPants = wType === "pants" || wType === "bottoms";
+    // Multi-image gallery: the widget forwards ALL product photos as a comma-joined
+    // list of individually-encoded URLs (?garment_images=). The first is the primary
+    // garment (kept in sync with garment_url); the full list drives the thumbnail
+    // switcher above the camera (renderPearImageSwitcher). Absent → single-image flow.
+    const imagesRaw = q.get("garment_images");
+    let pearImages;
+    if (imagesRaw) {
+      pearImages = imagesRaw.split(",")
+        .map((s) => { try { return decodeURIComponent(s); } catch (_) { return s; } })
+        .filter((u) => /^https?:\/\//i.test(u));
+      if (!pearImages.length) pearImages = undefined;
+    }
     const result = {
       id: null, custom: true,
       name: q.get("garment_name") || "Garment",
       type: isPants ? "pants" : "shirt",   // toItem() → garmentType (lower_body|upper_body)
       subType: "",                          // no catalog subType → generic custom prompt
       color: "#8a8f98",                     // neutral placeholder; the image is the reference
-      img: widgetUrl,
+      img: (pearImages && pearImages[0]) || widgetUrl,   // first gallery photo = primary
+      pearImages,                           // full gallery list (undefined when single-image)
       // Dual-View: optional back-of-garment asset the storefront can pass alongside the
       // front. Absent → the Back toggle falls back to the front image + prompt steering.
       imgBack: q.get("garment_url_back") || q.get("imgBack") || undefined,
@@ -875,6 +888,7 @@ function enterRoom() {
   // back to front for catalog browsing or an unrecognized angle.
   currentAngle = (handoff && WEARABLE_ANGLES.includes(handoff.angle)) ? handoff.angle : "front";
   renderPerspectiveSelector();
+  renderPearImageSwitcher();   // widget multi-image row above the camera (no-op unless 2+ photos)
   setConn("idle");
 
   // Reset the size override to the Screen-1 recommendation and rebuild the selector UI.
@@ -955,6 +969,80 @@ function hotSwapIfLive(toastMsg) {
     .catch((e) => console.warn("gallery hot-swap apply:", e?.message || e))
     .finally(() => { if (sel) sel.classList.remove("is-syncing"); });
   if (toastMsg) toast(toastMsg);
+}
+
+/* ── Widget multi-image switcher ─────────────────────────────────────────────
+   A horizontal row of product-photo thumbnails pinned ABOVE the camera, shown ONLY
+   for a storefront widget handoff that forwarded 2+ gallery photos (?garment_images=
+   → activeItem.pearImages). Tapping a thumbnail makes that photo the active FRONT
+   reference and hot-swaps the live stream in place (same session, same ek_ token)
+   through the very pipeline the angle rail uses — no reconnect. Never renders for
+   catalog browsing (no pearImages), so it can't disturb the normal flow. The row's
+   CSS is injected once and fully self-contained. */
+function ensurePearSwitcherStyles() {
+  if (document.getElementById("pear-image-switcher-styles")) return;
+  const s = document.createElement("style");
+  s.id = "pear-image-switcher-styles";
+  s.textContent =
+    ".pear-image-switcher{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;" +
+      "margin:0 auto 12px;padding:0 8px;max-width:100%;}" +
+    ".pear-image-switcher__thumb{width:46px;height:58px;padding:0;flex:0 0 auto;" +
+      "border:2px solid transparent;border-radius:8px;overflow:hidden;background:#111;" +
+      "cursor:pointer;transition:border-color .15s;}" +
+    ".pear-image-switcher__thumb img{width:100%;height:100%;object-fit:cover;display:block;}" +
+    ".pear-image-switcher__thumb:hover{border-color:rgba(255,255,255,.5);}" +
+    ".pear-image-switcher__thumb.is-active{border-color:#00AA44;}";
+  document.head.appendChild(s);
+}
+
+function renderPearImageSwitcher() {
+  const card = $("cameraCard");
+  let row = $("pearImageSwitcher");
+  const imgs = (activeItem && activeItem.pearImages) || [];
+
+  // Fewer than 2 photos (or no camera stage) → nothing to switch between.
+  if (!card || imgs.length < 2) { if (row) row.hidden = true; return; }
+
+  ensurePearSwitcherStyles();
+  if (!row) {
+    row = document.createElement("div");
+    row.id = "pearImageSwitcher";
+    row.className = "pear-image-switcher";
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", "תמונות המוצר · Product images");
+    card.parentNode.insertBefore(row, card);   // ABOVE the camera stage
+    // Delegated click — bound once to the stable row, survives every re-render.
+    row.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-pear-idx]");
+      if (!b) return;
+      const list = (activeItem && activeItem.pearImages) || [];
+      const u = list[+b.getAttribute("data-pear-idx")];
+      if (u) selectPearImage(u);
+    });
+  }
+  row.hidden = false;
+
+  const current = (activeImageOf(activeItem) || "").split("?")[0];
+  row.innerHTML = imgs.map((u, i) => {
+    const on = u.split("?")[0] === current;
+    return `<button type="button" class="pear-image-switcher__thumb${on ? " is-active" : ""}" ` +
+           `data-pear-idx="${i}" aria-pressed="${on}" title="תמונת מוצר · Product image">` +
+           `<img src="${u}" alt="Product image" loading="lazy" decoding="async">` +
+           `</button>`;
+  }).join("");
+}
+
+/* Swap the active garment to a chosen product photo: it becomes the FRONT asset
+   (currentAngle reset to front so it renders directly), the rails re-render, and the
+   live session re-warps in place. No-op without an active item or on a re-tap. */
+function selectPearImage(url) {
+  if (!activeItem || !url || activeItem.img === url) return;
+  activeItem.img = url;
+  currentAngle = "front";
+  renderActiveGarment();
+  renderPerspectiveSelector();
+  renderPearImageSwitcher();
+  hotSwapIfLive("מחליף תמונת מוצר · switching product image");
 }
 
 /* Rebuild the vertical product gallery for the active item + colour: the colour swatch
