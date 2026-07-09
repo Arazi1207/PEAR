@@ -23,9 +23,12 @@
    What it does:
      1. Scans the host page for the product image (og:image → known product-image
         selectors → generic large-image heuristic) and its gallery thumbnails.
-     2. Injects a "TRY IT ON YOURSELF" button styled like a native Add-to-Cart
-        button, placed right AFTER the store's Add-to-Cart button (falls back to
-        just below the product <h1> when no cart button is found).
+     2. Injects a "VIRTUAL FIT" button ("מדוד וירטואלית" on Hebrew/RTL pages)
+        styled like a native Add-to-Cart button, placed right AFTER *every*
+        Add-to-Cart button on the page (falls back to just below the product
+        <h1> when the page has no cart button). A MutationObserver re-runs the
+        injection as products load in (infinite scroll, tab/filter switches),
+        and each cart button is stamped data-pear-injected so it's never doubled.
      3. On click, opens a fullscreen modal with the PEAR fitting room in an
         iframe, handing over the garment via URL params
         (garment_url / garment_type / garment_name), plus an OPTIONAL
@@ -155,8 +158,8 @@
 
   /* Fall back to the next distinct product-gallery image as an approximate rear
      reference (best-effort — gallery order is a storefront convention, not a rule). */
-  function findGalleryBack(primaryUrl) {
-    var sel = d.querySelectorAll(PRODUCT_IMG_SELECTORS);
+  function findGalleryBack(primaryUrl, root) {
+    var sel = (root || d).querySelectorAll(PRODUCT_IMG_SELECTORS);
     for (var i = 0; i < sel.length; i++) {
       var el = sel[i];
       if (el.tagName !== "IMG") el = el.querySelector && el.querySelector("img");
@@ -238,7 +241,7 @@
      switcher. The primary (og:image / scraped front) is forced first so it stays the
      loaded-on-open garment; gallery thumbnails follow in DOM order. De-duped on the
      path (CDNs vary query params), decorative images excluded. */
-  function collectGalleryImages(primaryUrl) {
+  function collectGalleryImages(primaryUrl, root) {
     var urls = [];
     var seenPaths = [];
     function add(u) {
@@ -249,7 +252,7 @@
       urls.push(u);
     }
     add(primaryUrl);
-    var imgs = d.querySelectorAll(THUMB_SELECTORS);
+    var imgs = (root || d).querySelectorAll(THUMB_SELECTORS);
     for (var i = 0; i < imgs.length; i++) {
       var el = imgs[i];
       if (el.tagName !== "IMG") el = el.querySelector && el.querySelector("img");
@@ -359,12 +362,12 @@
     activeOverlay = overlay;
   }
 
-  /* ── STEP 2 — locate the store's Add-to-Cart button ─────────────────────────
-     Three-tier match, most-specific first:
-       1. the submit control inside a cart <form> (Shopify's canonical markup),
+  /* ── STEP 2 — locate the store's Add-to-Cart button(s) ───────────────────────
+     Three tiers, all combined and de-duped so EVERY cart button on the page is
+     covered — a PDP has one, a collection / quick-shop grid has many:
+       1. submit/add controls inside cart <form>s (Shopify's canonical markup),
        2. well-known Add-to-Cart selectors (Shopify / WooCommerce / generic themes),
-       3. any <button> whose visible text reads like "add to cart" (EN + HE + buy-now).
-     Returns null when the page has no recognizable cart button. */
+       3. any <button> whose visible text reads like "add to cart" (EN + HE + buy-now). */
   var ATC_SELECTORS = [
     ".product-form__submit",
     ".btn-addtocart",
@@ -375,86 +378,216 @@
   ].join(", ");
   var ATC_TEXTS = ["add to cart", "הוסף לסל", "הוסף לעגלה", "buy now", "קנה עכשיו"];
 
-  function findAddToCartButton() {
-    /* Priority 1 — submit button inside a form that posts to the cart. */
+  function findAllAddToCartButtons() {
+    var out = [];
+    function add(b) { if (b && out.indexOf(b) === -1) out.push(b); }
+    /* Priority 1 — submit/add buttons inside forms that post to the cart. */
     var forms = d.querySelectorAll('form[action*="/cart"]');
     for (var i = 0; i < forms.length; i++) {
-      var inForm = forms[i].querySelector('button[name="add"], button[type="submit"]');
-      if (inForm) return inForm;
+      var inForm = forms[i].querySelectorAll('button[name="add"], button[type="submit"]');
+      for (var f = 0; f < inForm.length; f++) add(inForm[f]);
     }
     /* Priority 2 — known Add-to-Cart selectors. */
-    var known = d.querySelector(ATC_SELECTORS);
-    if (known) return known;
+    var known = d.querySelectorAll(ATC_SELECTORS);
+    for (var s = 0; s < known.length; s++) add(known[s]);
     /* Priority 3 — button text heuristic. */
     var btns = d.querySelectorAll("button");
     for (var j = 0; j < btns.length; j++) {
       var t = (btns[j].textContent || "").trim().toLowerCase();
       if (!t) continue;
       for (var k = 0; k < ATC_TEXTS.length; k++) {
-        if (t.indexOf(ATC_TEXTS[k].toLowerCase()) !== -1) return btns[j];
+        if (t.indexOf(ATC_TEXTS[k].toLowerCase()) !== -1) { add(btns[j]); break; }
       }
+    }
+    return out;
+  }
+
+  /* CHANGE 1 — button label follows the page language: Hebrew/RTL storefronts get
+     the Hebrew label, everything else the English one. */
+  function getButtonText() {
+    var docEl = d.documentElement;
+    var lang   = (docEl && (docEl.lang || readAttr(docEl, "lang"))) || "";
+    var dirEl  = (docEl && (docEl.dir  || readAttr(docEl, "dir")))  || "";
+    var dirBody = (d.body && (d.body.dir || readAttr(d.body, "dir"))) || "";
+    var isHebrew = lang.toLowerCase().indexOf("he") === 0 ||
+                   dirEl.toLowerCase() === "rtl" || dirBody.toLowerCase() === "rtl";
+    return isHebrew ? "מדוד וירטואלית" : "VIRTUAL FIT";
+  }
+
+  /* ── per-button garment resolution ──────────────────────────────────────────
+     On a multi-product page each Add-to-Cart belongs to its OWN product, so the
+     PEAR button beside it must open THAT product — not one page-wide garment. Walk
+     up from the cart button to the tightest ancestor that contains a product image
+     (its card) and read the garment from there; if none is found within a few
+     levels, fall back to the page's primary product image. */
+  function pickProductImageIn(root) {
+    var el = root.querySelector && root.querySelector(PRODUCT_IMG_SELECTORS);
+    if (el) {
+      if (el.tagName !== "IMG") el = el.querySelector && el.querySelector("img");
+      if (el && el.tagName === "IMG" && !isExcludedSrc(el.currentSrc || el.src)) return el;
+    }
+    /* else the largest non-decorative <img> inside this container (collection cards
+       rarely use the PDP selectors above, so size is the reliable signal) */
+    var imgs = (root.querySelectorAll && root.querySelectorAll("img")) || [];
+    var best = null, bestArea = -1;
+    for (var i = 0; i < imgs.length; i++) {
+      var im = imgs[i];
+      var src = im.currentSrc || im.src || "";
+      if (!src || isExcludedSrc(src)) continue;
+      var area = (im.naturalWidth || im.width || 1) * (im.naturalHeight || im.height || 1);
+      if (area > bestArea) { bestArea = area; best = im; }
+    }
+    return best;
+  }
+
+  /* A human name for the card's product: image alt → a heading/titled link in the
+     card → the page's <h1>. Feeds the modal label and keyword category detection. */
+  function cardNameFor(root, img) {
+    var alt = readAttr(img, "alt");
+    if (alt && alt.trim()) return alt.trim();
+    var h = root.querySelector && root.querySelector("h1, h2, h3, h4");
+    if (h && h.textContent && h.textContent.trim()) return h.textContent.trim();
+    var a = root.querySelector && root.querySelector("a[title]");
+    var at = a && readAttr(a, "title");
+    if (at && at.trim()) return at.trim();
+    return getGarmentName();
+  }
+
+  function findGarmentForButton(btn) {
+    var node = btn.parentElement;
+    for (var depth = 0; depth < 10 && node; depth++) {
+      var img = pickProductImageIn(node);
+      if (img) {
+        var url = explicitAttr(img, "data-pear-front") || (img.currentSrc || img.src) || "";
+        if (url && !isExcludedSrc(url)) {
+          var name = cardNameFor(node, img);
+          return {
+            url: url,
+            back: explicitAttr(img, "data-pear-back") || findGalleryBack(url, node),
+            images: collectGalleryImages(url, node),
+            name: name,
+            category: detectCategory(name)
+          };
+        }
+      }
+      node = node.parentElement;
+    }
+    /* Fallback — the page's primary product image (og:image → selectors → largest). */
+    var primary = findProductImages()[0];
+    if (primary && primary.url) {
+      var pname = getGarmentName();
+      return {
+        url: primary.url, back: primary.back,
+        images: collectGalleryImages(primary.url, d),
+        name: pname, category: detectCategory(pname)
+      };
     }
     return null;
   }
 
-  /* CHANGE 5 — smart sizing: copy the real Add-to-Cart button's rendered box +
-     type metrics onto the PEAR button so it looks native to every theme. */
+  /* CHANGE 5 + CHANGE 3 — smart sizing: copy the real Add-to-Cart button's rendered
+     box + type metrics so the PEAR button looks native, AND copy the exact vertical
+     metrics (line-height + top/bottom padding) with box-sizing:border-box + display:
+     block so the two buttons end up the SAME height on every theme. */
   function matchButtonToAddToCart(pearBtn, addToCartBtn) {
     try {
       var rect = addToCartBtn.getBoundingClientRect();
       var cs = w.getComputedStyle(addToCartBtn);
       if (rect.width)  pearBtn.style.width  = rect.width + "px";
       if (rect.height) pearBtn.style.height = rect.height + "px";
-      pearBtn.style.fontSize = cs.fontSize;
-      pearBtn.style.borderRadius = cs.borderRadius;
+      pearBtn.style.fontSize      = cs.fontSize;
+      pearBtn.style.borderRadius  = cs.borderRadius;
+      pearBtn.style.lineHeight    = cs.lineHeight;
+      pearBtn.style.paddingTop    = cs.paddingTop;
+      pearBtn.style.paddingBottom = cs.paddingBottom;
+      /* Predictable box so the copied height + padding resolve identically. */
+      pearBtn.style.boxSizing = "border-box";
+      pearBtn.style.display    = "block";
     } catch (_) {}
   }
 
-  /* ── STEP 2b — inject ONE native-looking try-on button next to Add-to-Cart ──
-     No longer floated over the product image: the button is inserted as the next
-     sibling AFTER the Add-to-Cart button (or, when none is found, right below the
-     product <h1>). Wired to the primary garment (og:image / scraped front), it also
-     scrapes the full gallery at click time for the fitting-room thumbnail switcher. */
-  function injectButton(entry, name, category) {
-    if (d.querySelector(".pear-widget-btn")) return;   // single instance per page
-
+  /* ── STEP 2b — inject a native-looking try-on button next to each Add-to-Cart ──
+     A PEAR button is inserted as the next sibling AFTER each cart button, wired to
+     that button's own product. Idempotent: the cart button is stamped
+     data-pear-injected="true" so repeat passes (MutationObserver) never double it. */
+  function makePearButton(garment) {
     var btn = d.createElement("button");
     btn.className = "pear-widget-btn";
     btn.type = "button";
-    btn.textContent = "TRY IT ON YOURSELF";
+    btn.textContent = getButtonText();
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
       openModal({
-        url: entry.url, type: category, name: name, back: entry.back,
-        images: collectGalleryImages(entry.url)
+        url: garment.url, type: garment.category, name: garment.name,
+        back: garment.back, images: garment.images
       });
     });
+    return btn;
+  }
 
-    var atc = findAddToCartButton();
-    if (atc && atc.parentNode) {
-      atc.parentNode.insertBefore(btn, atc.nextSibling);   // sibling right after ATC
-      matchButtonToAddToCart(btn, atc);
-      return;
-    }
-    /* Fallback — no Add-to-Cart button: place it just below the product title. */
+  function injectAfterButton(atcBtn) {
+    if (!atcBtn || !atcBtn.parentNode) return;
+    if (atcBtn.getAttribute("data-pear-injected") === "true") return;   // already done
+    var garment = findGarmentForButton(atcBtn);
+    if (!garment || !garment.url) return;   // no garment for this button → skip
+    injectStyles();
+    var btn = makePearButton(garment);
+    atcBtn.parentNode.insertBefore(btn, atcBtn.nextSibling);
+    matchButtonToAddToCart(btn, atcBtn);
+    atcBtn.setAttribute("data-pear-injected", "true");
+  }
+
+  /* No cart button anywhere (a bare PDP): inject a single button below the <h1>. */
+  var _fallbackDone = false;
+  function injectFallbackButton() {
+    if (_fallbackDone) return;
+    var primary = findProductImages()[0];
+    if (!primary || !primary.url) return;
+    _fallbackDone = true;
+    injectStyles();
+    var name = getGarmentName();
+    var btn = makePearButton({
+      url: primary.url, back: primary.back,
+      images: collectGalleryImages(primary.url, d),
+      name: name, category: detectCategory(name)
+    });
     var h1 = d.querySelector("h1");
     if (h1 && h1.parentNode) h1.parentNode.insertBefore(btn, h1.nextSibling);
     else d.body.appendChild(btn);
   }
 
+  /* Inject beside every cart button; fall back to the <h1> when there are none. */
+  function injectAllButtons() {
+    var btns = findAllAddToCartButtons();
+    if (btns.length) {
+      for (var i = 0; i < btns.length; i++) injectAfterButton(btns[i]);
+    } else {
+      injectFallbackButton();
+    }
+  }
+
   /* ── boot ───────────────────────────────────────────────────────────────── */
+  /* Coalesce bursts of DOM mutations into a single injection pass per frame. */
+  var _rafPending = false;
+  var raf = w.requestAnimationFrame ? w.requestAnimationFrame.bind(w)
+                                    : function (fn) { return w.setTimeout(fn, 16); };
+  function scheduleInject() {
+    if (_rafPending) return;
+    _rafPending = true;
+    raf(function () { _rafPending = false; injectAllButtons(); });
+  }
+
+  var _observing = false;
   function boot() {
-    var entries = findProductImages();
-    if (!entries.length) return;   // no garment reference → nothing to try on
-
-    injectStyles();
-    var name = getGarmentName();
-    var category = detectCategory(name);
-
-    /* One button per PDP, wired to the primary garment (og:image / scraped front)
-       and placed next to Add-to-Cart — not one per image. */
-    injectButton(entries[0], name, category);
+    injectAllButtons();
+    /* Re-inject as the DOM changes — infinite scroll, tab/filter switches, quick-
+       shop modals — so dynamically added products get their button too. Injection
+       is idempotent (data-pear-injected), so the observer converges immediately. */
+    if (!_observing && w.MutationObserver && d.body) {
+      _observing = true;
+      new w.MutationObserver(scheduleInject).observe(d.body, { childList: true, subtree: true });
+    }
   }
 
   if (d.readyState === "loading") {
