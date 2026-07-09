@@ -381,11 +381,15 @@
   function findAllAddToCartButtons() {
     var out = [];
     function add(b) { if (b && out.indexOf(b) === -1) out.push(b); }
-    /* Priority 1 — submit/add buttons inside forms that post to the cart. */
+    /* Priority 1 — the cart form's Add button. Shopify's canonical markup is
+       button[name="add"] inside form[action="/cart/add"], so match that FIRST,
+       then fall back to any other submit control in a cart form. */
     var forms = d.querySelectorAll('form[action*="/cart"]');
     for (var i = 0; i < forms.length; i++) {
-      var inForm = forms[i].querySelectorAll('button[name="add"], button[type="submit"]');
-      for (var f = 0; f < inForm.length; f++) add(inForm[f]);
+      var addBtns = forms[i].querySelectorAll('button[name="add"]');
+      for (var a = 0; a < addBtns.length; a++) add(addBtns[a]);
+      var submitBtns = forms[i].querySelectorAll('button[type="submit"]');
+      for (var f = 0; f < submitBtns.length; f++) add(submitBtns[f]);
     }
     /* Priority 2 — known Add-to-Cart selectors. */
     var known = d.querySelectorAll(ATC_SELECTORS);
@@ -493,23 +497,45 @@
     try {
       var rect = addToCartBtn.getBoundingClientRect();
       var cs = w.getComputedStyle(addToCartBtn);
-      if (rect.width)  pearBtn.style.width  = rect.width + "px";
+      /* Match the FULL cart-form/container width (not just the button) so the PEAR
+         button spans the row cleanly below a Shopify qty-selector layout. */
+      var form = addToCartBtn.closest ? addToCartBtn.closest("form") : null;
+      var formWidth = form ? form.getBoundingClientRect().width : rect.width;
+      if (formWidth) pearBtn.style.width  = formWidth + "px";
       if (rect.height) pearBtn.style.height = rect.height + "px";
       pearBtn.style.fontSize      = cs.fontSize;
       pearBtn.style.borderRadius  = cs.borderRadius;
       pearBtn.style.lineHeight    = cs.lineHeight;
       pearBtn.style.paddingTop    = cs.paddingTop;
       pearBtn.style.paddingBottom = cs.paddingBottom;
-      /* Predictable box so the copied height + padding resolve identically. */
+      /* Predictable box so the copied height + padding resolve identically; sit the
+         button cleanly on its own line below the entire cart row. */
       pearBtn.style.boxSizing = "border-box";
       pearBtn.style.display    = "block";
+      pearBtn.style.marginTop  = "10px";
     } catch (_) {}
   }
 
+  /* Shopify quantity-selector fix: some themes (e.g. fox.co.il) put the Add-to-Cart
+     button in a FLEX row next to a quantity stepper. Inserting the PEAR button right
+     after the button then lands it INSIDE that row, skewing its height. So we look
+     for the nearest ancestor row that also holds a quantity control and, when found,
+     drop the PEAR button AFTER that whole row instead. */
+  var QTY_SELECTORS = 'input[type="number"], .quantity, [class*="quantity"], [class*="qty"]';
+
+  function findQtyRow(atcBtn) {
+    var node = atcBtn.parentElement;
+    for (var depth = 0; depth < 6 && node; depth++) {
+      if (node.querySelector && node.querySelector(QTY_SELECTORS)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
   /* ── STEP 2b — inject a native-looking try-on button next to each Add-to-Cart ──
-     A PEAR button is inserted as the next sibling AFTER each cart button, wired to
-     that button's own product. Idempotent: the cart button is stamped
-     data-pear-injected="true" so repeat passes (MutationObserver) never double it. */
+     A PEAR button is inserted as the next sibling AFTER each cart button (or after the
+     whole quantity row — see findQtyRow), wired to that button's own product. Idempotent:
+     the cart button is stamped data-pear-injected="true" so repeat passes never double it. */
   function makePearButton(garment) {
     var btn = d.createElement("button");
     btn.className = "pear-widget-btn";
@@ -533,7 +559,14 @@
     if (!garment || !garment.url) return;   // no garment for this button → skip
     injectStyles();
     var btn = makePearButton(garment);
-    atcBtn.parentNode.insertBefore(btn, atcBtn.nextSibling);
+    /* Drop AFTER the whole quantity row when the cart button shares a flex row with a
+       quantity stepper; otherwise as the next sibling right after the button. */
+    var qtyRow = findQtyRow(atcBtn);
+    if (qtyRow && qtyRow.parentNode) {
+      qtyRow.parentNode.insertBefore(btn, qtyRow.nextSibling);
+    } else {
+      atcBtn.parentNode.insertBefore(btn, atcBtn.nextSibling);
+    }
     matchButtonToAddToCart(btn, atcBtn);
     atcBtn.setAttribute("data-pear-injected", "true");
   }
