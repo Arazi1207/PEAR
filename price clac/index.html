@@ -246,6 +246,9 @@ main{padding:32px 0 56px;}
   display:flex; align-items:center; gap:6px; white-space:nowrap;
   box-shadow:var(--shadow-soft);
 }
+.shield-badge.enterprise-badge{
+  color:#9a5b00; border-color:rgba(184,110,0,.4); background:rgba(255,244,224,.85);
+}
 .price-stats{
   display:grid; grid-template-columns:1fr 1fr; gap:16px;
   margin-top:20px; padding-top:18px; border-top:1px solid var(--glass-line);
@@ -434,7 +437,7 @@ input[type="range"]{
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
             <span class="infra-label">תשתית ענן מותאמת:</span>
-            <span class="infra-chip">decart-Lucy (₪0.04/מדידה)</span>
+            <span class="infra-chip">decart-Lucy (₪0.35/מדידה, בסיס לפני הנחת נפח)</span>
         </div>
     </div>
 </header>
@@ -459,14 +462,18 @@ input[type="range"]{
                             <h2 id="finalPriceILS" class="price-value">₪0</h2>
                             <span id="finalPriceUSD" class="price-usd">($0.00 / חודש)</span>
                         </div>
-                        <span class="shield-badge">
+                        <span id="shieldBadge" class="shield-badge">
                             <i data-lucide="shield-check" style="width:14px;height:14px;"></i>
                             מוגן תקציבית
+                        </span>
+                        <span id="enterpriseBadge" class="shield-badge enterprise-badge" style="display:none;">
+                            <i data-lucide="alert-circle" style="width:14px;height:14px;"></i>
+                            נדרש תמחור Enterprise
                         </span>
                     </div>
                     <div class="price-stats">
                         <div>
-                            <span class="price-stat-label">הרווח הנקי שלך (80%)</span>
+                            <span class="price-stat-label">הרווח הנקי שלך</span>
                             <span id="saasProfitCard" class="price-stat-value profit">₪0</span>
                         </div>
                         <div>
@@ -574,9 +581,9 @@ input[type="range"]{
                     <div id="advancedSettingsContent" class="accordion__panel hidden">
                         <div class="field-grid">
                             <div class="field">
-                                <label>עלות ל-Decart למדידה בודדת (₪)</label>
+                                <label>עלות בסיס ל-Decart למדידה (₪, לפני הנחת נפח)</label>
                                 <div class="field-input-wrap">
-                                    <input id="costPerMeasurement" type="number" step="0.01" value="0.04" oninput="calculate()">
+                                    <input id="costPerMeasurement" type="number" step="0.01" value="0.35" oninput="calculate()">
                                     <span class="field-suffix">₪</span>
                                 </div>
                             </div>
@@ -692,10 +699,32 @@ input[type="range"]{
     // settings" field is left blank; change it here when Decart's per-render
     // rate changes so every brand's estimate updates consistently.
     // ============================================================================
-    const DEFAULT_COST_PER_MEASUREMENT_ILS = 0.04;   // ₪ per single Decart render/measurement call
+    const DEFAULT_COST_PER_MEASUREMENT_ILS = 0.35;   // ₪ per measurement at the BASE (no volume discount) rate
     const DEFAULT_MEASURES_PER_ENGAGED_USER = 5;      // avg renders per engaged user per session (size/style/item swaps)
     const DEFAULT_WIDGET_ENGAGEMENT_RATE = 0.20;      // % of traffic that actually opens the try-on widget
-    const DEFAULT_TARGET_NET_PROFIT_MARGIN = 0.80;    // desired PEAR net margin -> cloud cost = 20% of SaaS price
+    const DEFAULT_TARGET_NET_PROFIT_MARGIN = 0.80;    // starting position of the "PEAR Profit Margin" slider
+
+    // ── Volume discount tiers (API wholesale pricing) ──────────────────────────
+    // Decart discounts the per-measurement rate as monthly volume grows, so the
+    // real cloud cost is NOT base-cost × measurements at every scale — the rate
+    // itself drops in steps. Sorted highest threshold first; first match wins.
+    const VOLUME_DISCOUNT_TIERS = [
+        { minMeasures: 10_000_000, factor: 0.05 },  // >10M/mo   -> 95% off (~₪0.0175 at base ₪0.35)
+        { minMeasures: 1_000_000,  factor: 0.20 },  // 1M-10M/mo -> 80% off
+        { minMeasures: 100_000,    factor: 0.50 },  // 100k-1M/mo -> 50% off
+        { minMeasures: 0,          factor: 1.00 },  // <100k/mo  -> base rate, no discount
+    ];
+
+    function getDiscountedCostPerMeasurement(baseCostILS, totalMeasures) {
+        const tier = VOLUME_DISCOUNT_TIERS.find(t => totalMeasures >= t.minMeasures);
+        return baseCostILS * tier.factor;
+    }
+
+    // Absolute minimum margin PEAR will accept over cloud cost, no matter how
+    // tight the brand's Max Budget Share is. If the brand's max-affordable price
+    // can't clear cloud cost + this margin, no auto-generated number is safe to
+    // show — the deal needs a manually negotiated Enterprise quote instead.
+    const MIN_ENTERPRISE_MARGIN = 0.20;
 
     // group 1 = ענקיות מולטי-ברנד ופלטפורמות מסחר | group 2 = רשתות היברידיות | group 3 = D2C ובוטיקים
     const BRANDS = {
@@ -919,12 +948,12 @@ input[type="range"]{
     }
 
     // ============================================================================
-    // calculate() — strict bottom-up pricing model. Every step below only ever
-    // MULTIPLIES forward from raw inputs to the final price; nothing here is
-    // allowed to divide an input back down or silently clamp/override another
-    // input's effect. Increasing any of Traffic / Engagement Rate / Measurements
-    // Per User / Cost Per Measurement must strictly increase Total Measurements,
-    // Total Cloud Cost, and SaaS Price — never decrease them.
+    // calculate() — bottom-up usage math, then two independent guardrails:
+    //   Upper bound (Hard Budget Cap)  — price can never exceed the brand's Max Budget.
+    //   Lower bound (Loss-Guard Floor) — price can never imply less than
+    //                                    MIN_ENTERPRISE_MARGIN over real cloud cost.
+    // If the Cap would force the price below the Floor, no single auto-generated
+    // number is honest to show — that brand needs a custom Enterprise quote.
     // ============================================================================
     function calculate() {
         const brand = BRANDS[currentBrandKey];
@@ -938,7 +967,7 @@ input[type="range"]{
 
         const widgetEngagementRatePct = parseFloat(document.getElementById('engagementRate').value) || (DEFAULT_WIDGET_ENGAGEMENT_RATE * 100);
         const measuresPerUser = parseFloat(document.getElementById('measuresPerUser').value) || DEFAULT_MEASURES_PER_ENGAGED_USER;
-        const costPerMeasurementILS = parseFloat(document.getElementById('costPerMeasurement').value) || DEFAULT_COST_PER_MEASUREMENT_ILS;
+        const baseCostPerMeasurementILS = parseFloat(document.getElementById('costPerMeasurement').value) || DEFAULT_COST_PER_MEASUREMENT_ILS;
         const desiredMarginPct = parseFloat(document.getElementById('profitMargin').value);
         const maxSoftwareShare = parseFloat(document.getElementById('maxSoftwareShare').value) / 100;
         const exchangeRate = parseFloat(document.getElementById('exchangeRate').value) || 3.65;
@@ -946,54 +975,71 @@ input[type="range"]{
         const widgetEngagementRate = widgetEngagementRatePct / 100;
         const desiredMargin = Math.min(desiredMarginPct / 100, 0.99);
 
-        // A. Active Try-On Users = Traffic × Widget Engagement Rate
-        const activeUsers = traffic * widgetEngagementRate;
+        // 1. Baseline usage & volume-discounted cloud cost -------------------------
+        const activeUsers = traffic * widgetEngagementRate;                 // Active Try-On Users
+        const totalMeasures = activeUsers * measuresPerUser;                // Total Monthly Measurements
+        const costPerMeasurementILS = getDiscountedCostPerMeasurement(baseCostPerMeasurementILS, totalMeasures);
+        const totalCloudCostILS = totalMeasures * costPerMeasurementILS;    // Total Monthly Cloud Cost
 
-        // B. Total Monthly Measurements = Active Try-On Users × Avg Measurements Per User
-        //    e.g. 1,000 traffic × 20% engagement × 5 measurements = 1,000 measurements.
-        const totalMeasures = activeUsers * measuresPerUser;
+        // 2. Target price from the "PEAR Profit Margin" slider ---------------------
+        const targetSaaSPriceILS = totalCloudCostILS / (1 - desiredMargin);
 
-        // C. Total Cloud Cost = Total Monthly Measurements × Cost Per Single Measurement
-        //    Scales linearly — doubling the cost-per-measurement input must double this.
-        const totalCloudCostILS = totalMeasures * costPerMeasurementILS;
-
-        // D. SaaS Price: cloud cost is exactly (1 - desiredMargin) of the final price,
-        //    so at the 80% default margin, cloud cost = totalCloudCostILS / 0.20 (×5).
-        const saasPriceILS = totalCloudCostILS / (1 - desiredMargin);
-        const saasPriceUSD = saasPriceILS / exchangeRate;
-        const netProfitILS = saasPriceILS - totalCloudCostILS;
-
-        // E. Brand Value / ROI — informational only, does NOT feed back into the price above.
+        // 3. Brand's Max Budget — hard upper cap ------------------------------------
         const monthlySalesCount = traffic * (conversionRatePct / 100);
         const brandMonthlyRevenueILS = monthlySalesCount * aov;
         const brandNetProfitILS = brandMonthlyRevenueILS * (brandMarginPct / 100);
-        const maxAffordableILS = brandNetProfitILS * maxSoftwareShare;
-        const isOverBudget = saasPriceILS > maxAffordableILS;
+        const maxBudgetILS = brandNetProfitILS * maxSoftwareShare;
+
+        // 4. Loss-guard floor — minimum price PEAR can safely accept ---------------
+        const absoluteFloorPriceILS = totalCloudCostILS / (1 - MIN_ENTERPRISE_MARGIN);
+
+        // 5. Resolve final price & state --------------------------------------------
+        const isBudgetCapped = targetSaaSPriceILS > maxBudgetILS;
+        const cappedPriceILS = Math.min(targetSaaSPriceILS, maxBudgetILS);
+        const isEnterpriseState = cappedPriceILS < absoluteFloorPriceILS;
+
+        const saasPriceILS = isEnterpriseState ? null : cappedPriceILS;
+        const netProfitILS = isEnterpriseState ? null : (saasPriceILS - totalCloudCostILS);
+        const saasPriceUSD = isEnterpriseState ? null : (saasPriceILS / exchangeRate);
 
         const averageReturnLossILS = 40;
         const normalReturns = monthlySalesCount * 0.245;
         const returnSavingsILS = normalReturns * averageReturnLossILS * 0.20;
-        const netRoiMultiplier = saasPriceILS > 0 ? (returnSavingsILS / saasPriceILS) : 0;
+        const netRoiMultiplier = (!isEnterpriseState && saasPriceILS > 0) ? (returnSavingsILS / saasPriceILS) : null;
 
         document.getElementById('intelTraffic').textContent = traffic.toLocaleString();
         document.getElementById('intelConversion').textContent = conversionRatePct + '%';
         document.getElementById('intelAOV').textContent = '₪' + aov.toLocaleString();
         document.getElementById('intelMargin').textContent = brandMarginPct + '%';
-        document.getElementById('intelCostPerMeasure').textContent = '₪' + costPerMeasurementILS.toFixed(2);
+        document.getElementById('intelCostPerMeasure').textContent = '₪' + costPerMeasurementILS.toFixed(3);
         document.getElementById('intelMeasures').textContent = Math.round(totalMeasures).toLocaleString();
 
-        document.getElementById('finalPriceILS').textContent = '₪' + Math.round(saasPriceILS).toLocaleString();
-        document.getElementById('finalPriceUSD').textContent = '($' + saasPriceUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / חודש)';
+        const shieldBadge = document.getElementById('shieldBadge');
+        const enterpriseBadge = document.getElementById('enterpriseBadge');
 
-        document.getElementById('saasProfitCard').textContent = '₪' + Math.round(netProfitILS).toLocaleString();
-        document.getElementById('cloudCostCard').textContent = '₪' + Math.round(totalCloudCostILS).toLocaleString();
+        if (isEnterpriseState) {
+            shieldBadge.style.display = 'none';
+            enterpriseBadge.style.display = 'flex';
+            document.getElementById('finalPriceILS').textContent = '—';
+            document.getElementById('finalPriceUSD').textContent = 'הנפח דורש תמחור Enterprise בהתאמה אישית';
+            document.getElementById('saasProfitCard').textContent = '—';
+            document.getElementById('cloudCostCard').textContent = '₪' + Math.round(totalCloudCostILS).toLocaleString();
+            document.getElementById('tableRoiMultiplier').textContent = '—';
+        } else {
+            shieldBadge.style.display = 'flex';
+            enterpriseBadge.style.display = 'none';
+            document.getElementById('finalPriceILS').textContent = '₪' + Math.round(saasPriceILS).toLocaleString();
+            document.getElementById('finalPriceUSD').textContent = '($' + saasPriceUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / חודש)';
+            document.getElementById('saasProfitCard').textContent = '₪' + Math.round(netProfitILS).toLocaleString();
+            document.getElementById('cloudCostCard').textContent = '₪' + Math.round(totalCloudCostILS).toLocaleString();
+            document.getElementById('tableRoiMultiplier').textContent = netRoiMultiplier.toFixed(1) + 'x ' + 'החזר השקעה';
+        }
 
         document.getElementById('tableClientSales').textContent = '₪' + Math.round(brandMonthlyRevenueILS).toLocaleString();
         document.getElementById('tableClientProfit').textContent = '₪' + Math.round(brandNetProfitILS).toLocaleString();
         document.getElementById('tableReturnSavings').textContent = '₪' + Math.round(returnSavingsILS).toLocaleString();
-        document.getElementById('tableRoiMultiplier').textContent = netRoiMultiplier.toFixed(1) + 'x ' + 'החזר השקעה';
 
-        document.getElementById('maxAffordableVal').textContent = '₪' + Math.round(maxAffordableILS).toLocaleString();
+        document.getElementById('maxAffordableVal').textContent = '₪' + Math.round(maxBudgetILS).toLocaleString();
         document.getElementById('optEngagementRate').textContent = (widgetEngagementRate * 100).toFixed(1) + '%';
         document.getElementById('optMargin').textContent = Math.round(desiredMargin * 100) + '%';
 
@@ -1002,12 +1048,16 @@ input[type="range"]{
         const optStatus = document.getElementById('optStatus');
         const optDesc = document.getElementById('optDesc');
 
-        optCard.classList.toggle('is-optimized', !isOverBudget);
+        optCard.classList.toggle('is-optimized', !isEnterpriseState);
 
-        if (isOverBudget) {
+        if (isEnterpriseState) {
             optIcon.setAttribute('data-lucide', 'alert-circle');
-            optStatus.textContent = "המחיר חורג מהתקציב המוערך של הלקוח";
-            optDesc.textContent = `מחיר ה-SaaS המחושב (₪${Math.round(saasPriceILS).toLocaleString()}) גבוה מהתקציב המוערך של המותג (₪${Math.round(maxAffordableILS).toLocaleString()}). שקול להוריד את ה-Widget Engagement Rate או את מספר המדידות למשתמש — זהו מדד תקציבי בלבד ואינו משנה את המחיר בפועל.`;
+            optStatus.textContent = "נדרשת הצעת מחיר Enterprise בהתאמה אישית";
+            optDesc.textContent = `בנפח הנוכחי (${Math.round(totalMeasures).toLocaleString()} מדידות/חודש), עלות הענן (₪${Math.round(totalCloudCostILS).toLocaleString()}) גבוהה מכדי להתאים לתקציב המקסימלי של המותג (₪${Math.round(maxBudgetILS).toLocaleString()}) תוך שמירה על שולי רווח בטוחים (${Math.round(MIN_ENTERPRISE_MARGIN * 100)}%+). יש לסגור עסקה בתמחור מותאם אישית.`;
+        } else if (isBudgetCapped) {
+            optIcon.setAttribute('data-lucide', 'shield-check');
+            optStatus.textContent = "המחיר ננעל על תקציב הלקוח המקסימלי";
+            optDesc.textContent = `המחיר מבוסס-השימוש (₪${Math.round(targetSaaSPriceILS).toLocaleString()}) חרג מתקציב הלקוח, לכן המחיר ננעל בדיוק על ₪${Math.round(maxBudgetILS).toLocaleString()} — ועדיין שומר על מרווח בטוח מעל עלות הענן.`;
         } else {
             optIcon.setAttribute('data-lucide', 'shield-check');
             optStatus.textContent = "המחיר בתוך תקציב הלקוח";
