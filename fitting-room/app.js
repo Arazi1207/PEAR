@@ -86,6 +86,13 @@ const LIVE_INFERENCE_FPS  = 10;     // frames/s handed to Decart — trims per-f
 const CREDITS_PER_SECOND  = 2;
 const CREDITS_PER_SESSION = CREDITS_PER_SECOND * (LIVE_DURATION_MS / 1000);   // 2 × 5 = 10 credits
 
+/* Safety cap on the wait for Decart's FIRST generated frame. The billed window
+   (LIVE_DURATION_MS) is now armed BY that first frame, not by connect — so if a frame
+   never arrives (dead session / server stall) nothing else would cap the open session.
+   This bounds how long the WebRTC session may stay open with no frame before we tear it
+   down, so it can never bill indefinitely. Generous — real warm-up is ~1s. */
+const FIRST_FRAME_TIMEOUT_MS = 15000;
+
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
    downscales the canvas to LIVE_W×LIVE_H before capture, so Decart receives this
@@ -471,6 +478,8 @@ let liveCountdownInterval = null;  // 1s tick handle driving the on-screen count
 let videoFinalizeTimer = null; // fires at VIDEO_LENGTH_MS to stop the recorder + finalize the frozen-hold clip
 let recordHold = false;        // true once billing stopped & the recorder is holding the frozen final frame
 let recordHoldSrc = null;      // off-DOM canvas holding the frozen final dressed frame the recorder repaints during the hold
+let firstFrameGuardTimer = null; // safety timeout — tears the session down if Decart's first frame never arrives (no billing cap otherwise)
+let billingStarted = false;      // guards startBillingWindow() so it arms the billed window ONCE per session, on the first rendered frame
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -1552,6 +1561,12 @@ async function connectRealtime() {
   connecting = true;
   setConn("connecting");
 
+  // Fresh session → reset the once-per-session billing guard and cancel any stale
+  // no-first-frame safety timer, so the billed window re-arms cleanly on THIS session's
+  // first rendered frame (see startBillingWindow / armFirstFrameBilling).
+  billingStarted = false;
+  if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
+
   console.log("[PEAR] connectRealtime() — stage 1/4: loading SDK from CDN…");
   try {
     /* ── load SDK ─────────────────────────────────────────────────────────── */
@@ -1611,6 +1626,11 @@ async function connectRealtime() {
         aiVideo.style.willChange = "transform";
         aiVideo.style.transform = "translateZ(0)";
         aiVideo.play().catch(() => {});
+        // BILLING START: the 5s / 10-credit window begins at the FIRST frame Decart
+        // actually renders to #aiVideo here — NOT at connect and NOT at set() — so the
+        // handshake + server warm-up (~1s) is never billed. Idempotent + sessionGen-
+        // guarded inside startBillingWindow, so a stale/duplicate stream can't re-arm it.
+        armFirstFrameBilling(aiVideo, gen);
         // NOTE: recording is NOT started here — it is armed in goLive() at the exact
         // go-live instant so its duration matches the strict 5s window (see Feature 2).
       },
@@ -1667,6 +1687,11 @@ function teardown() {
   recordHoldSrc = null;
   // Same leak guard for the visual countdown ticker + overlay.
   hideLiveCountdown();
+
+  // Cancel the no-first-frame safety timer and reset the billing-armed guard so the next
+  // session starts clean (the billed window re-arms only on its own first rendered frame).
+  if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
+  billingStarted = false;
 
   // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
   // client we're about to disconnect become no-ops (see connectRealtime).
@@ -3247,6 +3272,73 @@ function onLiveToggle() {
   else goLive();
 }
 
+/* ── Billed window — armed by the FIRST rendered Decart frame ─────────────────
+   The 5s / 10-credit clock, the on-screen countdown, and the hard disconnect are all
+   armed HERE, from the first frame Decart actually renders — never at connect or set().
+   That makes the billed window measure real generation, not handshake/warm-up time.
+   Idempotent (billingStarted) and sessionGen-guarded, so it fires exactly once per
+   session and never for one that has already been torn down. */
+function startBillingWindow(gen) {
+  if (billingStarted) return;            // already ticking for this session
+  if (gen !== sessionGen) return;        // stale first-frame from a torn-down session
+  billingStarted = true;
+
+  // First real frame arrived → cancel the no-first-frame safety teardown.
+  if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
+
+  console.log("[PEAR] First frame received — billing started (" +
+    (LIVE_DURATION_MS / 1000) + "s / " + CREDITS_PER_SESSION + " credits)");
+
+  // Visual countdown over the full VIDEO_LENGTH_MS experience. Drift-tolerant: the hard
+  // stop below — not this ticker — is the source of truth for when billing actually ends.
+  const timerGen = gen;
+  const totalSec = Math.round(VIDEO_LENGTH_MS / 1000);
+  hideLiveCountdown();                  // clear any stale ticker before arming a fresh one
+  showLiveCountdown(totalSec);
+  let remaining = totalSec;
+  liveCountdownInterval = setInterval(() => {
+    remaining -= 1;
+    tickLiveCountdown(Math.max(remaining, 0));
+    if (remaining <= 0 && liveCountdownInterval) { clearInterval(liveCountdownInterval); liveCountdownInterval = null; }
+  }, 1000);
+
+  // Hard BILLING stop EXACTLY LIVE_DURATION_MS after the first frame. Time-based, so it
+  // still fires even if frames stall or stop arriving early — no credit can leak past it.
+  liveDurationTimer = setTimeout(() => {
+    if (sessionGen !== timerGen) return;   // a manual Stop already tore this session down
+    console.log("[PEAR] Billing ended — disconnecting Decart (" + LIVE_DURATION_MS + "ms ≈ " +
+      CREDITS_PER_SESSION + " credits @ " + CREDITS_PER_SECOND + "/s)" +
+      (VIDEO_LENGTH_MS > LIVE_DURATION_MS ? ", holding frozen frame to " + VIDEO_LENGTH_MS + "ms" : ""));
+    beginFreezeHold();
+  }, LIVE_DURATION_MS);
+}
+
+/* Fire the billed window ONCE, at the first frame #aiVideo actually presents (renders)
+   from Decart. Prefers requestVideoFrameCallback (fires precisely on frame presentation,
+   the same frame the recording paint loop draws to its canvas that tick); falls back to
+   a rAF poll on videoWidth/currentTime where rVFC is unavailable. sessionGen-guarded so a
+   stale session's late frame can never start the new one's billing. */
+function armFirstFrameBilling(video, gen) {
+  if (!video || billingStarted || gen !== sessionGen) return;
+  let done = false;
+  const fire = () => {
+    if (done) return;
+    done = true;
+    if (gen !== sessionGen) return;      // session was torn down before the first frame
+    startBillingWindow(gen);
+  };
+  if (typeof video.requestVideoFrameCallback === "function") {
+    video.requestVideoFrameCallback(() => fire());
+  } else {
+    // Fallback: poll until a real decoded frame exists (dimensions set + playback advanced).
+    (function poll() {
+      if (done || gen !== sessionGen) return;
+      if (video.videoWidth > 0 && video.currentTime > 0) return fire();
+      requestAnimationFrame(poll);
+    })();
+  }
+}
+
 /**
  * Open ONE realtime session, apply the active garment, and stream the live
  * AI-edited video so the garment warps/tracks the user dynamically. The session
@@ -3295,9 +3387,12 @@ async function goLive() {
     $("scanOverlay").hidden = false;
     $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
-    // 1) mint ek_ token + open the WebRTC session (billing starts here)
+    // 1) mint ek_ token + open the WebRTC session. NOTE: billing no longer starts here —
+    //    the WebRTC session is open, but the billed 5s window is armed by the FIRST
+    //    rendered Decart frame (onRemoteStream → armFirstFrameBilling), not at connect.
     await connectRealtime();
     await waitConnected(CONNECT_TIMEOUT_MS);
+    console.log("[PEAR] Decart connected — waiting for first frame");
 
     // 2) apply on the live stream — the full look (shirt + pants, ONE payload) when
     //    activeOutfit has both slots filled, else the single active garment. Same session.
@@ -3320,34 +3415,25 @@ async function goLive() {
     startRecording();                  // Feature 2 — record while the session is live
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
-    // Two timers: a BILLING cap at LIVE_DURATION_MS (disconnect Decart + freeze the
-    // final frame) and a VIDEO finalize at VIDEO_LENGTH_MS (stop the recorder on the
-    // frozen-hold tail). The countdown reflects the full VIDEO_LENGTH_MS experience;
-    // it is cleared in every teardown/finalize path via hideLiveCountdown(), so it
-    // needs no sessionGen guard — and MUST survive the sessionGen bump stopBilling()
-    // does at the billed cap so it can keep ticking through the frozen hold.
-    const timerGen = sessionGen;
-    const totalSec = Math.round(VIDEO_LENGTH_MS / 1000);
-
-    hideLiveCountdown();                // clear any stale ticker before arming a fresh one
-    showLiveCountdown(totalSec);
-    let remaining = totalSec;
-    liveCountdownInterval = setInterval(() => {
-      remaining -= 1;
-      tickLiveCountdown(Math.max(remaining, 0));
-      if (remaining <= 0 && liveCountdownInterval) { clearInterval(liveCountdownInterval); liveCountdownInterval = null; }
-    }, 1000);
-
-    // Hard BILLING stop at EXACTLY LIVE_DURATION_MS — independent of tick drift, so no
-    // token can leak past the billed window. Hands off to the frozen-frame hold, which
-    // carries the on-screen view + saved clip to VIDEO_LENGTH_MS with zero extra spend.
-    liveDurationTimer = setTimeout(() => {
-      if (sessionGen !== timerGen) return;   // a manual Stop already tore this session down
-      console.log("[PEAR] billed window reached (" + LIVE_DURATION_MS + "ms ≈ " +
-        CREDITS_PER_SESSION + " credits @ " + CREDITS_PER_SECOND + "/s) — ending live take" +
-        (VIDEO_LENGTH_MS > LIVE_DURATION_MS ? ", holding frozen frame to " + VIDEO_LENGTH_MS + "ms" : ""));
-      beginFreezeHold();
-    }, LIVE_DURATION_MS);
+    // The BILLED window (countdown + hard disconnect at LIVE_DURATION_MS) is NOT armed
+    // here anymore — it arms on the first rendered Decart frame via onRemoteStream →
+    // armFirstFrameBilling → startBillingWindow, so connect + warm-up time is never billed.
+    // The only timer armed here is a SAFETY net: if that first frame never arrives, nothing
+    // else would cap the open session, so tear it down after FIRST_FRAME_TIMEOUT_MS. It is
+    // cancelled the moment billing actually starts. Guard against the fast-frame race where
+    // the first frame already armed billing before we got here.
+    const guardGen = sessionGen;
+    if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
+    if (!billingStarted) {
+      firstFrameGuardTimer = setTimeout(() => {
+        firstFrameGuardTimer = null;
+        if (sessionGen !== guardGen || billingStarted) return;   // session moved on / billing already ticking
+        console.warn("[PEAR] No first frame within " + FIRST_FRAME_TIMEOUT_MS + "ms — tearing down (no idle billing)");
+        stopLive();
+        showCamError("החיבור לא הניב תמונה — נסה שוב.");
+        setConn("error");
+      }, FIRST_FRAME_TIMEOUT_MS);
+    }
 
     toast("✨ מדידה חיה · סרטון " + Math.round(VIDEO_LENGTH_MS / 1000) + " שניות");
   } catch (err) {
