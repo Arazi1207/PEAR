@@ -290,23 +290,22 @@
         <div class="camera-card" id="cameraCard">
             <span class="camera-card__live" id="liveBadge"><i></i>LIVE</span>
 
-            <!-- ░░ Multi-Image Gallery — colour swatches + vertical perspective rail ░░
+            <!-- ░░ Product gallery — colour swatches only ░░
                  A real-PDP gallery pinned to the inline-start edge of the camera stage so
-                 it stays reachable DURING the live stream (above #aiVideo). Both strips are
-                 built at runtime for the ACTIVE product + colour (renderPerspectiveSelector):
+                 it stays reachable DURING the live stream (above #aiVideo), built at runtime
+                 for the ACTIVE product + colour (renderPerspectiveSelector):
                    • #productSwatches — colour bubbles (shown when the item has 2+ variants);
-                     picking one re-renders the rail with that colour's own angle images.
-                   • #perspectiveSelector — one thumbnail per WEARABLE angle (Front/Back/Side),
-                     rendered for EVERY item/colour. Angles without a dedicated photo fall back
-                     to the front image (AI-inferred) so the rail never empties or hides.
-                 Tapping a swatch or a thumbnail re-warps the same WebRTC session in place —
-                 no reconnect, no new token. Inspection-only angles (e.g. Detail) live on the
-                 storefront PDP gallery, not here — a macro is a poor VTON reference. -->
+                     picking one re-renders against that colour's own images.
+                   • #perspectiveSelector — no angle rail anymore (AI Combined is the only
+                     mode and is applied automatically); this container now only ever shows
+                     the "Add back view" affordance for a custom upload that lacks one.
+                 Tapping a swatch re-warps the same WebRTC session in place — no reconnect,
+                 no new token. -->
             <div class="product-gallery" id="productGallery">
                 <div class="product-swatches" id="productSwatches" role="radiogroup"
                      aria-label="צבע · Colour" hidden></div>
                 <div class="persp-selector product-thumbnails" id="perspectiveSelector" role="group"
-                     aria-label="בחירת זווית · Product perspective" hidden></div>
+                     aria-label="הוספת תמונת גב · Add back view" hidden></div>
             </div>
 
             <!-- ░░ Source-image preview — the exact product photo fed to the AI ░░

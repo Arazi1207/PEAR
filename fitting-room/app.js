@@ -885,10 +885,8 @@ function enterRoom() {
   }
 
   $("completeLook").hidden = false;
-  // Open on the angle the shopper selected in the storefront gallery (front|back|side),
-  // so "Back View → Virtual Try-On" renders the BACK from the first live frame. Falls
-  // back to front for catalog browsing or an unrecognized angle.
-  currentAngle = (handoff && WEARABLE_ANGLES.includes(handoff.angle)) ? handoff.angle : "front";
+  // AI Combined is the only mode now, so the storefront's front/back/side deep-link
+  // angle no longer matters — renderPerspectiveSelector() sets currentAngle itself.
   renderPerspectiveSelector();
   setConn("idle");
 
@@ -916,7 +914,7 @@ function setActiveItem(item, opts = {}) {
   renderActiveGarment();             // shows either the single item or the full look
   renderCompleteTheLook(item);
   highlightCatalog(item.id);
-  renderPerspectiveSelector();       // rebuild angle tabs + source preview for the new selection
+  renderPerspectiveSelector();       // resolve AI Combined / front-fallback + swatches for the new selection
 
   if (!opts.silent) {
     toast(`עכשיו מודדים: <b>${item.name}</b>`);
@@ -928,14 +926,16 @@ function setActiveItem(item, opts = {}) {
 }
 
 /* =============================================================================
-   Multi-Image Product Gallery Sync — colour swatches + perspective rail
+   Multi-Image Product Gallery Sync — colour swatches only
    ─────────────────────────────────────────────────────────────────────────
-   Switching a COLOUR or an ANGLE never reconnects: while a billable session is live
-   we re-issue the garment through the existing applyActive() pipeline (one
-   rtClient.set(), same session, same ek_ token, same strict window); otherwise we
-   just remember the choice so the next go-live opens on it. The rail renders for
-   EVERY garment and EVERY colour — angles with no dedicated photo fall back to the
-   front image + a prompt clause, so the UI can never empty out (the bug this fixes).
+   AI Combined is now the only try-on mode (see renderPerspectiveSelector) — there is
+   no user-facing angle picker anymore. Switching a COLOUR never reconnects: while a
+   billable session is live we re-issue the garment through the existing applyActive()
+   pipeline (one rtClient.set(), same session, same ek_ token, same strict window);
+   otherwise we just remember the choice so the next go-live opens on it.
+
+   setAngle() and the front/back/side/AI-Auto tab-building code below are kept but are
+   no longer called from any UI — retained in case per-angle selection returns.
    ============================================================================= */
 function setAngle(angle) {
   // Every wearable angle is always selectable (a missing photo falls back to the front
@@ -978,99 +978,32 @@ function hotSwapIfLive(toastMsg) {
   if (toastMsg) toast(toastMsg);
 }
 
-/* Rebuild the vertical product gallery for the active item + colour: the colour swatch
-   strip AND one thumbnail per WEARABLE angle. ALWAYS renders for every item/colour —
-   an angle with no dedicated photo shows the front image flagged .is-fallback (an "AI"
-   badge marks it AI-inferred), so the rail is never empty and never hides. The delegated
-   click handlers (setAngle/setColor) survive every re-render — they're bound to the
-   stable containers, not the buttons. */
+/* Rebuild the vertical product gallery for the active item + colour: colour swatches only.
+   AI Combined is now the sole try-on mode — there is no user-facing angle rail anymore.
+   currentAngle is set automatically here: COMBINED when the item ships a real, distinct
+   back (canCombineViews), else it falls back silently to "front" (no badge, no menu) so
+   every item stays try-on-able. setAngle()/the front/back/side/AI-Auto tabs and the
+   orientation-watcher engine are kept in the file but are no longer wired to any UI. */
 function renderPerspectiveSelector() {
   const sel = $("perspectiveSelector");
   if (!sel) return;
   if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
 
-  const gallery = galleryOf(activeItem);
-  // Keep currentAngle valid across item swaps: allow "combined"/"auto" only while the new
-  // item actually ships both views, else fall back to front (so a non-combinable item can't
-  // get stuck in a mode it doesn't support). syncOrientationWatcher() then retires a watcher
-  // whose mode just got reset out from under it.
-  if (!WEARABLE_ANGLES.includes(currentAngle) &&
-      !((currentAngle === COMBINED_ANGLE || currentAngle === AUTO_ANGLE) &&
-        canCombineViews(activeItem))) currentAngle = "front";
-  syncOrientationWatcher();
+  currentAngle = canCombineViews(activeItem) ? COMBINED_ANGLE : "front";
 
-  sel.hidden = false;
-  sel.innerHTML = WEARABLE_ANGLES.map((a) => {
-    const on        = a === currentAngle;
-    const dedicated = !!gallery[a];
-    const src       = gallery[a] || gallery.front || activeItem.img || "";
-    return `<button type="button" class="persp-tab${on ? " is-active" : ""}${dedicated ? "" : " is-fallback"}" ` +
-           `data-angle="${a}" aria-pressed="${on}" ` +
-           `title="${ANGLE_LABEL_EN[a]} · ${ANGLE_LABEL_HE[a]}${dedicated ? "" : " (AI-inferred)"}">` +
-           `<span class="persp-tab__frame">` +
-             `<img class="persp-tab__thumb" src="${src}" alt="${ANGLE_LABEL_EN[a]} view" loading="lazy" decoding="async">` +
-             (dedicated ? "" : `<span class="persp-tab__ai" aria-hidden="true">AI</span>`) +
-           `</span>` +
-           `<span class="persp-tab__label">` +
-             `<span class="persp-tab__he">${ANGLE_LABEL_HE[a]}</span>` +
-             `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]}</span>` +
-           `</span></button>`;
-  }).join("");
-
-  // AI Combined View — a visually DISTINCT (pear-green) third tab, appended only when the
-  // active subject ships a real front AND a real, distinct back (canCombineViews). Selecting
-  // it stitches both assets into one reference (stitchReferenceBlob) and steers Lucy with the
-  // composite prompt clause — all through the normal applyActive() → rtClient.set() hot-swap,
-  // so there is NO reconnect and no new token. The split thumbnail previews front|back.
-  if (canCombineViews(activeItem)) {
-    const cg = galleryOf(activeItem);
-    const on = currentAngle === COMBINED_ANGLE;
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-tab persp-tab--ai${on ? " is-active" : ""}" ` +
-      `data-angle="${COMBINED_ANGLE}" aria-pressed="${on}" ` +
-      `title="AI Combined View · ${ANGLE_LABEL_HE.combined} — stitched front + back reference">` +
-        `<span class="persp-tab__frame persp-tab__frame--split">` +
-          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
-          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
-          `<span class="persp-tab__ai persp-tab__ai--combined" aria-hidden="true">AI</span>` +
-        `</span>` +
-        `<span class="persp-tab__label">` +
-          `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
-          `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
-        `</span></button>`);
-
-    // AI Auto — Context-Aware Asset Switching: no stitching at all. Both assets are
-    // pre-cached Blobs and the OrientationWatcher hot-swaps the SINGLE matching reference
-    // as the user turns (front facing camera / back turned away), so the model never sees
-    // both views at once and cannot bleed them. data-orient drives the live FRONT/BACK
-    // chip on the tab (the watcher re-renders this rail on every confirmed flip).
-    const autoOn = currentAngle === AUTO_ANGLE;
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-tab persp-tab--ai persp-tab--auto${autoOn ? " is-active" : ""}" ` +
-      `data-angle="${AUTO_ANGLE}" aria-pressed="${autoOn}" data-orient="${autoOrientation}" ` +
-      `title="AI Auto · ${ANGLE_LABEL_HE.auto} — auto front/back switching as you turn">` +
-        `<span class="persp-tab__frame persp-tab__frame--split">` +
-          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
-          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
-          `<span class="persp-tab__ai persp-tab__ai--auto" aria-hidden="true">AUTO</span>` +
-          (autoOn ? `<span class="persp-tab__orient" aria-hidden="true">${autoOrientation === "back" ? "BACK" : "FRONT"}</span>` : "") +
-        `</span>` +
-        `<span class="persp-tab__label">` +
-          `<span class="persp-tab__he">${ANGLE_LABEL_HE.auto}</span>` +
-          `<span class="persp-tab__en">${ANGLE_LABEL_EN.auto}</span>` +
-        `</span></button>`);
-  }
-
-  // Dual-view custom upload: while a custom garment has only a front, offer a real
-  // back photo. Uploading one flips the Back tab from AI-inferred → a reproduced photo.
+  // The rail itself is gone; the only thing it can still offer is letting a custom
+  // upload add a back photo so it can qualify for AI Combined.
+  sel.innerHTML = "";
   if (activeItem.custom && !hasBackView(activeItem)) {
+    sel.hidden = false;
     sel.insertAdjacentHTML("beforeend",
       `<button type="button" class="persp-upload-back" data-upload-back>` +
       `＋ הוסף תמונת גב · Add back view</button>`);
+  } else {
+    sel.hidden = true;
   }
 
   renderColorSwatches();
-  updateSourcePreview();
 }
 
 /* Colour swatch strip — shown only when the active item defines 2+ named variants.

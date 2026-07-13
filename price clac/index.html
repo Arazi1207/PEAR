@@ -434,7 +434,7 @@ input[type="range"]{
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
             <span class="infra-label">תשתית ענן מותאמת:</span>
-            <span class="infra-chip">decart-Lucy (0.01$/sec)</span>
+            <span class="infra-chip">decart-Lucy (₪0.04/מדידה)</span>
         </div>
     </div>
 </header>
@@ -482,17 +482,17 @@ input[type="range"]{
                             <i id="optIcon" data-lucide="cpu"></i>
                         </div>
                         <div>
-                            <h3 id="optStatus" class="opt-status">הגנת תקציב פעילה: המערכת עברה אופטימיזציה</h3>
-                            <p id="optDesc" class="opt-desc">על מנת לעמוד בתקציב המקסימלי של הלקוח ולשמור על רווחיות של 80%, המערכת כיוונה אוטומטית את שיעור החשיפה.</p>
+                            <h3 id="optStatus" class="opt-status">המחיר בתוך תקציב הלקוח</h3>
+                            <p id="optDesc" class="opt-desc">מדד תקציבי בלבד — משווה את מחיר ה-SaaS המחושב אל מול התקציב המשוער שהמותג יכול להקצות. לא משפיע על המחיר עצמו.</p>
                         </div>
                     </div>
                     <div class="opt-metrics">
                         <div class="opt-metric">
-                            <span class="opt-metric-label">תקציב לקוח מקסימלי</span>
+                            <span class="opt-metric-label">תקציב לקוח מקסימלי (מוערך)</span>
                             <span id="maxAffordableVal" class="opt-metric-value">₪0</span>
                         </div>
                         <div class="opt-metric">
-                            <span class="opt-metric-label">חשיפה מומלצת (Engagement)</span>
+                            <span class="opt-metric-label">Widget Engagement Rate בפועל</span>
                             <span id="optEngagementRate" class="opt-metric-value pear">0%</span>
                         </div>
                         <div class="opt-metric">
@@ -552,13 +552,14 @@ input[type="range"]{
                     <div class="intel-row"><span class="intel-label">אחוז המרה (Conversion)</span><span id="intelConversion" class="intel-value">0%</span></div>
                     <div class="intel-row"><span class="intel-label">שווי סל ממוצע (AOV)</span><span id="intelAOV" class="intel-value">₪0</span></div>
                     <div class="intel-row"><span class="intel-label">שולי רווח נקי מותג</span><span id="intelMargin" class="intel-value pear">0%</span></div>
+                    <div class="intel-row"><span class="intel-label">עלות למדידה בודדת (Decart)</span><span id="intelCostPerMeasure" class="intel-value">₪0</span></div>
                     <div class="intel-row"><span class="intel-label">כמות מדידות חודשיות מותאמת</span><span id="intelMeasures" class="intel-value pear">0</span></div>
                 </div>
 
                 <div class="formula-card">
-                    <p class="formula-title">📌 פתרון PEAR למלכודת עלות הענן</p>
-                    <p class="formula-text">מותגי איקומרס גדולים לא יכולים לאפשר מדידות AI ל-100% מהמבקרים שלהם מכיוון שעלויות הענן ישחקו את כל הרווח שלהם.</p>
-                    <p class="formula-text"><strong>איך זה עובד?</strong> המערכת שלנו מגבילה את חשיפת כפתור ה-Virtual Try-On למבקרים הכי חמים (אלו ששהו בדף מעל דקה, או פתחו טבלת מידות). הסימולטור מחשב אוטומטית את אחוז החשיפה האופטימלי כדי שהחנות תרוויח מקסימום והענן יעלה מינימום.</p>
+                    <p class="formula-title">📌 נוסחת התמחור של PEAR</p>
+                    <p class="formula-text">משתמש שפותח את כלי ה-Virtual Try-On (Active Try-On User) מבצע בממוצע כמה מדידות בסשן אחד (החלפת מידות/פריטים), ולכן עלות הענן נגזרת ממספר <strong>המדידות</strong> בפועל — לא ממספר המשתמשים.</p>
+                    <p class="formula-text"><strong>שרשרת החישוב:</strong> תנועה × Widget Engagement Rate = משתמשים פעילים ← × מדידות לממוצע למשתמש = סה"כ מדידות ← × עלות למדידה = עלות ענן ← ÷ (1 - שולי רווח יעד) = מחיר SaaS מומלץ.</p>
                 </div>
 
                 <div class="accordion">
@@ -573,44 +574,35 @@ input[type="range"]{
                     <div id="advancedSettingsContent" class="accordion__panel hidden">
                         <div class="field-grid">
                             <div class="field">
-                                <label>זמן עיבוד למדידה (שניות)</label>
+                                <label>עלות ל-Decart למדידה בודדת (₪)</label>
                                 <div class="field-input-wrap">
-                                    <input id="procTime" type="number" step="0.5" value="5" oninput="calculate()">
-                                    <span class="field-suffix">שניות</span>
+                                    <input id="costPerMeasurement" type="number" step="0.01" value="0.04" oninput="calculate()">
+                                    <span class="field-suffix">₪</span>
                                 </div>
                             </div>
                             <div class="field">
-                                <label>מדידות למשתמש פעיל</label>
-                                <input id="measuresPerUser" type="number" value="4" oninput="calculate()">
+                                <label>ממוצע מדידות למשתמש מעורב (Engaged User)</label>
+                                <input id="measuresPerUser" type="number" value="5" oninput="calculate()">
                             </div>
                         </div>
 
                         <div class="field-grid">
                             <div class="field">
-                                <label>מקדם חריגה / באפר</label>
-                                <div class="field-input-wrap">
-                                    <input id="bufferPercent" type="number" value="10" oninput="calculate()">
-                                    <span class="field-suffix">%</span>
-                                </div>
-                            </div>
-                            <div class="field">
-                                <label>נתח תוכנה מקס' מהרווח</label>
+                                <label>נתח תוכנה מקס' מהרווח (מדד תקציב בלבד)</label>
                                 <div class="field-input-wrap">
                                     <input id="maxSoftwareShare" type="number" value="10" oninput="calculate()">
                                     <span class="field-suffix">%</span>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="field-grid">
                             <div class="field">
                                 <label>שער חליפין (USD/ILS)</label>
                                 <input id="exchangeRate" type="number" step="0.01" value="3.65" oninput="calculate()">
                             </div>
-                            <div class="field">
-                                <label>עלות ענן לשנייה (USD)</label>
-                                <input id="costPerSec" type="number" step="0.001" value="0.01" oninput="calculate()">
-                            </div>
+                        </div>
+
+                        <div class="range-field">
+                            <label>Widget Engagement Rate: <span id="engagementRateLabel" class="range-val">20%</span></label>
+                            <input id="engagementRate" type="range" min="1" max="100" value="20" oninput="updateEngagementLabel(); calculate();">
                         </div>
 
                         <div class="range-field">
@@ -668,8 +660,8 @@ input[type="range"]{
                     <input type="number" id="newBrandShare" min="1" max="50" step="1" value="10">
                 </div>
                 <div class="field">
-                    <label>אחוז חשיפה ברירת מחדל (%)</label>
-                    <input type="number" id="newBrandEngagement" min="1" max="100" step="1" value="15">
+                    <label>אחוז חשיפה ברירת מחדל / Widget Engagement Rate (%)</label>
+                    <input type="number" id="newBrandEngagement" min="1" max="100" step="1" value="20">
                 </div>
             </div>
             <button type="submit" class="btn-primary">הוסף וחשב מחיר</button>
@@ -678,6 +670,33 @@ input[type="range"]{
 </div>
 
 <script>
+    // ============================================================================
+    // PEAR pricing model — per-measurement cloud cost
+    // ----------------------------------------------------------------------------
+    // An "engaged user" is a visitor who opens the Virtual Try-On widget. Engaged
+    // users don't stop at one measurement: they swap sizes, colors and items, so
+    // each one triggers several separate Decart API render calls ("measurements")
+    // in a single session. Decart bills PEAR per measurement, so pricing must be
+    // driven by TOTAL measurements, not by traffic or by engaged users alone:
+    //
+    //   Total Monthly Measurements = Traffic × Widget Engagement Rate × Avg Measurements Per Engaged User
+    //   Total Monthly Cloud Cost   = Total Monthly Measurements × Cost Per Measurement
+    //   SaaS Price                = Total Monthly Cloud Cost / (1 - Target Net Profit Margin)
+    //   Net Profit                = SaaS Price - Total Monthly Cloud Cost
+    //
+    // Example: 1,000 traffic × 20% engagement × 5 measurements/user = 1,000 total
+    // measurements (NOT 50 — every factor above must multiply forward, never divide
+    // an earlier input back down or get silently overridden by a budget cap).
+    //
+    // DEFAULT_COST_PER_MEASUREMENT_ILS is the fallback used if the "advanced
+    // settings" field is left blank; change it here when Decart's per-render
+    // rate changes so every brand's estimate updates consistently.
+    // ============================================================================
+    const DEFAULT_COST_PER_MEASUREMENT_ILS = 0.04;   // ₪ per single Decart render/measurement call
+    const DEFAULT_MEASURES_PER_ENGAGED_USER = 5;      // avg renders per engaged user per session (size/style/item swaps)
+    const DEFAULT_WIDGET_ENGAGEMENT_RATE = 0.20;      // % of traffic that actually opens the try-on widget
+    const DEFAULT_TARGET_NET_PROFIT_MARGIN = 0.80;    // desired PEAR net margin -> cloud cost = 20% of SaaS price
+
     // group 1 = ענקיות מולטי-ברנד ופלטפורמות מסחר | group 2 = רשתות היברידיות | group 3 = D2C ובוטיקים
     const BRANDS = {
         'terminal-x':      { name: 'Terminal X',       tag: 'מפלצת איקומרס',            group: 1, monthlyTraffic: 7500000, conversionRate: 2.1, aov: 300, clientMargin: 5.6,  maxSoftwareShare: 10, defaultEngagementRate: 12 },
@@ -812,6 +831,16 @@ input[type="range"]{
         document.querySelectorAll('.brand-card').forEach(btn => btn.classList.remove('is-active'));
         const activeBtn = document.getElementById(`btn-${key}`);
         if (activeBtn) activeBtn.classList.add('is-active');
+
+        // Prefill the Widget Engagement Rate slider with this brand's typical rate.
+        // It's just a starting point — fully editable, and calculate() never overrides it.
+        const brand = BRANDS[key];
+        const engagementInput = document.getElementById('engagementRate');
+        if (brand && engagementInput) {
+            engagementInput.value = brand.defaultEngagementRate != null ? brand.defaultEngagementRate : (DEFAULT_WIDGET_ENGAGEMENT_RATE * 100);
+            updateEngagementLabel();
+        }
+
         calculate();
     }
 
@@ -837,7 +866,7 @@ input[type="range"]{
         const aov = parseFloat(document.getElementById('newBrandAOV').value);
         const margin = parseFloat(document.getElementById('newBrandMargin').value);
         const share = parseFloat(document.getElementById('newBrandShare').value) || 10;
-        const engagement = parseFloat(document.getElementById('newBrandEngagement').value) || 15;
+        const engagement = parseFloat(document.getElementById('newBrandEngagement').value) || 20;
 
         if (!name || !traffic || !conversion || !aov || !margin) return;
 
@@ -884,78 +913,88 @@ input[type="range"]{
         document.getElementById('profitMarginLabel').textContent = val + '%';
     }
 
+    function updateEngagementLabel() {
+        const val = document.getElementById('engagementRate').value;
+        document.getElementById('engagementRateLabel').textContent = val + '%';
+    }
+
+    // ============================================================================
+    // calculate() — strict bottom-up pricing model. Every step below only ever
+    // MULTIPLIES forward from raw inputs to the final price; nothing here is
+    // allowed to divide an input back down or silently clamp/override another
+    // input's effect. Increasing any of Traffic / Engagement Rate / Measurements
+    // Per User / Cost Per Measurement must strictly increase Total Measurements,
+    // Total Cloud Cost, and SaaS Price — never decrease them.
+    // ============================================================================
     function calculate() {
         const brand = BRANDS[currentBrandKey];
         if (!brand) return;
 
-        const traffic = brand.monthlyTraffic;
-        const conversion = brand.conversionRate / 100;
-        const aov = brand.aov;
-        const clientMargin = brand.clientMargin / 100;
+        // ---- Raw inputs, mapped 1:1 to the UI ----
+        const traffic = brand.monthlyTraffic;                  // Monthly visitors
+        const conversionRatePct = brand.conversionRate;        // e.g. 2.5 (%)
+        const aov = brand.aov;                                 // AOV in ₪
+        const brandMarginPct = brand.clientMargin;             // Brand's own net margin (%)
 
-        const procTime = parseFloat(document.getElementById('procTime').value) || 5;
-        const measuresPerUser = parseFloat(document.getElementById('measuresPerUser').value) || 4;
-        const bufferPercent = parseFloat(document.getElementById('bufferPercent').value) / 100;
+        const widgetEngagementRatePct = parseFloat(document.getElementById('engagementRate').value) || (DEFAULT_WIDGET_ENGAGEMENT_RATE * 100);
+        const measuresPerUser = parseFloat(document.getElementById('measuresPerUser').value) || DEFAULT_MEASURES_PER_ENGAGED_USER;
+        const costPerMeasurementILS = parseFloat(document.getElementById('costPerMeasurement').value) || DEFAULT_COST_PER_MEASUREMENT_ILS;
+        const desiredMarginPct = parseFloat(document.getElementById('profitMargin').value);
         const maxSoftwareShare = parseFloat(document.getElementById('maxSoftwareShare').value) / 100;
         const exchangeRate = parseFloat(document.getElementById('exchangeRate').value) || 3.65;
-        const costPerSec = parseFloat(document.getElementById('costPerSec').value) || 0.01;
-        const desiredMargin = Math.min(parseFloat(document.getElementById('profitMargin').value) / 100, 0.99);
 
-        const monthlySalesCount = traffic * conversion;
-        const clientSalesVolumeILS = monthlySalesCount * aov;
-        const clientNetProfitILS = clientSalesVolumeILS * clientMargin;
-        const maxAffordableILS = clientNetProfitILS * maxSoftwareShare;
+        const widgetEngagementRate = widgetEngagementRatePct / 100;
+        const desiredMargin = Math.min(desiredMarginPct / 100, 0.99);
 
-        const cloudCostPerUserILS = procTime * costPerSec * measuresPerUser * (1 + bufferPercent) * exchangeRate;
+        // A. Active Try-On Users = Traffic × Widget Engagement Rate
+        const activeUsers = traffic * widgetEngagementRate;
 
-        let engagementRate = brand.defaultEngagementRate / 100;
-        let activeUsers = traffic * engagementRate;
-        let totalMeasures = activeUsers * measuresPerUser;
-        let finalCloudCostILS = activeUsers * cloudCostPerUserILS;
+        // B. Total Monthly Measurements = Active Try-On Users × Avg Measurements Per User
+        //    e.g. 1,000 traffic × 20% engagement × 5 measurements = 1,000 measurements.
+        const totalMeasures = activeUsers * measuresPerUser;
 
-        let rawSaaSPriceILS = finalCloudCostILS / (1 - desiredMargin);
+        // C. Total Cloud Cost = Total Monthly Measurements × Cost Per Single Measurement
+        //    Scales linearly — doubling the cost-per-measurement input must double this.
+        const totalCloudCostILS = totalMeasures * costPerMeasurementILS;
 
-        let isOptimized = false;
-        let originalEngagement = brand.defaultEngagementRate;
+        // D. SaaS Price: cloud cost is exactly (1 - desiredMargin) of the final price,
+        //    so at the 80% default margin, cloud cost = totalCloudCostILS / 0.20 (×5).
+        const saasPriceILS = totalCloudCostILS / (1 - desiredMargin);
+        const saasPriceUSD = saasPriceILS / exchangeRate;
+        const netProfitILS = saasPriceILS - totalCloudCostILS;
 
-        if (rawSaaSPriceILS > maxAffordableILS) {
-            isOptimized = true;
-            const maxAllowedEngagement = (maxAffordableILS * (1 - desiredMargin)) / (traffic * cloudCostPerUserILS);
-            engagementRate = Math.max(0.01, Math.min(brand.defaultEngagementRate / 100, maxAllowedEngagement));
-            activeUsers = traffic * engagementRate;
-            totalMeasures = activeUsers * measuresPerUser;
-            finalCloudCostILS = activeUsers * cloudCostPerUserILS;
-            rawSaaSPriceILS = finalCloudCostILS / (1 - desiredMargin);
-        }
-
-        const finalPriceILS = Math.min(rawSaaSPriceILS, maxAffordableILS);
-        const finalPriceUSD = finalPriceILS / exchangeRate;
-        const netProfitILS = finalPriceILS - finalCloudCostILS;
+        // E. Brand Value / ROI — informational only, does NOT feed back into the price above.
+        const monthlySalesCount = traffic * (conversionRatePct / 100);
+        const brandMonthlyRevenueILS = monthlySalesCount * aov;
+        const brandNetProfitILS = brandMonthlyRevenueILS * (brandMarginPct / 100);
+        const maxAffordableILS = brandNetProfitILS * maxSoftwareShare;
+        const isOverBudget = saasPriceILS > maxAffordableILS;
 
         const averageReturnLossILS = 40;
         const normalReturns = monthlySalesCount * 0.245;
         const returnSavingsILS = normalReturns * averageReturnLossILS * 0.20;
-        const netRoiMultiplier = finalPriceILS > 0 ? (returnSavingsILS / finalPriceILS) : 0;
+        const netRoiMultiplier = saasPriceILS > 0 ? (returnSavingsILS / saasPriceILS) : 0;
 
         document.getElementById('intelTraffic').textContent = traffic.toLocaleString();
-        document.getElementById('intelConversion').textContent = brand.conversionRate + '%';
+        document.getElementById('intelConversion').textContent = conversionRatePct + '%';
         document.getElementById('intelAOV').textContent = '₪' + aov.toLocaleString();
-        document.getElementById('intelMargin').textContent = brand.clientMargin + '%';
+        document.getElementById('intelMargin').textContent = brandMarginPct + '%';
+        document.getElementById('intelCostPerMeasure').textContent = '₪' + costPerMeasurementILS.toFixed(2);
         document.getElementById('intelMeasures').textContent = Math.round(totalMeasures).toLocaleString();
 
-        document.getElementById('finalPriceILS').textContent = '₪' + Math.round(finalPriceILS).toLocaleString();
-        document.getElementById('finalPriceUSD').textContent = '($' + finalPriceUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / חודש)';
+        document.getElementById('finalPriceILS').textContent = '₪' + Math.round(saasPriceILS).toLocaleString();
+        document.getElementById('finalPriceUSD').textContent = '($' + saasPriceUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / חודש)';
 
         document.getElementById('saasProfitCard').textContent = '₪' + Math.round(netProfitILS).toLocaleString();
-        document.getElementById('cloudCostCard').textContent = '₪' + Math.round(finalCloudCostILS).toLocaleString();
+        document.getElementById('cloudCostCard').textContent = '₪' + Math.round(totalCloudCostILS).toLocaleString();
 
-        document.getElementById('tableClientSales').textContent = '₪' + Math.round(clientSalesVolumeILS).toLocaleString();
-        document.getElementById('tableClientProfit').textContent = '₪' + Math.round(clientNetProfitILS).toLocaleString();
+        document.getElementById('tableClientSales').textContent = '₪' + Math.round(brandMonthlyRevenueILS).toLocaleString();
+        document.getElementById('tableClientProfit').textContent = '₪' + Math.round(brandNetProfitILS).toLocaleString();
         document.getElementById('tableReturnSavings').textContent = '₪' + Math.round(returnSavingsILS).toLocaleString();
         document.getElementById('tableRoiMultiplier').textContent = netRoiMultiplier.toFixed(1) + 'x ' + 'החזר השקעה';
 
         document.getElementById('maxAffordableVal').textContent = '₪' + Math.round(maxAffordableILS).toLocaleString();
-        document.getElementById('optEngagementRate').textContent = (engagementRate * 100).toFixed(1) + '%';
+        document.getElementById('optEngagementRate').textContent = (widgetEngagementRate * 100).toFixed(1) + '%';
         document.getElementById('optMargin').textContent = Math.round(desiredMargin * 100) + '%';
 
         const optCard = document.getElementById('optimizationCard');
@@ -963,16 +1002,16 @@ input[type="range"]{
         const optStatus = document.getElementById('optStatus');
         const optDesc = document.getElementById('optDesc');
 
-        optCard.classList.toggle('is-optimized', isOptimized);
+        optCard.classList.toggle('is-optimized', !isOverBudget);
 
-        if (isOptimized) {
-            optIcon.setAttribute('data-lucide', 'cpu');
-            optStatus.textContent = "מערכת האופטימיזציה מצאה את יחס הזהב!";
-            optDesc.textContent = `על מנת לשמור על רווחיות של ${Math.round(desiredMargin * 100)}% ולהבטיח שהלקוח לא ישלם מעבר לתקציב, המערכת ביצעה התאמה אוטומטית והקטינה את שיעור החשיפה באתר מ-${originalEngagement}% ל-${(engagementRate * 100).toFixed(1)}%.`;
+        if (isOverBudget) {
+            optIcon.setAttribute('data-lucide', 'alert-circle');
+            optStatus.textContent = "המחיר חורג מהתקציב המוערך של הלקוח";
+            optDesc.textContent = `מחיר ה-SaaS המחושב (₪${Math.round(saasPriceILS).toLocaleString()}) גבוה מהתקציב המוערך של המותג (₪${Math.round(maxAffordableILS).toLocaleString()}). שקול להוריד את ה-Widget Engagement Rate או את מספר המדידות למשתמש — זהו מדד תקציבי בלבד ואינו משנה את המחיר בפועל.`;
         } else {
             optIcon.setAttribute('data-lucide', 'shield-check');
-            optStatus.textContent = "המחירון הנוכחי עומד בתנאי התקציב של הלקוח";
-            optDesc.textContent = `עלויות התשתית של PEAR נמוכות ויציבות. המחירון המבוקש מוגדר בשיעור חשיפה מקסימלי של ${(engagementRate * 100).toFixed(1)}% ומייצר ללקוח החזר השקעה (ROI) מעולה ללא צורך בהתאמה מיוחדת.`;
+            optStatus.textContent = "המחיר בתוך תקציב הלקוח";
+            optDesc.textContent = `מחיר ה-SaaS המחושב עומד בתקציב המוערך של המותג בשיעור חשיפה של ${(widgetEngagementRate * 100).toFixed(1)}% ומייצר ללקוח החזר השקעה (ROI) בריא.`;
         }
 
         lucide.createIcons();
