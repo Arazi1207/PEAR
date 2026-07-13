@@ -503,3 +503,50 @@ h1, h2, h3, h4 {
   background: rgba(141,182,0,.28);
   border-color: rgba(141,182,0,.6);
 }
+
+/* Each OTP step is its own <form> inside the card — stack its fields/buttons. */
+#emailForm, #codeForm {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.login-hint {
+  margin: 0;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  direction: rtl;
+}
+
+.login-countdown {
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--pear-green);
+  text-align: center;
+  direction: rtl;
+}
+
+.login-back {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 4px;
+  font-family: "Inter", sans-serif;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  direction: rtl;
+  transition: color .2s var(--ease);
+}
+.login-back:hover { color: var(--pear-green); }
+.login-back:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px var(--pear-ring);
+}

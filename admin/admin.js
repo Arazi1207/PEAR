@@ -1,9 +1,32 @@
 /* =============================================================================
    PEAR Admin Dashboard — client logic with Supabase Auth login gate
    -----------------------------------------------------------------------------
-   • Login gate: admins must authenticate via Supabase Auth.
+   • Login gate: admins authenticate via a one-time email code (OTP) — no
+     password. Step A: enter email → Supabase emails a 6-digit code. Step B:
+     enter the code within its validity window → dashboard access.
    • On page load: getSession() → if valid session, skip to dashboard.
    • All data fetches carry a Bearer token; server verifies via getUser().
+   -----------------------------------------------------------------------------
+   SUPABASE SETTINGS — one-time manual configuration required for OTP login:
+
+     1. Enable email OTP:
+        Supabase Dashboard → Authentication → Providers → Email
+        Make sure the Email provider is enabled and that email OTP (one-time
+        code) sign-in is turned on.
+
+     2. (Optional) Customize the code email:
+        Supabase Dashboard → Authentication → Email Templates
+        Edit the OTP / "Magic Link" template to change the wording, branding,
+        or subject line of the email that delivers the 6-digit code.
+
+     3. Set the code expiry to 60 seconds (matches the on-screen countdown):
+        Supabase Dashboard → Authentication → Configuration → OTP Expiry
+        Set it to 60 seconds so codes expire in step with this UI.
+
+     NOTE: signInWithOtp() below uses shouldCreateUser: false, so ONLY existing
+     Supabase users can request a code. Add admin accounts under
+     Authentication → Users, and list their emails in the server's ADMIN_EMAILS
+     env var (the server enforces the admin allowlist — see server.js).
    ============================================================================= */
 (() => {
   "use strict";
@@ -13,24 +36,40 @@
 
   const adminSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  /* ── Login view markup ──────────────────────────────────────────────────── */
+  /* ── Login view markup — two-step OTP (email → code) ────────────────────────
+     Same PEAR logo + card style as before. Step A (email) and Step B (code)
+     live in the same card; only one <form> is visible at a time. */
   function loginMarkup() {
     return `
     <div id="loginView" class="login-view">
-      <form id="loginForm" class="login-card" autocomplete="on" novalidate>
+      <div class="login-card">
         <div class="login-brand">PEAR</div>
         <p class="login-subtitle">Admin Dashboard</p>
-        <div class="login-field">
-          <label for="loginEmail">Email</label>
-          <input id="loginEmail" type="email" autocomplete="email" required placeholder="admin@example.com">
-        </div>
-        <div class="login-field">
-          <label for="loginPassword">Password</label>
-          <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••">
-        </div>
-        <p id="loginError" class="login-error" hidden></p>
-        <button type="submit" id="loginBtn" class="dash-btn login-submit">Login</button>
-      </form>
+
+        <!-- Step A — email entry -->
+        <form id="emailForm" autocomplete="on" novalidate>
+          <div class="login-field">
+            <label for="loginEmail">אימייל</label>
+            <input id="loginEmail" type="email" autocomplete="email" required placeholder="admin@example.com" dir="ltr">
+          </div>
+          <p id="emailError" class="login-error" hidden></p>
+          <button type="submit" id="sendCodeBtn" class="dash-btn login-submit">שלח קוד</button>
+        </form>
+
+        <!-- Step B — code entry -->
+        <form id="codeForm" autocomplete="off" novalidate hidden>
+          <p class="login-hint">נשלח קוד לאימייל שלך. הקוד תקף לדקה אחת.</p>
+          <div class="login-field">
+            <label for="loginCode">קוד</label>
+            <input id="loginCode" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*"
+                   autocomplete="one-time-code" required placeholder="______" dir="ltr">
+          </div>
+          <p id="codeCountdown" class="login-countdown">60 שניות נותרו</p>
+          <p id="codeError" class="login-error" hidden></p>
+          <button type="submit" id="verifyBtn" class="dash-btn login-submit">אמת קוד</button>
+          <button type="button" id="backBtn" class="login-back">בקש קוד חדש</button>
+        </form>
+      </div>
     </div>`;
   }
 
@@ -125,41 +164,127 @@
     </main>`;
   }
 
-  /* ── Show login form ────────────────────────────────────────────────────── */
+  /* ── Show login form — two-step OTP flow ────────────────────────────────────
+     Step A: email → adminSupabase.auth.signInWithOtp({ shouldCreateUser:false })
+     Step B: code  → adminSupabase.auth.verifyOtp({ type:'email' }) → dashboard */
   function showLogin() {
     document.getElementById("app").innerHTML = loginMarkup();
 
-    const form     = document.getElementById("loginForm");
-    const errEl    = document.getElementById("loginError");
-    const loginBtn = document.getElementById("loginBtn");
+    const emailForm   = document.getElementById("emailForm");
+    const codeForm    = document.getElementById("codeForm");
+    const emailInput  = document.getElementById("loginEmail");
+    const codeInput   = document.getElementById("loginCode");
+    const emailError  = document.getElementById("emailError");
+    const codeError   = document.getElementById("codeError");
+    const sendCodeBtn = document.getElementById("sendCodeBtn");
+    const verifyBtn   = document.getElementById("verifyBtn");
+    const backBtn     = document.getElementById("backBtn");
+    const countdownEl = document.getElementById("codeCountdown");
 
-    form.addEventListener("submit", async (e) => {
+    const CODE_TTL = 60;   // seconds — keep in step with Supabase OTP Expiry
+    let countdownTimer = null;
+
+    function stopCountdown() {
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    }
+
+    function startCountdown() {
+      stopCountdown();
+      let left = CODE_TTL;
+      countdownEl.textContent = `${left} שניות נותרו`;
+      countdownTimer = setInterval(() => {
+        left -= 1;
+        if (left <= 0) {
+          stopCountdown();
+          countdownEl.textContent = "הקוד פג תוקף";
+        } else {
+          countdownEl.textContent = `${left} שניות נותרו`;
+        }
+      }, 1000);
+    }
+
+    /* Step A ↔ Step B toggling. */
+    function showEmailStep() {
+      stopCountdown();
+      codeForm.hidden  = true;
+      emailForm.hidden = false;
+      codeError.hidden = true;
+      codeInput.value  = "";
+      emailInput.focus();
+    }
+
+    function showCodeStep() {
+      emailForm.hidden = true;
+      codeForm.hidden  = false;
+      codeError.hidden = true;
+      codeInput.value  = "";
+      codeInput.focus();
+      startCountdown();
+    }
+
+    /* ── Step A: request a one-time code ──────────────────────────────────── */
+    emailForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      errEl.hidden = true;
-      loginBtn.disabled = true;
-      loginBtn.textContent = "...";
+      emailError.hidden = true;
+      sendCodeBtn.disabled = true;
+      sendCodeBtn.textContent = "...";
 
-      const email    = document.getElementById("loginEmail").value.trim();
-      const password = document.getElementById("loginPassword").value;
+      const email = emailInput.value.trim();
 
-      const { data, error } = await adminSupabase.auth.signInWithPassword({ email, password });
+      const { error } = await adminSupabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false },
+      });
 
-      // Do NOT log `data`/`error` verbatim: `data.session` carries the access +
-      // refresh tokens and logging them leaves live admin credentials in the
-      // browser console (and any console-capturing extension). Log status only.
+      // Log status only — never the response body (may carry session material).
       if (error) {
-        console.warn("[auth] sign-in failed:", error?.status || "", error?.name || "error");
-      }
-
-      if (error || !data?.session) {
-        errEl.textContent = "אימייל או סיסמה שגויים";
-        errEl.hidden = false;
-        loginBtn.disabled = false;
-        loginBtn.textContent = "Login";
+        console.warn("[auth] OTP request failed:", error?.status || "", error?.name || "error");
+        emailError.textContent = "האימייל הזה לא מורשה";
+        emailError.hidden = false;
+        sendCodeBtn.disabled = false;
+        sendCodeBtn.textContent = "שלח קוד";
         return;
       }
 
+      sendCodeBtn.disabled = false;
+      sendCodeBtn.textContent = "שלח קוד";
+      showCodeStep();
+    });
+
+    /* ── Step B: verify the code ──────────────────────────────────────────── */
+    codeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      codeError.hidden = true;
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = "...";
+
+      const { data, error } = await adminSupabase.auth.verifyOtp({
+        email: emailInput.value.trim(),
+        token: codeInput.value.trim(),
+        type: "email",
+      });
+
+      if (error) {
+        console.warn("[auth] OTP verify failed:", error?.status || "", error?.name || "error");
+      }
+
+      if (error || !data?.session) {
+        codeError.textContent = "הקוד שגוי או פג תוקף. בקש קוד חדש.";
+        codeError.hidden = false;
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = "אמת קוד";
+        return;
+      }
+
+      stopCountdown();
       showDashboard(data.session.access_token);
+    });
+
+    /* Back link — return to Step A to request a fresh code. */
+    backBtn.addEventListener("click", () => {
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = "אמת קוד";
+      showEmailStep();
     });
   }
 
