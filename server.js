@@ -485,19 +485,28 @@ async function clearSessionLogs() {
    On return visits the client looks the user up by device_id and skips the form,
    so new measurements just attach to the existing profile via sessions.user_id.
    ══════════════════════════════════════════════════════════════════════════ */
+/* device_id is NOT unique (a shared/QA browser can legitimately attach to several
+   different phone-identified profiles over its lifetime — see V3 migration), so
+   this can no longer assume a single row. Used only by the admin-adjacent
+   GET /api/users/:deviceId debug lookup — never by createUser's identification
+   logic, which must go by phone alone. Returns the most recently touched row. */
 async function findUserByDeviceId(deviceId) {
   const { data, error } = await supabase
     .from("users")
     .select("*")
     .eq("device_id", deviceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data || null;
 }
 
 /* Phone is the human-facing UNIQUE identity (a person keeps their number across
-   browsers/devices). We store and compare it normalized to digits only so
-   "050-1234567", "0501234567" and "050 123 4567" all resolve to the same user. */
+   browsers/devices) — enforced both here in application logic AND by a UNIQUE
+   index in the database (see supabase_setup_v3.sql). We store and compare it
+   normalized to digits only so "050-1234567", "0501234567" and "050 123 4567"
+   all resolve to the same user. */
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
@@ -547,9 +556,15 @@ function publicUser(u) {
   return { id: u.id, name: u.name, created_at: u.created_at };
 }
 
-/* POST /api/users — create a user, or return the existing one for this device_id
-   (upsert-by-device_id: never creates a duplicate, never overwrites the original
-   name/phone). Returns { ok, user }. */
+/* POST /api/users — identify (or create) a user by PHONE. Phone is the ONLY
+   lookup key here — device_id is never consulted for identification, it is
+   purely an audit field written/refreshed on the matched row. This is
+   deliberate: an earlier version checked device_id FIRST ("known browser →
+   return its profile"), which meant typing a different name/phone into the
+   identity form on a browser that had registered before silently returned the
+   PREVIOUS visitor's real saved profile instead of respecting what was typed.
+   See supabase_setup_v3.sql for the matching schema change (phone UNIQUE,
+   device_id no longer unique). Returns { ok, user, ...measurements }. */
 async function createUser(req, res) {
   if (storageUnavailable(res)) return;
   const b = req.body || {};
@@ -568,40 +583,32 @@ async function createUser(req, res) {
   const sameName = (a, c) =>
     String(a || "").trim().toLowerCase() === String(c || "").trim().toLowerCase();
 
-  try {
-    // Already known device → return the existing profile (with their saved
-    // measurements), don't duplicate.
-    const existing = await findUserByDeviceId(deviceId);
-    if (existing) {
-      console.log(`[users] device "${deviceId}" already known → returning existing user`);
-      const m = await latestMeasurementsForUser(existing.id).catch(() => null);
-      return res.json({ ok: true, user: publicUser(existing), existed: true, ...(m || {}) });
+  // Same person, matching name → re-link this device to their profile (an audit
+  // update only — never used for lookup) and hand back their saved measurements.
+  // Different name on the same phone → BLOCK; that phone is taken. Shared by both
+  // the normal path and the insert-race fallback below.
+  const respondForExistingPhone = async (row) => {
+    if (sameName(row.name, name)) {
+      await supabase.from("users").update({ device_id: deviceId }).eq("id", row.id);
+      console.log(`[users] name+phone match → auto-login user ${row.id}, relinked device "${deviceId}"`);
+      const m = await latestMeasurementsForUser(row.id).catch(() => null);
+      return {
+        status: 200,
+        body: { ok: true, user: publicUser({ ...row, device_id: deviceId }), existed: true, matched: "phone", ...(m || {}) },
+      };
     }
+    console.warn(`[users] phone already registered to a different name → blocked`);
+    return {
+      status: 409,
+      body: { ok: false, error: "phone_taken", message: "This phone number is already registered to another user." },
+    };
+  };
 
-    // Phone is the unique identity. A phone already on file means one of two things:
+  try {
     const byPhone = await findUserByPhone(phone);
     if (byPhone) {
-      // 1) Same person, new browser/device → AUTO-LOGIN. Re-link this device to the
-      //    existing profile and hand back their saved measurements so the client can
-      //    prefill instantly. (device_id is UNIQUE and this device isn't in `users`
-      //    yet — we returned above if it were — so the re-link is always safe.)
-      if (sameName(byPhone.name, name)) {
-        await supabase.from("users").update({ device_id: deviceId }).eq("id", byPhone.id);
-        console.log(`[users] name+phone match → auto-login user ${byPhone.id}, relinked device "${deviceId}"`);
-        const m = await latestMeasurementsForUser(byPhone.id).catch(() => null);
-        return res.json({
-          ok: true, user: publicUser({ ...byPhone, device_id: deviceId }),
-          existed: true, matched: "phone", ...(m || {}),
-        });
-      }
-      // 2) Different name on the same phone → BLOCK the registration (the phone is
-      //    taken). The client surfaces this inline; the visitor must correct it.
-      console.warn(`[users] phone already registered to a different name → blocked`);
-      return res.status(409).json({
-        ok: false,
-        error: "phone_taken",
-        message: "This phone number is already registered to another user.",
-      });
+      const { status, body } = await respondForExistingPhone(byPhone);
+      return res.status(status).json(body);
     }
 
     const { data, error } = await supabase
@@ -611,14 +618,18 @@ async function createUser(req, res) {
       .single();
 
     if (error) {
-      // Race: another request inserted the same device_id between our check and
-      // insert. Fall back to fetching the now-existing row.
-      const raced = await findUserByDeviceId(deviceId);
-      if (raced) return res.json({ ok: true, user: publicUser(raced), existed: true });
+      // Race: another request registered the SAME PHONE between our check and this
+      // insert (phone now has a UNIQUE index — see supabase_setup_v3.sql). Re-run
+      // the same phone-match/block decision against the row that won the race.
+      const raced = await findUserByPhone(phone);
+      if (raced) {
+        const { status, body } = await respondForExistingPhone(raced);
+        return res.status(status).json(body);
+      }
       throw new Error(error.message);
     }
 
-    console.log(`[users] created user ${data.id} (device "${deviceId}")`);
+    console.log(`[users] created user ${data.id} (phone-unique, device "${deviceId}")`);
     res.json({ ok: true, user: publicUser(data), existed: false });
   } catch (err) {
     console.error("[users] create failed:", err?.message);
