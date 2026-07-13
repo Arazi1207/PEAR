@@ -219,7 +219,10 @@
 
       const { error } = await adminSupabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: false },
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: "https://pear-web-demo.vercel.app/admin/",
+        },
       });
 
       // Log status only — never the response body (may carry session material).
