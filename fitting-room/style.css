@@ -685,13 +685,13 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .camera-card.show-live #webcam { visibility: hidden; }
 .camera-card.show-live .camera-card__guide { display: none; }
 
-/* ── Multi-Image Gallery — colour swatches + vertical perspective rail ────────
-   A real-PDP gallery pinned to the inline-start edge of the camera stage, vertically
-   centred, ABOVE the live #aiVideo (z-index 7 > the video) so colour + angle can be
-   switched mid-stream. The wrapper is absolutely positioned and out of flow, so the
-   swatch strip appearing/disappearing between products NEVER reflows the video stage.
-   The rail always holds a fixed set of same-size tiles, so it can't resize either —
-   the stage never jumps when a colour or variant changes. */
+/* ── Colour swatches — variant bubbles pinned to the camera stage ─────────────
+   The only floating gallery control left on the live stage. Pinned to the inline-start
+   edge, vertically centred, ABOVE the live #aiVideo (z-index 7 > the video) so the colour
+   can be switched mid-stream. Absolutely positioned and out of flow, so the swatch strip
+   appearing/disappearing between products NEVER reflows the video stage.
+   (The old vertical perspective / AI-mode rail was removed — AI Combined is now the sole,
+   hardcoded try-on mode, applied automatically with no on-screen picker.) */
 .product-gallery {
   position: absolute;
   inset-inline-start: 12px;
@@ -702,9 +702,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  /* reserve enough height for the full rail so nothing shifts as items/colours swap */
-  min-height: 210px;
-  justify-content: center;
 }
 
 /* Colour swatch strip — a glass pill of round variant bubbles. */
@@ -739,259 +736,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   box-shadow: 0 0 0 2px #8db600, 0 2px 8px rgba(0, 0, 0, .4);
 }
 
-.persp-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 18px;
-  background: rgba(10, 10, 11, .42);
-  -webkit-backdrop-filter: blur(16px) saturate(1.25);
-  backdrop-filter: blur(16px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, .14);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .34);
-  transition: opacity .3s var(--ease, ease);
-}
-.persp-selector[hidden] { display: none; }
-
-/* Dual-view custom upload: "＋ Add back view" — a dashed call-to-action that only
-   appears while a custom garment still lacks a real back photo. */
-.persp-upload-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 8px;
-  border-radius: 12px;
-  border: 1.5px dashed rgba(255, 255, 255, .32);
-  background: rgba(255, 255, 255, .05);
-  color: rgba(255, 255, 255, .86);
-  font: 600 11px/1.2 inherit;
-  letter-spacing: .01em;
-  cursor: pointer;
-  transition: border-color .2s var(--ease, ease), background .2s var(--ease, ease), color .2s var(--ease, ease);
-}
-.persp-upload-back:hover {
-  border-color: rgba(120, 170, 255, .7);
-  background: rgba(120, 170, 255, .12);
-  color: #fff;
-}
-.persp-upload-back:focus-visible {
-  outline: none;
-  border-color: rgba(120, 170, 255, .9);
-  box-shadow: 0 0 0 3px rgba(120, 170, 255, .28);
-}
-
-/* Mid-stream angle warp in flight: soften the rail and sweep a shimmer across the
-   active thumb for exactly as long as the single rtClient.set() is resolving. */
-.persp-selector.is-syncing { opacity: .94; }
-.persp-selector.is-syncing .persp-tab.is-active .persp-tab__frame::after {
-  opacity: 1;
-  animation: perspSync 1s linear infinite;
-}
-
-.persp-tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px;
-  border: 0;
-  border-radius: 13px;
-  background: transparent;
-  color: rgba(255, 255, 255, .8);
-  font-family: inherit;
-  cursor: pointer;
-  transition: background .26s var(--ease, ease), color .26s var(--ease, ease);
-}
-.persp-tab__frame {
-  position: relative;
-  flex: 0 0 auto;
-  width: 46px; height: 58px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #1a1a1c;
-  /* clean desaturated resting border; the active state saturates to pear-green */
-  border: 1px solid rgba(255, 255, 255, .16);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
-  transition: border-color .26s var(--ease, ease), box-shadow .26s var(--ease, ease),
-              transform .26s var(--ease, ease);
-}
-/* shimmer sweep — invisible at rest, revealed only under .is-syncing */
-.persp-tab__frame::after {
-  content: ""; position: absolute; inset: 0; opacity: 0;
-  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .42) 50%, transparent 70%);
-  transform: translateX(-120%);
-  pointer-events: none;
-}
-.persp-tab__thumb {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  display: block;
-  filter: saturate(.82) contrast(1.02);
-  transition: filter .26s var(--ease, ease);
-}
-.persp-tab__label {
-  display: flex; flex-direction: column; line-height: 1.1;
-  padding-inline-end: 6px;
-  text-align: start;
-}
-.persp-tab__he { font-size: .82rem; font-weight: 700; }
-.persp-tab__en {
-  font-size: .56rem; letter-spacing: .06em; text-transform: uppercase; opacity: .62;
-}
-.persp-tab:hover .persp-tab__frame {
-  border-color: rgba(255, 255, 255, .4);
-  transform: translateY(-1px);
-}
-.persp-tab:hover .persp-tab__thumb { filter: saturate(1) contrast(1.04); }
-.persp-tab:focus-visible { outline: none; }
-.persp-tab:focus-visible .persp-tab__frame {
-  border-color: #8db600;
-  box-shadow: 0 0 0 3px var(--pear-glow, rgba(141, 182, 0, .5));
-}
-.persp-tab.is-active { color: #fff; }
-.persp-tab.is-active .persp-tab__frame {
-  border-color: #8db600;
-  box-shadow: 0 0 0 2px #8db600, 0 4px 14px rgba(0, 0, 0, .3);
-}
-.persp-tab.is-active .persp-tab__thumb { filter: saturate(1.05) contrast(1.05); }
-
-/* Fallback angle (no dedicated photo → front image, AI-inferred at that angle):
-   desaturate the thumb and mark it with a small pear-green "AI" badge so the user
-   knows the back/side render is model-inferred rather than a real product shot. */
-.persp-tab.is-fallback .persp-tab__thumb { filter: grayscale(.75) saturate(.5) brightness(.82); }
-.persp-tab.is-fallback.is-active .persp-tab__thumb { filter: grayscale(.4) saturate(.9) brightness(.95); }
-.persp-tab__ai {
-  position: absolute;
-  bottom: 3px; inset-inline-end: 3px;
-  font-size: .5rem; font-weight: 900; letter-spacing: .04em; line-height: 1;
-  padding: 2px 4px; border-radius: 5px;
-  color: #0a0a0b; background: var(--pear, #8db600);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
-}
-
-/* AI Combined View tab — the visually DISTINCT third option. Always pear-green-bordered
-   (even at rest) so it reads as the special "stitched front+back" mode, with the label
-   accent tinted green and the frame showing a split front|back preview + a bold AI badge. */
-.persp-tab--ai .persp-tab__frame {
-  border-color: var(--pear, #8db600);
-  box-shadow: 0 0 0 1.5px var(--pear, #8db600), inset 0 0 0 1px rgba(0, 0, 0, .3);
-}
-.persp-tab--ai:hover .persp-tab__frame { transform: translateY(-1px); }
-.persp-tab--ai.is-active { color: #fff; }
-.persp-tab--ai.is-active .persp-tab__frame {
-  box-shadow: 0 0 0 2px var(--pear, #8db600), 0 4px 16px var(--pear-glow, rgba(141, 182, 0, .5));
-}
-.persp-tab--ai .persp-tab__en { color: var(--pear, #8db600); opacity: .9; }
-/* Split preview: front on the left half, back on the right; the 1px grid gap shows the
-   pear-green backing through as a divider (a scaled-down hint of the real 100px black
-   separator bar in the stitched reference). direction:ltr FORCES front-left/back-right even
-   on the RTL (Hebrew) page — otherwise the grid flips and the preview lies about the layout,
-   which is exactly what the actual stitched reference does NOT do (front is always left). */
-.persp-tab__frame--split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  direction: ltr;
-  gap: 1px;
-  background: var(--pear, #8db600);
-}
-.persp-tab__frame--split .persp-tab__thumb { width: 100%; height: 100%; }
-/* Centre the AI badge across the whole split frame (RTL-safe), not pinned to a corner. */
-.persp-tab__ai--combined,
-.persp-tab__ai--auto {
-  inset-inline: 0;
-  margin-inline: auto;
-  width: max-content;
-  bottom: 4px;
-}
-
-/* AI Auto tab — Context-Aware Asset Switching. Same pear-green special-mode framing as
-   Combined; the live FRONT/BACK chip (top of the frame) is repainted by the orientation
-   watcher on every confirmed flip, so the user sees which asset is currently driving the
-   render. data-orient="back" flips the chip to the warm accent to make the swap obvious. */
-.persp-tab__orient {
-  position: absolute;
-  top: 3px;
-  inset-inline: 0;
-  margin-inline: auto;
-  width: max-content;
-  font-size: .5rem; font-weight: 900; letter-spacing: .06em; line-height: 1;
-  padding: 2px 5px; border-radius: 5px;
-  color: #fff; background: rgba(10, 10, 11, .82);
-  box-shadow: 0 0 0 1px var(--pear, #8db600), 0 1px 4px rgba(0, 0, 0, .4);
-  transition: background .25s var(--ease, ease), color .25s var(--ease, ease);
-}
-.persp-tab--auto[data-orient="back"] .persp-tab__orient {
-  color: #0a0a0b; background: var(--pear, #8db600);
-}
-
-
-
-/* Subtle fade-in on every rail rebuild (item / colour / angle swap) — masks the
-   split-second while a new variant's images decode, preventing any flicker. Because
-   renderPerspectiveSelector regenerates the thumbnails, each new <img> replays this. */
-.persp-tab__thumb { animation: thumbIn .34s var(--ease, ease) both; }
-@keyframes thumbIn { from { opacity: .3; } to { opacity: 1; } }
-
-@keyframes perspSync {
-  from { transform: translateX(-120%); }
-  to   { transform: translateX(120%); }
-}
-
-/* Narrow phones: collapse to a pure thumbnail rail (labels hidden) so it never
-   crowds the live stage. */
-@media (max-width: 480px) {
-  .persp-tab__label { display: none; }
-  .persp-tab__frame { width: 40px; height: 50px; }
-  .persp-selector { gap: 6px; padding: 6px; }
-}
-
-/* ── Source-image preview — the exact product photo fed to the AI ─────────────
-   A small glass gallery-thumbnail pinned to the bottom-start corner of the stage,
-   visible during the live stream so the user sees which angle is being processed. */
-.source-preview {
-  position: absolute;
-  bottom: 14px; inset-inline-start: 14px;
-  z-index: 7;
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 11px 6px 6px;
-  border-radius: 14px;
-  background: rgba(10, 10, 11, .5);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
-  border: 1px solid rgba(255, 255, 255, .16);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, .3);
-  animation: sourcePreviewIn .28s var(--ease, ease) both;
-}
-.source-preview[hidden] { display: none; }
-.source-preview img {
-  width: 40px; height: 50px;
-  object-fit: cover;
-  border-radius: 9px;
-  background: #1a1a1c;
-  border: 1px solid rgba(255, 255, 255, .18);
-  transition: opacity .2s var(--ease, ease);
-}
-.source-preview__cap { display: inline-flex; flex-direction: column; line-height: 1.15; }
-.source-preview__eyebrow {
-  font-size: .56rem; letter-spacing: .06em; text-transform: uppercase;
-  color: rgba(255, 255, 255, .6);
-}
-.source-preview__label { font-size: .86rem; font-weight: 800; color: #fff; }
-/* Subtle amber hint when the angle has no dedicated image (front fallback + prompt). */
-.source-preview.is-fallback .source-preview__label { color: #f0c36d; }
-@keyframes sourcePreviewIn {
-  from { opacity: 0; transform: translateY(6px) scale(.96); }
-  to   { opacity: 1; transform: none; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .persp-tab, .persp-tab__frame, .persp-tab__thumb, .pg-swatch { transition: none; }
-  .persp-tab__thumb { animation: none; }
-  .persp-selector.is-syncing .persp-tab.is-active .persp-tab__frame::after { animation: none; opacity: 0; }
-  .source-preview { animation: none; }
+  .pg-swatch { transition: none; }
 }
 
 /* CLIP replay: a saved history clip plays in #aiVideo (no live billing) */

@@ -955,9 +955,8 @@ function setAngle(angle) {
   hotSwapIfLive(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
 }
 
-/* Colour/variant swap. Re-renders the swatches + the angle rail against the NEW colour's
-   own gallery, then hot-swaps the live stream in place. The angle is preserved across the
-   swap (viewing the back of black → viewing the back of white). */
+/* Colour/variant swap. Re-renders the swatch strip against the NEW colour's own gallery,
+   then hot-swaps the live stream in place. AI Combined mode is preserved across the swap. */
 function setColor(color) {
   if (!colorsOf(activeItem).includes(color) || color === activeColor) return;
   activeColor = color;
@@ -965,44 +964,24 @@ function setColor(color) {
   hotSwapIfLive(`צבע · ${color}`);
 }
 
-/* Shared live hot-swap: drive the rail's loading shimmer for exactly as long as the
-   single rtClient.set() is in flight — no reconnect, no extra handshake/token, no layout
-   shift — then clear it. No-op when not live. */
+/* Shared live hot-swap: re-issue the active garment through the existing applyActive()
+   pipeline (one rtClient.set() — no reconnect, no extra handshake/token, no layout shift).
+   No-op when not live. */
 function hotSwapIfLive(toastMsg) {
   if (!isLive()) return;
-  const sel = $("perspectiveSelector");
-  if (sel) sel.classList.add("is-syncing");
-  applyActive()
-    .catch((e) => console.warn("gallery hot-swap apply:", e?.message || e))
-    .finally(() => { if (sel) sel.classList.remove("is-syncing"); });
+  applyActive().catch((e) => console.warn("gallery hot-swap apply:", e?.message || e));
   if (toastMsg) toast(toastMsg);
 }
 
-/* Rebuild the vertical product gallery for the active item + colour: colour swatches only.
-   AI Combined is now the sole try-on mode — there is no user-facing angle rail anymore.
-   currentAngle is set automatically here: COMBINED when the item ships a real, distinct
-   back (canCombineViews), else it falls back silently to "front" (no badge, no menu) so
-   every item stays try-on-able. setAngle()/the front/back/side/AI-Auto tabs and the
-   orientation-watcher engine are kept in the file but are no longer wired to any UI. */
+/* Sync the live product gallery for the active item + colour. AI Combined is the ONLY
+   try-on mode now — there is NO on-screen angle/mode picker (the perspective rail and its
+   #perspectiveSelector element were removed). This just hardcodes currentAngle — COMBINED
+   when the item ships a real, distinct back (canCombineViews), else a silent "front"
+   fallback so every item stays try-on-able — and refreshes the colour swatch strip.
+   setAngle() and the orientation-watcher engine remain in the file but are no longer
+   wired to any UI. (Name kept as-is: still called from every item/colour swap.) */
 function renderPerspectiveSelector() {
-  const sel = $("perspectiveSelector");
-  if (!sel) return;
-  if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
-
-  currentAngle = canCombineViews(activeItem) ? COMBINED_ANGLE : "front";
-
-  // The rail itself is gone; the only thing it can still offer is letting a custom
-  // upload add a back photo so it can qualify for AI Combined.
-  sel.innerHTML = "";
-  if (activeItem.custom && !hasBackView(activeItem)) {
-    sel.hidden = false;
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-upload-back" data-upload-back>` +
-      `＋ הוסף תמונת גב · Add back view</button>`);
-  } else {
-    sel.hidden = true;
-  }
-
+  if (activeItem) currentAngle = canCombineViews(activeItem) ? COMBINED_ANGLE : "front";
   renderColorSwatches();
 }
 
@@ -1022,23 +1001,6 @@ function renderColorSwatches() {
            `role="radio" aria-checked="${on}" aria-label="${key}" title="${key}" ` +
            `style="--sw:${swatchColor(activeItem, key)}"></button>`;
   }).join("");
-}
-
-/* Show a small thumbnail of the EXACT product image currently being fed to the AI,
-   so the user always sees which gallery angle the model is processing. Updated on
-   every item swap and every angle switch. */
-function updateSourcePreview() {
-  const box = $("sourcePreview");
-  if (!box) return;
-  const src = activeImageOf(activeItem);
-  if (!src) { box.hidden = true; return; }
-
-  box.hidden = false;
-  const img   = $("sourcePreviewImg");
-  const label = $("sourcePreviewLabel");
-  if (img && img.getAttribute("src") !== src) img.setAttribute("src", src);
-  if (label) label.textContent = ANGLE_LABEL_EN[currentAngle] || currentAngle;
-  box.classList.toggle("is-fallback", !hasDedicatedAngle(activeItem));
 }
 
 /**
@@ -5266,19 +5228,10 @@ function init() {
   $("captureBtn").addEventListener("click", onLiveToggle);
   $("retakeBtn").addEventListener("click", onRetake);
 
-  // Multi-Image Gallery — perspective selector. Delegated over the (dynamically
-  // rebuilt) tabs so one listener survives every re-render; setAngle() no-ops when
-  // the angle is unchanged and re-warps the live stream in place when it isn't.
-  const perspSelector = $("perspectiveSelector");
-  if (perspSelector) perspSelector.addEventListener("click", (e) => {
-    // Dual-view custom upload: the "Add back view" button opens the picker in back mode.
-    if (e.target.closest("[data-upload-back]")) { openGarmentUpload("back"); return; }
-    const b = e.target.closest(".persp-tab");
-    if (b) setAngle(b.dataset.angle);
-  });
-
-  // Colour swatches — same delegation pattern; setColor() re-renders the rail against
-  // the chosen colour's own angle images and hot-swaps the live stream in place.
+  // Colour swatches — delegated over the (dynamically rebuilt) bubbles so one listener
+  // survives every re-render; setColor() re-renders the strip against the chosen colour's
+  // own images and hot-swaps the live stream in place. (The perspective / AI-mode rail was
+  // removed — AI Combined is applied automatically, so there is no angle picker to wire.)
   const swatches = $("productSwatches");
   if (swatches) swatches.addEventListener("click", (e) => {
     const b = e.target.closest(".pg-swatch");

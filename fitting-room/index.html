@@ -290,34 +290,16 @@
         <div class="camera-card" id="cameraCard">
             <span class="camera-card__live" id="liveBadge"><i></i>LIVE</span>
 
-            <!-- ░░ Product gallery — colour swatches only ░░
-                 A real-PDP gallery pinned to the inline-start edge of the camera stage so
-                 it stays reachable DURING the live stream (above #aiVideo), built at runtime
-                 for the ACTIVE product + colour (renderPerspectiveSelector):
-                   • #productSwatches — colour bubbles (shown when the item has 2+ variants);
-                     picking one re-renders against that colour's own images.
-                   • #perspectiveSelector — no angle rail anymore (AI Combined is the only
-                     mode and is applied automatically); this container now only ever shows
-                     the "Add back view" affordance for a custom upload that lacks one.
-                 Tapping a swatch re-warps the same WebRTC session in place — no reconnect,
-                 no new token. -->
+            <!-- ░░ Colour swatches — the only floating gallery control on the live stage ░░
+                 #productSwatches — colour bubbles, shown only when the ACTIVE item has 2+
+                 variants; picking one hot-swaps the same WebRTC session in place (no
+                 reconnect, no new token). The old vertical perspective / AI-mode rail and
+                 the "AI source" preview panel were removed — AI Combined is now the sole,
+                 hardcoded try-on mode, applied automatically with no on-screen picker. -->
             <div class="product-gallery" id="productGallery">
                 <div class="product-swatches" id="productSwatches" role="radiogroup"
                      aria-label="צבע · Colour" hidden></div>
-                <div class="persp-selector product-thumbnails" id="perspectiveSelector" role="group"
-                     aria-label="הוספת תמונת גב · Add back view" hidden></div>
             </div>
-
-            <!-- ░░ Source-image preview — the exact product photo fed to the AI ░░
-                 Mirrors a real product-gallery thumbnail so the user always sees which
-                 angle the model is processing. Updated on every item/angle change. -->
-            <figure class="source-preview" id="sourcePreview" hidden aria-live="polite">
-                <img id="sourcePreviewImg" alt="" width="52" height="66" decoding="async">
-                <figcaption class="source-preview__cap">
-                    <span class="source-preview__eyebrow">מקור · AI source</span>
-                    <span class="source-preview__label" id="sourcePreviewLabel">Front</span>
-                </figcaption>
-            </figure>
 
             <video id="webcam" playsinline autoplay muted></video>
             <!-- hidden source video carrying the Lucy-VTON-edited realtime stream -->
@@ -520,7 +502,7 @@
     </div>
 </div>
 
-<script type="module" src="app.js?v=3"></script>
+<script type="module" src="app.js?v=5"></script>
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
      header shrink. Pure enhancement — touches no app.js logic or state. -->
 <script src="mobile-ux.js" defer></script>
