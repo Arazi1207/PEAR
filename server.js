@@ -514,10 +514,18 @@ function normalizePhone(phone) {
 async function findUserByPhone(phone) {
   const norm = normalizePhone(phone);
   if (!norm) return null;
+  // .limit(1) BEFORE reading a single row: if pre-existing legacy rows (from
+  // before phone became the identity key) normalize to the same digits, a bare
+  // .maybeSingle() throws "multiple rows returned" and every lookup for that
+  // phone 500s — masquerading as "the whole feature doesn't work." Taking the
+  // most recent of any duplicates keeps this working even before that legacy
+  // data is cleaned up.
   const { data, error } = await supabase
     .from("users")
     .select("*")
     .eq("phone", norm)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data || null;
