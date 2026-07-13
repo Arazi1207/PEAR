@@ -41,9 +41,10 @@
 
   const adminSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  /* ── Login view markup — two-step OTP (email → code) ────────────────────────
-     Same PEAR logo + card style as before. Step A (email) and Step B (code)
-     live in the same card; only one <form> is visible at a time. */
+  /* ── Login view markup — single screen, magic-link ──────────────────────────
+     One card: email field + שלח קוד button. After signInWithOtp succeeds a
+     confirmation message appears below the button; onAuthStateChange (see init)
+     loads the dashboard once the admin clicks the emailed link. */
   function loginMarkup() {
     return `
     <div id="loginView" class="login-view">
@@ -51,7 +52,6 @@
         <div class="login-brand">PEAR</div>
         <p class="login-subtitle">Admin Dashboard</p>
 
-        <!-- Step A — email entry -->
         <form id="emailForm" autocomplete="on" novalidate>
           <div class="login-field">
             <label for="loginEmail">אימייל</label>
@@ -59,13 +59,8 @@
           </div>
           <p id="emailError" class="login-error" hidden></p>
           <button type="submit" id="sendCodeBtn" class="dash-btn login-submit">שלח קוד</button>
+          <p id="loginSent" class="login-hint" hidden>נשלח לך קישור לאימייל שלך. לחץ על הקישור כדי להיכנס.</p>
         </form>
-
-        <!-- Step B — waiting for the admin to click the emailed magic link -->
-        <div id="waitView" class="login-wait" style="display:flex;flex-direction:column;gap:20px;" hidden>
-          <p class="login-hint">נשלח לך קישור לאימייל שלך.<br>פתח את האימייל ולחץ על הקישור כדי להיכנס.<br>הקישור תקף לדקה אחת.</p>
-          <button type="button" id="backBtn" class="login-back">בקש קישור חדש</button>
-        </div>
       </div>
     </div>`;
   }
@@ -161,65 +156,67 @@
     </main>`;
   }
 
-  /* ── Show login form — magic-link flow ──────────────────────────────────────
-     Step A: email → adminSupabase.auth.signInWithOtp({ shouldCreateUser:false })
-     Step B: waiting screen. The admin clicks the link in their inbox; Supabase
-     redirects back here with a session and onAuthStateChange (see init) fires
-     SIGNED_IN, which loads the dashboard. */
+  /* ── Show login form — single screen, magic-link ────────────────────────────
+     email → server-side ADMIN_EMAILS check → signInWithOtp → confirmation msg.
+     The admin clicks the emailed link; onAuthStateChange (see init) fires
+     SIGNED_IN and loads the dashboard. */
   function showLogin() {
     document.getElementById("app").innerHTML = loginMarkup();
 
     const emailForm   = document.getElementById("emailForm");
-    const waitView    = document.getElementById("waitView");
     const emailInput  = document.getElementById("loginEmail");
     const emailError  = document.getElementById("emailError");
     const sendCodeBtn = document.getElementById("sendCodeBtn");
-    const backBtn     = document.getElementById("backBtn");
+    const sentMsg     = document.getElementById("loginSent");
 
-    /* Step A ↔ Step B toggling. */
-    function showEmailStep() {
-      waitView.hidden   = true;
-      emailForm.hidden  = false;
-      emailError.hidden = true;
-      emailInput.focus();
+    function showError(msg) {
+      sentMsg.hidden = true;
+      emailError.textContent = msg;
+      emailError.hidden = false;
+      sendCodeBtn.disabled = false;
+      sendCodeBtn.textContent = "שלח קוד";
     }
 
-    function showWaitStep() {
-      emailForm.hidden = true;
-      waitView.hidden  = false;
-    }
-
-    /* ── Step A: send the magic link ──────────────────────────────────────── */
     emailForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       emailError.hidden = true;
+      sentMsg.hidden = true;
       sendCodeBtn.disabled = true;
       sendCodeBtn.textContent = "...";
 
-      const email = emailInput.value.trim();
+      // Gate on the server-side ADMIN_EMAILS allowlist BEFORE requesting a link,
+      // so only approved admins ever trigger a Supabase email send.
+      try {
+        const check = await fetch(
+          "/api/admin/check-email?email=" + encodeURIComponent(emailInput.value)
+        );
+        const { allowed } = await check.json();
+        if (!allowed) {
+          showError("האימייל הזה לא מורשה");
+          return;
+        }
+      } catch (err) {
+        console.warn("[auth] check-email failed:", err?.message || err);
+        showError("האימייל הזה לא מורשה");
+        return;
+      }
 
       const { error } = await adminSupabase.auth.signInWithOtp({
-        email,
+        email: emailInput.value.trim(),
         options: { shouldCreateUser: false },
       });
 
       // Log status only — never the response body (may carry session material).
       if (error) {
         console.warn("[auth] magic-link request failed:", error?.status || "", error?.name || "error");
-        emailError.textContent = "האימייל הזה לא מורשה";
-        emailError.hidden = false;
-        sendCodeBtn.disabled = false;
-        sendCodeBtn.textContent = "שלח קוד";
+        showError("האימייל הזה לא מורשה");
         return;
       }
 
       sendCodeBtn.disabled = false;
       sendCodeBtn.textContent = "שלח קוד";
-      showWaitStep();
+      sentMsg.hidden = false;
     });
-
-    /* Back link — return to Step A to request another link. */
-    backBtn.addEventListener("click", showEmailStep);
   }
 
   /* ── Render dashboard and boot data-fetching logic ──────────────────────── */

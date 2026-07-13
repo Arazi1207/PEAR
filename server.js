@@ -779,6 +779,21 @@ app.post("/api/users",            userLimiter, createUser);
 app.get("/api/users/:deviceId",   getUserByDevice);
 app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 
+/* Pre-login allowlist check: the admin login page calls this before requesting a
+   magic link so only ADMIN_EMAILS addresses ever trigger a Supabase email send.
+   Returns only { allowed: true|false } — no PII, no token, no session. */
+app.get("/api/admin/check-email", (req, res) => {
+  const email = (req.query.email || "").toLowerCase().trim();
+  const allowed = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.toLowerCase().trim());
+  if (allowed.includes(email)) {
+    res.json({ allowed: true });
+  } else {
+    res.json({ allowed: false });
+  }
+});
+
 /* ── In-memory image cache — avoids re-fetching the same CDN image within a warm
    Lambda container. Keyed by full URL; evicts oldest entry when the cap is hit.
    Vercel's CDN also caches the HTTP response (via Cache-Control), so Decart's

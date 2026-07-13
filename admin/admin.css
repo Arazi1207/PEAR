@@ -425,17 +425,8 @@ h1, h2, h3, h4 {
   color: var(--pear-green);
   text-align: center;
   position: relative;
-  padding-inline-end: 16px;
   display: inline-block;
   align-self: center;
-}
-.login-brand::after {
-  content: "";
-  position: absolute;
-  inset-inline-end: 0; bottom: .32em;
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--pear-green);
-  box-shadow: 0 0 12px var(--pear-glow);
 }
 
 .login-subtitle {
