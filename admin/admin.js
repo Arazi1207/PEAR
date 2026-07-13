@@ -1,30 +1,35 @@
 /* =============================================================================
    PEAR Admin Dashboard — client logic with Supabase Auth login gate
    -----------------------------------------------------------------------------
-   • Login gate: admins authenticate via a one-time email code (OTP) — no
-     password. Step A: enter email → Supabase emails a 6-digit code. Step B:
-     enter the code within its validity window → dashboard access.
+   • Login gate: admins authenticate via a one-time email magic link — no
+     password. Step A: enter email → Supabase emails a sign-in link. Step B:
+     a waiting screen; the admin clicks the link, Supabase redirects back here
+     with a session, and onAuthStateChange fires SIGNED_IN → dashboard access.
    • On page load: getSession() → if valid session, skip to dashboard.
    • All data fetches carry a Bearer token; server verifies via getUser().
    -----------------------------------------------------------------------------
-   SUPABASE SETTINGS — one-time manual configuration required for OTP login:
+   SUPABASE SETTINGS — one-time manual configuration required for magic-link login:
 
-     1. Enable email OTP:
+     1. Enable the email provider:
         Supabase Dashboard → Authentication → Providers → Email
-        Make sure the Email provider is enabled and that email OTP (one-time
-        code) sign-in is turned on.
+        Make sure the Email provider is enabled (magic-link sign-in is on by
+        default for the email provider).
 
-     2. (Optional) Customize the code email:
-        Supabase Dashboard → Authentication → Email Templates
-        Edit the OTP / "Magic Link" template to change the wording, branding,
-        or subject line of the email that delivers the 6-digit code.
+     2. Allow this page as a redirect target:
+        Supabase Dashboard → Authentication → URL Configuration
+        Set Site URL and add the admin page URL under Redirect URLs so the
+        emailed link returns the admin here with a valid session.
 
-     3. Set the code expiry to 60 seconds (matches the on-screen countdown):
+     3. (Optional) Customize the sign-in email:
+        Supabase Dashboard → Authentication → Email Templates → Magic Link
+        Edit the template to change the wording, branding, or subject line.
+
+     4. Set the link expiry to 60 seconds (matches the on-screen note):
         Supabase Dashboard → Authentication → Configuration → OTP Expiry
-        Set it to 60 seconds so codes expire in step with this UI.
+        Set it to 60 seconds so the link expires in step with this UI.
 
      NOTE: signInWithOtp() below uses shouldCreateUser: false, so ONLY existing
-     Supabase users can request a code. Add admin accounts under
+     Supabase users can request a link. Add admin accounts under
      Authentication → Users, and list their emails in the server's ADMIN_EMAILS
      env var (the server enforces the admin allowlist — see server.js).
    ============================================================================= */
@@ -56,19 +61,11 @@
           <button type="submit" id="sendCodeBtn" class="dash-btn login-submit">שלח קוד</button>
         </form>
 
-        <!-- Step B — code entry -->
-        <form id="codeForm" autocomplete="off" novalidate hidden>
-          <p class="login-hint">נשלח קוד לאימייל שלך. הקוד תקף לדקה אחת.</p>
-          <div class="login-field">
-            <label for="loginCode">קוד</label>
-            <input id="loginCode" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*"
-                   autocomplete="one-time-code" required placeholder="______" dir="ltr">
-          </div>
-          <p id="codeCountdown" class="login-countdown">60 שניות נותרו</p>
-          <p id="codeError" class="login-error" hidden></p>
-          <button type="submit" id="verifyBtn" class="dash-btn login-submit">אמת קוד</button>
-          <button type="button" id="backBtn" class="login-back">בקש קוד חדש</button>
-        </form>
+        <!-- Step B — waiting for the admin to click the emailed magic link -->
+        <div id="waitView" class="login-wait" style="display:flex;flex-direction:column;gap:20px;" hidden>
+          <p class="login-hint">נשלח לך קישור לאימייל שלך.<br>פתח את האימייל ולחץ על הקישור כדי להיכנס.<br>הקישור תקף לדקה אחת.</p>
+          <button type="button" id="backBtn" class="login-back">בקש קישור חדש</button>
+        </div>
       </div>
     </div>`;
   }
@@ -164,65 +161,35 @@
     </main>`;
   }
 
-  /* ── Show login form — two-step OTP flow ────────────────────────────────────
+  /* ── Show login form — magic-link flow ──────────────────────────────────────
      Step A: email → adminSupabase.auth.signInWithOtp({ shouldCreateUser:false })
-     Step B: code  → adminSupabase.auth.verifyOtp({ type:'email' }) → dashboard */
+     Step B: waiting screen. The admin clicks the link in their inbox; Supabase
+     redirects back here with a session and onAuthStateChange (see init) fires
+     SIGNED_IN, which loads the dashboard. */
   function showLogin() {
     document.getElementById("app").innerHTML = loginMarkup();
 
     const emailForm   = document.getElementById("emailForm");
-    const codeForm    = document.getElementById("codeForm");
+    const waitView    = document.getElementById("waitView");
     const emailInput  = document.getElementById("loginEmail");
-    const codeInput   = document.getElementById("loginCode");
     const emailError  = document.getElementById("emailError");
-    const codeError   = document.getElementById("codeError");
     const sendCodeBtn = document.getElementById("sendCodeBtn");
-    const verifyBtn   = document.getElementById("verifyBtn");
     const backBtn     = document.getElementById("backBtn");
-    const countdownEl = document.getElementById("codeCountdown");
-
-    const CODE_TTL = 60;   // seconds — keep in step with Supabase OTP Expiry
-    let countdownTimer = null;
-
-    function stopCountdown() {
-      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-    }
-
-    function startCountdown() {
-      stopCountdown();
-      let left = CODE_TTL;
-      countdownEl.textContent = `${left} שניות נותרו`;
-      countdownTimer = setInterval(() => {
-        left -= 1;
-        if (left <= 0) {
-          stopCountdown();
-          countdownEl.textContent = "הקוד פג תוקף";
-        } else {
-          countdownEl.textContent = `${left} שניות נותרו`;
-        }
-      }, 1000);
-    }
 
     /* Step A ↔ Step B toggling. */
     function showEmailStep() {
-      stopCountdown();
-      codeForm.hidden  = true;
-      emailForm.hidden = false;
-      codeError.hidden = true;
-      codeInput.value  = "";
+      waitView.hidden   = true;
+      emailForm.hidden  = false;
+      emailError.hidden = true;
       emailInput.focus();
     }
 
-    function showCodeStep() {
+    function showWaitStep() {
       emailForm.hidden = true;
-      codeForm.hidden  = false;
-      codeError.hidden = true;
-      codeInput.value  = "";
-      codeInput.focus();
-      startCountdown();
+      waitView.hidden  = false;
     }
 
-    /* ── Step A: request a one-time code ──────────────────────────────────── */
+    /* ── Step A: send the magic link ──────────────────────────────────────── */
     emailForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       emailError.hidden = true;
@@ -238,7 +205,7 @@
 
       // Log status only — never the response body (may carry session material).
       if (error) {
-        console.warn("[auth] OTP request failed:", error?.status || "", error?.name || "error");
+        console.warn("[auth] magic-link request failed:", error?.status || "", error?.name || "error");
         emailError.textContent = "האימייל הזה לא מורשה";
         emailError.hidden = false;
         sendCodeBtn.disabled = false;
@@ -248,44 +215,11 @@
 
       sendCodeBtn.disabled = false;
       sendCodeBtn.textContent = "שלח קוד";
-      showCodeStep();
+      showWaitStep();
     });
 
-    /* ── Step B: verify the code ──────────────────────────────────────────── */
-    codeForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      codeError.hidden = true;
-      verifyBtn.disabled = true;
-      verifyBtn.textContent = "...";
-
-      const { data, error } = await adminSupabase.auth.verifyOtp({
-        email: emailInput.value.trim(),
-        token: codeInput.value.trim(),
-        type: "email",
-      });
-
-      if (error) {
-        console.warn("[auth] OTP verify failed:", error?.status || "", error?.name || "error");
-      }
-
-      if (error || !data?.session) {
-        codeError.textContent = "הקוד שגוי או פג תוקף. בקש קוד חדש.";
-        codeError.hidden = false;
-        verifyBtn.disabled = false;
-        verifyBtn.textContent = "אמת קוד";
-        return;
-      }
-
-      stopCountdown();
-      showDashboard(data.session.access_token);
-    });
-
-    /* Back link — return to Step A to request a fresh code. */
-    backBtn.addEventListener("click", () => {
-      verifyBtn.disabled = false;
-      verifyBtn.textContent = "אמת קוד";
-      showEmailStep();
-    });
+    /* Back link — return to Step A to request another link. */
+    backBtn.addEventListener("click", showEmailStep);
   }
 
   /* ── Render dashboard and boot data-fetching logic ──────────────────────── */
@@ -539,6 +473,14 @@
 
   /* ── Entry point: check existing session, show login or dashboard ────────── */
   async function init() {
+    // Magic-link return: when the admin clicks the emailed link, Supabase
+    // restores the session on page load and fires SIGNED_IN — load the dashboard.
+    adminSupabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        showDashboard(session.access_token);
+      }
+    });
+
     const { data: { session } } = await adminSupabase.auth.getSession();
     if (session) {
       showDashboard(session.access_token);
