@@ -905,10 +905,8 @@ function enterRoom() {
   }
 
   $("completeLook").hidden = false;
-  // Open on the angle the shopper selected in the storefront gallery (front|back|side),
-  // so "Back View → Virtual Try-On" renders the BACK from the first live frame. Falls
-  // back to front for catalog browsing or an unrecognized angle.
-  currentAngle = (handoff && WEARABLE_ANGLES.includes(handoff.angle)) ? handoff.angle : "front";
+  // AI Combined is the only mode now, so the storefront's front/back/side deep-link
+  // angle no longer matters — renderPerspectiveSelector() sets currentAngle itself.
   renderPerspectiveSelector();
   renderPearImageSwitcher();   // widget multi-image row above the camera (no-op unless 2+ photos)
   setConn("idle");
@@ -976,9 +974,8 @@ function setAngle(angle) {
   hotSwapIfLive(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
 }
 
-/* Colour/variant swap. Re-renders the swatches + the angle rail against the NEW colour's
-   own gallery, then hot-swaps the live stream in place. The angle is preserved across the
-   swap (viewing the back of black → viewing the back of white). */
+/* Colour/variant swap. Re-renders the swatch strip against the NEW colour's own gallery,
+   then hot-swaps the live stream in place. AI Combined mode is preserved across the swap. */
 function setColor(color) {
   if (!colorsOf(activeItem).includes(color) || color === activeColor) return;
   activeColor = color;
@@ -986,16 +983,12 @@ function setColor(color) {
   hotSwapIfLive(`צבע · ${color}`);
 }
 
-/* Shared live hot-swap: drive the rail's loading shimmer for exactly as long as the
-   single rtClient.set() is in flight — no reconnect, no extra handshake/token, no layout
-   shift — then clear it. No-op when not live. */
+/* Shared live hot-swap: re-issue the active garment through the existing applyActive()
+   pipeline (one rtClient.set() — no reconnect, no extra handshake/token, no layout shift).
+   No-op when not live. */
 function hotSwapIfLive(toastMsg) {
   if (!isLive()) return;
-  const sel = $("perspectiveSelector");
-  if (sel) sel.classList.add("is-syncing");
-  applyActive()
-    .catch((e) => console.warn("gallery hot-swap apply:", e?.message || e))
-    .finally(() => { if (sel) sel.classList.remove("is-syncing"); });
+  applyActive().catch((e) => console.warn("gallery hot-swap apply:", e?.message || e));
   if (toastMsg) toast(toastMsg);
 }
 
@@ -1073,99 +1066,16 @@ function selectPearImage(url) {
   hotSwapIfLive("מחליף תמונת מוצר · switching product image");
 }
 
-/* Rebuild the vertical product gallery for the active item + colour: the colour swatch
-   strip AND one thumbnail per WEARABLE angle. ALWAYS renders for every item/colour —
-   an angle with no dedicated photo shows the front image flagged .is-fallback (an "AI"
-   badge marks it AI-inferred), so the rail is never empty and never hides. The delegated
-   click handlers (setAngle/setColor) survive every re-render — they're bound to the
-   stable containers, not the buttons. */
+/* Sync the live product gallery for the active item + colour. AI Combined is the ONLY
+   try-on mode now — there is NO on-screen angle/mode picker (the perspective rail and its
+   #perspectiveSelector element were removed). This just hardcodes currentAngle — COMBINED
+   when the item ships a real, distinct back (canCombineViews), else a silent "front"
+   fallback so every item stays try-on-able — and refreshes the colour swatch strip.
+   setAngle() and the orientation-watcher engine remain in the file but are no longer
+   wired to any UI. (Name kept as-is: still called from every item/colour swap.) */
 function renderPerspectiveSelector() {
-  const sel = $("perspectiveSelector");
-  if (!sel) return;
-  if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
-
-  const gallery = galleryOf(activeItem);
-  // Keep currentAngle valid across item swaps: allow "combined"/"auto" only while the new
-  // item actually ships both views, else fall back to front (so a non-combinable item can't
-  // get stuck in a mode it doesn't support). syncOrientationWatcher() then retires a watcher
-  // whose mode just got reset out from under it.
-  if (!WEARABLE_ANGLES.includes(currentAngle) &&
-      !((currentAngle === COMBINED_ANGLE || currentAngle === AUTO_ANGLE) &&
-        canCombineViews(activeItem))) currentAngle = "front";
-  syncOrientationWatcher();
-
-  sel.hidden = false;
-  sel.innerHTML = WEARABLE_ANGLES.map((a) => {
-    const on        = a === currentAngle;
-    const dedicated = !!gallery[a];
-    const src       = gallery[a] || gallery.front || activeItem.img || "";
-    return `<button type="button" class="persp-tab${on ? " is-active" : ""}${dedicated ? "" : " is-fallback"}" ` +
-           `data-angle="${a}" aria-pressed="${on}" ` +
-           `title="${ANGLE_LABEL_EN[a]} · ${ANGLE_LABEL_HE[a]}${dedicated ? "" : " (AI-inferred)"}">` +
-           `<span class="persp-tab__frame">` +
-             `<img class="persp-tab__thumb" src="${src}" alt="${ANGLE_LABEL_EN[a]} view" loading="lazy" decoding="async">` +
-             (dedicated ? "" : `<span class="persp-tab__ai" aria-hidden="true">AI</span>`) +
-           `</span>` +
-           `<span class="persp-tab__label">` +
-             `<span class="persp-tab__he">${ANGLE_LABEL_HE[a]}</span>` +
-             `<span class="persp-tab__en">${ANGLE_LABEL_EN[a]}</span>` +
-           `</span></button>`;
-  }).join("");
-
-  // AI Combined View — a visually DISTINCT (pear-green) third tab, appended only when the
-  // active subject ships a real front AND a real, distinct back (canCombineViews). Selecting
-  // it stitches both assets into one reference (stitchReferenceBlob) and steers Lucy with the
-  // composite prompt clause — all through the normal applyActive() → rtClient.set() hot-swap,
-  // so there is NO reconnect and no new token. The split thumbnail previews front|back.
-  if (canCombineViews(activeItem)) {
-    const cg = galleryOf(activeItem);
-    const on = currentAngle === COMBINED_ANGLE;
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-tab persp-tab--ai${on ? " is-active" : ""}" ` +
-      `data-angle="${COMBINED_ANGLE}" aria-pressed="${on}" ` +
-      `title="AI Combined View · ${ANGLE_LABEL_HE.combined} — stitched front + back reference">` +
-        `<span class="persp-tab__frame persp-tab__frame--split">` +
-          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
-          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
-          `<span class="persp-tab__ai persp-tab__ai--combined" aria-hidden="true">AI</span>` +
-        `</span>` +
-        `<span class="persp-tab__label">` +
-          `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
-          `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
-        `</span></button>`);
-
-    // AI Auto — Context-Aware Asset Switching: no stitching at all. Both assets are
-    // pre-cached Blobs and the OrientationWatcher hot-swaps the SINGLE matching reference
-    // as the user turns (front facing camera / back turned away), so the model never sees
-    // both views at once and cannot bleed them. data-orient drives the live FRONT/BACK
-    // chip on the tab (the watcher re-renders this rail on every confirmed flip).
-    const autoOn = currentAngle === AUTO_ANGLE;
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-tab persp-tab--ai persp-tab--auto${autoOn ? " is-active" : ""}" ` +
-      `data-angle="${AUTO_ANGLE}" aria-pressed="${autoOn}" data-orient="${autoOrientation}" ` +
-      `title="AI Auto · ${ANGLE_LABEL_HE.auto} — auto front/back switching as you turn">` +
-        `<span class="persp-tab__frame persp-tab__frame--split">` +
-          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
-          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
-          `<span class="persp-tab__ai persp-tab__ai--auto" aria-hidden="true">AUTO</span>` +
-          (autoOn ? `<span class="persp-tab__orient" aria-hidden="true">${autoOrientation === "back" ? "BACK" : "FRONT"}</span>` : "") +
-        `</span>` +
-        `<span class="persp-tab__label">` +
-          `<span class="persp-tab__he">${ANGLE_LABEL_HE.auto}</span>` +
-          `<span class="persp-tab__en">${ANGLE_LABEL_EN.auto}</span>` +
-        `</span></button>`);
-  }
-
-  // Dual-view custom upload: while a custom garment has only a front, offer a real
-  // back photo. Uploading one flips the Back tab from AI-inferred → a reproduced photo.
-  if (activeItem.custom && !hasBackView(activeItem)) {
-    sel.insertAdjacentHTML("beforeend",
-      `<button type="button" class="persp-upload-back" data-upload-back>` +
-      `＋ הוסף תמונת גב · Add back view</button>`);
-  }
-
+  if (activeItem) currentAngle = canCombineViews(activeItem) ? COMBINED_ANGLE : "front";
   renderColorSwatches();
-  updateSourcePreview();
 }
 
 /* Colour swatch strip — shown only when the active item defines 2+ named variants.
@@ -1186,22 +1096,6 @@ function renderColorSwatches() {
   }).join("");
 }
 
-/* Show a small thumbnail of the EXACT product image currently being fed to the AI,
-   so the user always sees which gallery angle the model is processing. Updated on
-   every item swap and every angle switch. */
-function updateSourcePreview() {
-  const box = $("sourcePreview");
-  if (!box) return;
-  const src = activeImageOf(activeItem);
-  if (!src) { box.hidden = true; return; }
-
-  box.hidden = false;
-  const img   = $("sourcePreviewImg");
-  const label = $("sourcePreviewLabel");
-  if (img && img.getAttribute("src") !== src) img.setAttribute("src", src);
-  if (label) label.textContent = ANGLE_LABEL_EN[currentAngle] || currentAngle;
-  box.classList.toggle("is-fallback", !hasDedicatedAngle(activeItem));
-}
 
 /**
  * Paint the "active garment" chip. With a single garment it shows that piece; once
@@ -5429,19 +5323,10 @@ function init() {
   $("captureBtn").addEventListener("click", onLiveToggle);
   $("retakeBtn").addEventListener("click", onRetake);
 
-  // Multi-Image Gallery — perspective selector. Delegated over the (dynamically
-  // rebuilt) tabs so one listener survives every re-render; setAngle() no-ops when
-  // the angle is unchanged and re-warps the live stream in place when it isn't.
-  const perspSelector = $("perspectiveSelector");
-  if (perspSelector) perspSelector.addEventListener("click", (e) => {
-    // Dual-view custom upload: the "Add back view" button opens the picker in back mode.
-    if (e.target.closest("[data-upload-back]")) { openGarmentUpload("back"); return; }
-    const b = e.target.closest(".persp-tab");
-    if (b) setAngle(b.dataset.angle);
-  });
-
-  // Colour swatches — same delegation pattern; setColor() re-renders the rail against
-  // the chosen colour's own angle images and hot-swaps the live stream in place.
+  // Colour swatches — delegated over the (dynamically rebuilt) bubbles so one listener
+  // survives every re-render; setColor() re-renders the strip against the chosen colour's
+  // own images and hot-swaps the live stream in place. (The perspective / AI-mode rail was
+  // removed — AI Combined is applied automatically, so there is no angle picker to wire.)
   const swatches = $("productSwatches");
   if (swatches) swatches.addEventListener("click", (e) => {
     const b = e.target.closest(".pg-swatch");
