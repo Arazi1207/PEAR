@@ -1014,15 +1014,25 @@ function ensurePearSwitcherStyles() {
   const s = document.createElement("style");
   s.id = "pear-image-switcher-styles";
   s.textContent =
-    ".pear-image-switcher{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;" +
+    ".pear-image-switcher{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;" +
       "margin:0 auto 12px;padding:0 8px;max-width:100%;}" +
-    ".pear-image-switcher__thumb{width:46px;height:58px;padding:0;flex:0 0 auto;" +
-      "border:2px solid transparent;border-radius:8px;overflow:hidden;background:#111;" +
-      "cursor:pointer;transition:border-color .15s;}" +
-    ".pear-image-switcher__thumb img{width:100%;height:100%;object-fit:cover;display:block;}" +
-    ".pear-image-switcher__thumb:hover{border-color:rgba(255,255,255,.5);}" +
-    ".pear-image-switcher__thumb.is-active{border-color:#00AA44;}";
+    // Each thumb is a caption cell: 56×56 image with the חזית/גב/תמונה N label below it.
+    // Opacity marks state (active 1 / inactive .55); the black frame marks the active photo.
+    ".pear-image-switcher__thumb{display:flex;flex-direction:column;align-items:center;" +
+      "gap:4px;width:56px;padding:0;flex:0 0 auto;background:none;border:none;" +
+      "cursor:pointer;opacity:.55;transition:opacity .15s;}" +
+    ".pear-image-switcher__thumb.is-active{opacity:1;}" +
+    ".pear-image-switcher__thumb img{width:56px;height:56px;object-fit:cover;display:block;" +
+      "border-radius:8px;border:2px solid transparent;box-sizing:border-box;}" +
+    ".pear-image-switcher__thumb.is-active img{border-color:#000;}" +
+    ".pear-image-switcher__label{font-size:11px;line-height:1.1;text-align:center;color:#888;}";
   document.head.appendChild(s);
+}
+
+/* Thumbnail caption by gallery position: photo 1 = front, photo 2 = back, the rest
+   numbered. Shared shape with the widget popup labels so both surfaces read the same. */
+function pearImageLabel(i) {
+  return i === 0 ? "חזית" : i === 1 ? "גב" : "תמונה " + (i + 1);
 }
 
 function renderPearImageSwitcher() {
@@ -1055,9 +1065,11 @@ function renderPearImageSwitcher() {
   const current = (activeImageOf(activeItem) || "").split("?")[0];
   row.innerHTML = imgs.map((u, i) => {
     const on = u.split("?")[0] === current;
+    const label = pearImageLabel(i);
     return `<button type="button" class="pear-image-switcher__thumb${on ? " is-active" : ""}" ` +
-           `data-pear-idx="${i}" aria-pressed="${on}" title="תמונת מוצר · Product image">` +
-           `<img src="${u}" alt="Product image" loading="lazy" decoding="async">` +
+           `data-pear-idx="${i}" aria-pressed="${on}" title="${label}">` +
+           `<img src="${u}" alt="${label}" loading="lazy" decoding="async">` +
+           `<span class="pear-image-switcher__label">${label}</span>` +
            `</button>`;
   }).join("");
 }

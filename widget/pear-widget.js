@@ -291,7 +291,31 @@
         "font-size:20px;border:none;cursor:pointer;line-height:40px;" +
         "padding:0;text-align:center;" +
       "}" +
-      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}";
+      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}" +
+      /* Image-picker popup — floats above the PEAR button (its offset parent) when the
+         page has 2+ product photos, so the shopper picks which photo(s) to try on. */
+      ".pear-widget-popup{" +
+        "position:absolute;bottom:calc(100% + 8px);right:0;" +
+        "background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px;" +
+        "box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:999999;" +
+        "display:flex;flex-direction:column;gap:8px;min-width:160px;" +
+        "font-family:inherit;text-transform:none;letter-spacing:normal;" +
+      "}" +
+      ".pear-widget-popup__title{font-size:12px;color:#666;margin-bottom:4px;font-weight:600;}" +
+      ".pear-widget-popup__row{" +
+        "display:flex;align-items:center;gap:8px;cursor:pointer;" +
+        "padding:4px;border-radius:6px;transition:background 0.15s;" +
+      "}" +
+      ".pear-widget-popup__row:hover{background:#f5f5f5;}" +
+      ".pear-widget-popup__thumb{" +
+        "width:48px;height:48px;object-fit:cover;border-radius:6px;flex:0 0 auto;display:block;" +
+      "}" +
+      ".pear-widget-popup__label{font-size:13px;color:#222;font-weight:500;}" +
+      ".pear-widget-popup__both{" +
+        "margin-top:4px;padding:9px 12px;background:#000;color:#fff;border-radius:6px;" +
+        "font-size:13px;font-weight:600;text-align:center;cursor:pointer;" +
+      "}" +
+      ".pear-widget-popup__both:hover{background:#222;}";
     var style = d.createElement("style");
     style.className = "pear-widget-styles";
     style.textContent = css;
@@ -360,6 +384,99 @@
     overlay.appendChild(close);
     d.body.appendChild(overlay);
     activeOverlay = overlay;
+  }
+
+  /* ── Image-picker popup (only when the page has 2+ product photos) ───────────
+     Instead of opening the modal straight away, the PEAR button first opens this
+     small popup ABOVE itself: tap one photo to try on just that image, or
+     "נסה חזית + גב" to hand the whole gallery to the fitting room's thumbnail
+     switcher. A click anywhere outside closes it with no modal. It is anchored as an
+     absolutely-positioned child of the PEAR button (its offset parent). A single-photo
+     page skips this entirely and opens the modal directly (see makePearButton). */
+  var activePopup = null;
+  var popupDocHandler = null;
+
+  function closePopup() {
+    if (activePopup && activePopup.parentNode) activePopup.parentNode.removeChild(activePopup);
+    activePopup = null;
+    if (popupDocHandler) { d.removeEventListener("click", popupDocHandler, true); popupDocHandler = null; }
+  }
+
+  /* Gallery-position label, matched to the fitting room's switcher: 1=front, 2=back. */
+  function imageLabel(i) {
+    return i === 0 ? "חזית" : i === 1 ? "גב" : "תמונה " + (i + 1);
+  }
+
+  function showImagePopup(pearBtn, garment) {
+    closePopup();                            // never stack two popups
+    injectStyles();
+    pearBtn.style.position = "relative";     // become the popup's offset parent
+
+    var pop = d.createElement("div");
+    pop.className = "pear-widget-popup";
+
+    var title = d.createElement("div");
+    title.className = "pear-widget-popup__title";
+    title.textContent = "בחר תמונה לניסיון";
+    pop.appendChild(title);
+
+    var imgs = garment.images || [];
+    imgs.forEach(function (url, i) {
+      var row = d.createElement("div");
+      row.className = "pear-widget-popup__row";
+      row.setAttribute("role", "button");
+      row.tabIndex = 0;
+
+      var thumb = d.createElement("img");
+      thumb.className = "pear-widget-popup__thumb";
+      thumb.src = url;
+      thumb.alt = "";
+      thumb.loading = "lazy";
+
+      var label = d.createElement("span");
+      label.className = "pear-widget-popup__label";
+      label.textContent = imageLabel(i);
+
+      row.appendChild(thumb);
+      row.appendChild(label);
+      row.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();               // don't bubble to the PEAR button's own handler
+        closePopup();
+        /* Only this photo → single-image try-on (no switcher in the fitting room). */
+        openModal({ url: url, type: garment.category, name: garment.name, images: [url] });
+      });
+      pop.appendChild(row);
+    });
+
+    /* "Try front + back" — send the WHOLE gallery so the fitting room shows its switcher. */
+    if (imgs.length >= 2) {
+      var both = d.createElement("div");
+      both.className = "pear-widget-popup__both";
+      both.setAttribute("role", "button");
+      both.tabIndex = 0;
+      both.textContent = "נסה חזית + גב";
+      both.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closePopup();
+        openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+      });
+      pop.appendChild(both);
+    }
+
+    /* Swallow clicks on popup chrome (title/padding) so they don't reach the button. */
+    pop.addEventListener("click", function (e) { e.stopPropagation(); });
+
+    pearBtn.appendChild(pop);
+    activePopup = pop;
+
+    /* Any click outside the button (the popup lives inside it) closes the popup with no
+       modal. Added next tick so the click that OPENED it doesn't immediately close it. */
+    popupDocHandler = function (e) {
+      if (!pearBtn.contains(e.target)) closePopup();
+    };
+    w.setTimeout(function () { d.addEventListener("click", popupDocHandler, true); }, 0);
   }
 
   /* ── STEP 2 — locate the store's Add-to-Cart button(s) ───────────────────────
@@ -544,10 +661,17 @@
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      openModal({
-        url: garment.url, type: garment.category, name: garment.name,
-        back: garment.back, images: garment.images
-      });
+      /* 2+ product photos → let the shopper pick which photo(s) to try on first;
+         a single photo skips the popup and opens the fitting room directly, as before. */
+      if (garment.images && garment.images.length > 1) {
+        if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
+        showImagePopup(btn, garment);
+      } else {
+        openModal({
+          url: garment.url, type: garment.category, name: garment.name,
+          back: garment.back, images: garment.images
+        });
+      }
     });
     return btn;
   }
