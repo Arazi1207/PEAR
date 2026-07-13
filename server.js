@@ -120,6 +120,7 @@ const sessionLimiter = rateLimit({ windowMs: 60_000, max: 40 });   // session-lo
 const userLimiter    = rateLimit({ windowMs: 60_000, max: 20 });   // user registration
 const trackLimiter   = rateLimit({ windowMs: 60_000, max: 60 });   // analytics ping
 const proxyLimiter   = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
+const authLimiter    = rateLimit({ windowMs: 60_000, max: 10 });   // admin login — brake password guessing
 
 /* ── CORS enforcement ────────────────────────────────────────────────────────
    The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
@@ -780,18 +781,32 @@ app.get("/api/users/:deviceId",   getUserByDevice);
 app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 
 /* Pre-login allowlist check: the admin login page calls this before requesting a
-   magic link so only ADMIN_EMAILS addresses ever trigger a Supabase email send.
-   Returns only { allowed: true|false } — no PII, no token, no session. */
-app.get("/api/admin/check-email", (req, res) => {
-  const email = (req.query.email || "").toLowerCase().trim();
+   magic link so only ADMIN_EMAILS + ADMIN_PASSWORDS matches ever trigger a
+   Supabase email send. Returns only { allowed: true|false } — no PII, no
+   token, no session. POST with a JSON body (not GET query params) so the
+   password is never written into a URL — URLs land in server/proxy access
+   logs and browser history in plaintext, which a query-string password would
+   leak into. ADMIN_PASSWORDS must list one password per ADMIN_EMAILS entry,
+   in the SAME ORDER (index i pairs with index i). Rate limited — this is a
+   password-guessing target. */
+app.post("/api/admin/check-auth", authLimiter, (req, res) => {
+  const email    = (req.body?.email || "").toLowerCase().trim();
+  const password = req.body?.password || "";
   const allowed = (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((e) => e.toLowerCase().trim());
-  if (allowed.includes(email)) {
-    res.json({ allowed: true });
-  } else {
-    res.json({ allowed: false });
+  const emailIndex = allowed.indexOf(email);
+  if (emailIndex === -1) {
+    return res.json({ allowed: false });
   }
+  const passwords = (process.env.ADMIN_PASSWORDS || "")
+    .split(",")
+    .map((p) => p.trim());
+  const correctPassword = passwords[emailIndex];
+  if (!correctPassword || password !== correctPassword) {
+    return res.json({ allowed: false });
+  }
+  res.json({ allowed: true });
 });
 
 /* ── In-memory image cache — avoids re-fetching the same CDN image within a warm

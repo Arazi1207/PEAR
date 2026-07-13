@@ -1,10 +1,11 @@
 /* =============================================================================
    PEAR Admin Dashboard — client logic with Supabase Auth login gate
    -----------------------------------------------------------------------------
-   • Login gate: admins authenticate via a one-time email magic link — no
-     password. Step A: enter email → Supabase emails a sign-in link. Step B:
-     a waiting screen; the admin clicks the link, Supabase redirects back here
-     with a session, and onAuthStateChange fires SIGNED_IN → dashboard access.
+   • Login gate: email + password are checked server-side against ADMIN_EMAILS /
+     ADMIN_PASSWORDS (see server.js /api/admin/check-auth) BEFORE a one-time
+     email magic link is requested. Only once both match does Supabase email a
+     sign-in link; the admin clicks it, Supabase redirects back here with a
+     session, and onAuthStateChange fires SIGNED_IN → dashboard access.
    • On page load: getSession() → if valid session, skip to dashboard.
    • All data fetches carry a Bearer token; server verifies via getUser().
    -----------------------------------------------------------------------------
@@ -31,7 +32,9 @@
      NOTE: signInWithOtp() below uses shouldCreateUser: false, so ONLY existing
      Supabase users can request a link. Add admin accounts under
      Authentication → Users, and list their emails in the server's ADMIN_EMAILS
-     env var (the server enforces the admin allowlist — see server.js).
+     env var. Also set ADMIN_PASSWORDS with one password per email, in the SAME
+     ORDER as ADMIN_EMAILS — index i in ADMIN_EMAILS pairs with index i in
+     ADMIN_PASSWORDS (the server enforces both — see server.js).
    ============================================================================= */
 (() => {
   "use strict";
@@ -42,7 +45,7 @@
   const adminSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   /* ── Login view markup — single screen, magic-link ──────────────────────────
-     One card: email field + שלח קוד button. After signInWithOtp succeeds a
+     One card: email field + כניסה עם קישור לאימייל button. After signInWithOtp succeeds a
      confirmation message appears below the button; onAuthStateChange (see init)
      loads the dashboard once the admin clicks the emailed link. */
   function loginMarkup() {
@@ -57,8 +60,12 @@
             <label for="loginEmail">אימייל</label>
             <input id="loginEmail" type="email" autocomplete="email" required placeholder="admin@example.com" dir="ltr">
           </div>
+          <div class="login-field">
+            <label for="loginPassword">סיסמה</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••" dir="ltr">
+          </div>
           <p id="emailError" class="login-error" hidden></p>
-          <button type="submit" id="sendCodeBtn" class="dash-btn login-submit">שלח קוד</button>
+          <button type="submit" id="sendCodeBtn" class="dash-btn login-submit">כניסה עם קישור לאימייל</button>
           <p id="loginSent" class="login-hint" hidden>נשלח לך קישור לאימייל שלך. לחץ על הקישור כדי להיכנס.</p>
         </form>
       </div>
@@ -163,18 +170,19 @@
   function showLogin() {
     document.getElementById("app").innerHTML = loginMarkup();
 
-    const emailForm   = document.getElementById("emailForm");
-    const emailInput  = document.getElementById("loginEmail");
-    const emailError  = document.getElementById("emailError");
-    const sendCodeBtn = document.getElementById("sendCodeBtn");
-    const sentMsg     = document.getElementById("loginSent");
+    const emailForm    = document.getElementById("emailForm");
+    const emailInput   = document.getElementById("loginEmail");
+    const passwordInput = document.getElementById("loginPassword");
+    const emailError   = document.getElementById("emailError");
+    const sendCodeBtn  = document.getElementById("sendCodeBtn");
+    const sentMsg      = document.getElementById("loginSent");
 
     function showError(msg) {
       sentMsg.hidden = true;
       emailError.textContent = msg;
       emailError.hidden = false;
       sendCodeBtn.disabled = false;
-      sendCodeBtn.textContent = "שלח קוד";
+      sendCodeBtn.textContent = "כניסה עם קישור לאימייל";
     }
 
     emailForm.addEventListener("submit", async (e) => {
@@ -184,37 +192,45 @@
       sendCodeBtn.disabled = true;
       sendCodeBtn.textContent = "...";
 
-      // Gate on the server-side ADMIN_EMAILS allowlist BEFORE requesting a link,
-      // so only approved admins ever trigger a Supabase email send.
+      const email    = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      // Verify BOTH email and password against the server-side allowlist before
+      // requesting a magic link, so only verified admins trigger a Supabase
+      // email send. Sent as a POST body (not a GET query string) so the
+      // password never lands in a URL — URLs get written to server/proxy
+      // access logs and browser history in plaintext.
       try {
-        const check = await fetch(
-          "/api/admin/check-email?email=" + encodeURIComponent(emailInput.value)
-        );
+        const check = await fetch("/api/admin/check-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
         const { allowed } = await check.json();
         if (!allowed) {
-          showError("האימייל הזה לא מורשה");
+          showError("אימייל או סיסמה שגויים");
           return;
         }
       } catch (err) {
-        console.warn("[auth] check-email failed:", err?.message || err);
-        showError("האימייל הזה לא מורשה");
+        console.warn("[auth] check-auth failed:", err?.message || err);
+        showError("אימייל או סיסמה שגויים");
         return;
       }
 
       const { error } = await adminSupabase.auth.signInWithOtp({
-        email: emailInput.value.trim(),
+        email,
         options: { shouldCreateUser: false },
       });
 
       // Log status only — never the response body (may carry session material).
       if (error) {
         console.warn("[auth] magic-link request failed:", error?.status || "", error?.name || "error");
-        showError("האימייל הזה לא מורשה");
+        showError("שגיאה בשליחת הקישור, נסה שוב");
         return;
       }
 
       sendCodeBtn.disabled = false;
-      sendCodeBtn.textContent = "שלח קוד";
+      sendCodeBtn.textContent = "כניסה עם קישור לאימייל";
       sentMsg.hidden = false;
     });
   }
