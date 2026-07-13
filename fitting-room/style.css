@@ -583,6 +583,33 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .back-to-store svg  { flex: none; }
 .back-to-store span { line-height: 1; }
 
+/* Edit Measurements — same frosted pill language as Back to Store, but
+   pear-green accented (an action, not a navigation link). */
+.btn-edit-measurements {
+  align-self: center;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; margin: 0; border: 0;
+  border-radius: var(--pill);
+  background: var(--pear-tint);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid rgba(141, 182, 0, .35);
+  color: var(--pear-deep);
+  font-family: "Inter", sans-serif; font-size: .8rem; font-weight: 700;
+  white-space: nowrap; cursor: pointer;
+  transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease), background .3s var(--ease);
+}
+.btn-edit-measurements:hover {
+  transform: translateY(-1px);
+  background: rgba(141, 182, 0, .24); border-color: rgba(141, 182, 0, .55);
+  box-shadow: 0 8px 22px rgba(141, 182, 0, .2);
+}
+.btn-edit-measurements:active { transform: scale(.96); }
+.btn-edit-measurements svg  { flex: none; }
+.btn-edit-measurements span { line-height: 1; }
+@media (max-width: 480px) {
+  .btn-edit-measurements span { display: none; }   /* icon-only on the smallest screens */
+}
+
 .app-header__brand {
   font-family: "Urbanist"; font-weight: 900; font-size: 1.4rem; letter-spacing: .04em;
   background: linear-gradient(120deg, var(--pear-deep), var(--pear));

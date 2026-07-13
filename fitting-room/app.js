@@ -725,7 +725,16 @@ function toItem(raw) {
 /* =============================================================================
    Screen transition
    ============================================================================= */
-function goToFitting() {
+/**
+ * @param {{skipProfileSave?: boolean}} [opts] — pass {skipProfileSave:true} when
+ * routing a returning visitor straight into the room with THEIR EXISTING cached/
+ * server data (routeAfterIdentity's Case B, and Case C's "Dismiss"): they didn't
+ * enter anything new, so the 30-day cache timestamp must NOT be silently reset to
+ * now() just by arriving here. A real button click passes a MouseEvent here
+ * instead, whose .skipProfileSave is undefined → falsy → the normal save path.
+ */
+function goToFitting(opts) {
+  const skipProfileSave = !!(opts && opts.skipProfileSave);
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
   const _payload = {
@@ -756,8 +765,9 @@ function goToFitting() {
 
   // Cache the two mandatory measurements locally (30-day TTL) so a returning
   // visitor's form is pre-filled next time. saveProfile() self-validates, so
-  // out-of-range entries are silently skipped rather than cached.
-  saveProfile($("height")?.value, $("weight")?.value);
+  // out-of-range entries are silently skipped rather than cached. Skipped when
+  // reusing existing data unchanged (see skipProfileSave above).
+  if (!skipProfileSave) saveProfile($("height")?.value, $("weight")?.value);
 
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
@@ -2921,7 +2931,7 @@ function saveProfile(height, weight) {
 }
 
 /* Write the height/weight cache with an EXPLICIT timestamp. saveProfile() stamps
-   now() (a fresh local edit); applyServerProfile() passes the server's real
+   now() (a fresh local edit); routeAfterIdentity() passes the server's real
    "last saved" time so the 30-day re-measure check reflects when the measurements
    were actually taken — even when loaded onto a brand-new device. */
 function writeProfileCache(height, weight, tsMs) {
@@ -2935,35 +2945,65 @@ function writeProfileCache(height, weight, tsMs) {
   } catch { return false; }
 }
 
-/* Apply a server-loaded profile after login/auto-login: prefill every measurement
-   field, recompute the recommended size, refresh the local cache with the server's
-   real timestamp, then (if 30+ days old) nudge the user to re-measure. Safe to call
-   with a payload that has no measurements — it simply no-ops the prefill. */
-function applyServerProfile(data) {
-  if (!data) return;
-  const m = data.measurements || null;
-  const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
-  if (m) {
-    const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
-    setIf("height", m.height); setIf("weight", m.weight);
-    setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
-    if (isSaneProfile(Number(m.height), Number(m.weight))) {
-      writeProfileCache(m.height, m.weight, tsMs || Date.now());
-    }
-    try { calculateSize(); } catch {}
-  }
-  maybeShowUpdateReminder(tsMs);
+/* =============================================================================
+   POST-IDENTITY ROUTING — Case A / B / C
+   -----------------------------------------------------------------------------
+   The SINGLE decision point for what happens right after a visitor is identified
+   (whether via a known device on page load, or via submitIdentity() registering /
+   auto-logging-in by phone). Called with the raw /api/users response.
+
+     Case A — no saved measurements at all → reveal Screen 1's measurement form
+              (first-time visitor, or a known profile that never finished sizing).
+     Case B — saved measurements, < 30 days old → skip Screen 1 ENTIRELY: prefill
+              the (hidden) fields, show a "welcome back" toast, and transition
+              straight into the fitting room using that data.
+     Case C — saved measurements, ≥ 30 days old → skip Screen 1, show the re-measure
+              modal instead. "Update" reveals Screen 1 pre-filled for editing;
+              "Dismiss" (or backdrop/Esc) proceeds into the fitting room with the
+              existing (stale) data, exactly like Case B.
+   ============================================================================= */
+function hideAllScreen1Forms() {
+  const idForm = $("identityForm"), sizeForm = $("sizeForm");
+  if (idForm)   { idForm.hidden = true;   idForm.style.display = "none"; }
+  if (sizeForm) { sizeForm.hidden = true; sizeForm.style.display = "none"; }
 }
 
-/* Show the 30-day "time to re-measure" reminder when the last measurement is a
-   month or more old. Falls back to the local cache timestamp when the server
-   didn't supply one. No-op when there's no prior measurement (nothing to remind). */
-function maybeShowUpdateReminder(tsMs) {
-  let ts = Number(tsMs) || 0;
-  if (!ts) { const p = loadProfile(); ts = (p && p.lastUpdated) || 0; }
-  if (!ts) return;
-  if (Date.now() - ts < PROFILE_MAX_AGE_MS) return;
-  openUpdateReminder();
+function routeAfterIdentity(data) {
+  const m = data && data.measurements;
+  const hasMeasurements = m && isSaneProfile(Number(m.height), Number(m.weight));
+
+  if (!hasMeasurements) {                          // Case A
+    showSizeForm();
+    return;
+  }
+
+  // Known profile with real data — Screen 1 is never shown mid-decision; we either
+  // transition straight past it (B) or the modal covers it entirely (C).
+  hideAllScreen1Forms();
+
+  const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
+  setIf("height", m.height); setIf("weight", m.weight);
+  setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
+
+  const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
+  writeProfileCache(m.height, m.weight, tsMs || Date.now());
+  try { calculateSize(); } catch {}
+
+  const fresh = tsMs && (Date.now() - tsMs) < PROFILE_MAX_AGE_MS;
+  const name  = (data.user && data.user.name) || "";
+
+  if (fresh) {                                     // Case B
+    toast(`ברוך שובך${name ? ", " + name : ""}! משתמשים במדידות השמורות שלך ✓`);
+    goToFitting({ skipProfileSave: true });         // reuse EXISTING data — don't re-stamp "now"
+    return;
+  }
+
+  // Case C — nudge, but never trap: dismissing (button / backdrop / Esc) still
+  // gets the visitor into the room with their existing data.
+  openUpdateReminder({
+    onUpdate:  openReminderScreen,
+    onDismiss: () => goToFitting({ skipProfileSave: true }),
+  });
 }
 
 /* Pre-fill the height/weight inputs from a valid (<30-day) cached profile, then
@@ -3002,7 +3042,10 @@ function showSizeForm() {
    always-available button on the size screen that persists a fresh, timestamped
    measurement snapshot on demand.
    ============================================================================= */
-function openUpdateReminder() {
+let _reminderHandlers = null;   // { onUpdate, onDismiss } for the CURRENT reminder instance
+
+function openUpdateReminder(handlers) {
+  _reminderHandlers = handlers || null;
   const modal = $("updateReminderModal");
   if (!modal) return;
   modal.hidden = false;
@@ -3017,13 +3060,33 @@ function closeUpdateReminder() {
   setTimeout(() => { modal.hidden = true; }, 260);
 }
 
-/* Reveal + focus the measurement form so the user can edit right away. Used by the
-   reminder's "update now" button and available directly via the CTA. */
+/* "Update" from Case C: Screen 1 was never shown (routeAfterIdentity skipped it),
+   so reveal it now — pre-filled — then focus the form for editing. */
+function openReminderScreen() {
+  showSizeForm();
+  focusMeasurementForm();
+}
+
+/* Focus the (already-visible) measurement form. Used directly by the always-on
+   Screen 1 CTA, and by openReminderScreen() right after revealing Screen 1. */
 function focusMeasurementForm() {
-  closeUpdateReminder();
   setOptionalVisible(true);
   const h = $("height");
   if (h) { h.focus(); try { h.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
+}
+
+/* The reminder's two actions. Both always close the modal; Dismiss additionally
+   runs the caller's fallback (Case C → straight into the fitting room) so the
+   visitor is never left stranded behind a closed modal. */
+function reminderUpdateNow() {
+  const h = _reminderHandlers;
+  closeUpdateReminder();
+  (h && h.onUpdate ? h.onUpdate : openReminderScreen)();
+}
+function reminderDismiss() {
+  const h = _reminderHandlers;
+  closeUpdateReminder();
+  if (h && h.onDismiss) h.onDismiss();
 }
 
 /* Permanent "Update Measurements" action: validate the current form, persist a
@@ -3085,8 +3148,7 @@ async function setupIdentityGate() {
         if (data?.user?.id) {
           PEAR_USER_ID = data.user.id;
           console.log("[identity] returning user:", data.user.name);
-          showSizeForm();
-          applyServerProfile(data);   // prefill saved measurements + 30-day reminder
+          routeAfterIdentity(data);   // Case A/B/C — never defaults to the size form
           return;
         }
       }
@@ -3152,8 +3214,7 @@ async function submitIdentity() {
         "[identity] " + (data.matched === "phone" ? "auto-login (name+phone)" : "registered") +
         " user:", data.user?.name, "→", PEAR_USER_ID
       );
-      showSizeForm();
-      applyServerProfile(data);              // prefill previous measurements + 30-day reminder
+      routeAfterIdentity(data);              // Case A/B/C routing
       return;
     }
 
@@ -5275,14 +5336,21 @@ function init() {
 
   // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
   $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
-  $("reminder-update-now")?.addEventListener("click", focusMeasurementForm);
-  $("reminder-dismiss")?.addEventListener("click", closeUpdateReminder);
-  // Backdrop click / Esc dismiss the reminder (never traps the user).
+  $("reminder-update-now")?.addEventListener("click", reminderUpdateNow);
+  $("reminder-dismiss")?.addEventListener("click", reminderDismiss);
+  // Backdrop click / Esc = the same "Dismiss" action (never traps the user — Case C
+  // dismissal must still route into the fitting room, not just close the modal).
   $("updateReminderModal")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) closeUpdateReminder();
+    if (e.target === e.currentTarget) reminderDismiss();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) closeUpdateReminder();
+    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) reminderDismiss();
+  });
+  // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
+  // entirely, so it may never have been revealed; this brings it up pre-filled.
+  $("btn-edit-measurements")?.addEventListener("click", () => {
+    backToCalculator();
+    showSizeForm();
   });
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
