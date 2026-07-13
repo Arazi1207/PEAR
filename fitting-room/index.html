@@ -122,10 +122,14 @@
         <h2>התאמת מידה אישית</h2>
         <p class="subtitle">הזן נתונים – האלגוריתם יחשב את המידה המדויקת עבורך</p>
 
-        <!-- ░░ Identity gate — shown ONCE for a first-time visitor (app.js).
-             On return visits the browser is remembered (localStorage device id)
-             and this form is skipped entirely, going straight to measurements. ░░ -->
-        <form id="identityForm" autocomplete="off" hidden>
+        <!-- ░░ Identity gate — the TRUE default view (app.js). The DOM must never
+             paint the measurement form before JS has decided where to route the
+             visitor, so this form ships VISIBLE by default and #sizeForm ships
+             hidden by default (both hidden-attr AND inline display:none — #sizeForm
+             has `display:grid` in CSS which outranks [hidden] alone). JS only ever
+             moves you AWAY from this state (showSizeForm / routeAfterIdentity),
+             never the reverse, so there is no flash of the wrong step on load. ░░ -->
+        <form id="identityForm" autocomplete="off">
             <div class="form-group">
                 <label for="userName"><span class="required">*</span>שם מלא:</label>
                 <input type="text" id="userName" autocomplete="name" placeholder="לדוגמה: דנה כהן">
@@ -143,7 +147,7 @@
             </div>
         </form>
 
-        <form id="sizeForm" autocomplete="off">
+        <form id="sizeForm" autocomplete="off" hidden style="display:none">
             <!-- ░░ Mandatory inputs — always visible (idle state) ░░ -->
             <div class="form-group">
                 <label for="height"><span class="required">*</span>גובה (בס"מ):</label>
@@ -185,6 +189,18 @@
                     <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
                 </div>
             </div>
+
+            <!-- ░░ Permanent "Update Measurements" CTA — always available on the size
+                 screen (the user's dashboard). Saves a fresh, timestamped snapshot
+                 on demand, independent of proceeding to the fitting room. ░░ -->
+            <button id="btn-update-measurements" type="button" class="btn-update-measure">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                     stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                </svg>
+                <span>עדכון מדידות</span>
+            </button>
         </form>
     </div>
     </div><!-- /.calc-main -->
@@ -215,6 +231,19 @@
             </svg>
             <span>חזרה לחנות</span>
         </a>
+        <!-- Edit Measurements — always visible in the fitting room so a returning
+             visitor whose cached height/weight were applied automatically (see
+             routeAfterIdentity in app.js) can jump back and correct them without
+             hunting for it. -->
+        <button class="btn-edit-measurements" id="btn-edit-measurements" type="button"
+                aria-label="עריכת מדידות · Edit measurements">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+            </svg>
+            <span>עריכת מדידות</span>
+        </button>
         <!-- Authentic PEAR brand mark — inline SVG (pear · serif "P" · hanger),
              so it is bulletproof on any host with no external path to 404.
              The same artwork also ships as the relative asset ./image_9d45b0.svg
@@ -470,6 +499,27 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ░░ 30-day re-measure reminder — custom modal (never a native confirm). Shown on
+     login when the saved measurements are a month or more old. ░░ -->
+<div class="update-reminder" id="updateReminderModal" role="dialog" aria-modal="true"
+     aria-labelledby="reminderTitle" aria-describedby="reminderBody" hidden>
+    <div class="update-reminder__card" role="document">
+        <div class="update-reminder__badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 7v5l3 2"/>
+            </svg>
+        </div>
+        <h3 id="reminderTitle">עבר יותר מחודש מאז העדכון האחרון!</h3>
+        <p id="reminderBody">הגוף משתנה — כדאי לרענן את המדידות כדי לשמור על התאמת מידה מדויקת. לעדכן עכשיו?</p>
+        <div class="update-reminder__actions">
+            <button id="reminder-update-now" type="button" class="btn-primary">עדכן עכשיו</button>
+            <button id="reminder-dismiss" type="button" class="btn-ghost">אחר כך</button>
+        </div>
+    </div>
+</div>
 
 <script type="module" src="app.js?v=2"></script>
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky

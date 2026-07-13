@@ -738,7 +738,16 @@ function toItem(raw) {
 /* =============================================================================
    Screen transition
    ============================================================================= */
-function goToFitting() {
+/**
+ * @param {{skipProfileSave?: boolean}} [opts] — pass {skipProfileSave:true} when
+ * routing a returning visitor straight into the room with THEIR EXISTING cached/
+ * server data (routeAfterIdentity's Case B, and Case C's "Dismiss"): they didn't
+ * enter anything new, so the 30-day cache timestamp must NOT be silently reset to
+ * now() just by arriving here. A real button click passes a MouseEvent here
+ * instead, whose .skipProfileSave is undefined → falsy → the normal save path.
+ */
+function goToFitting(opts) {
+  const skipProfileSave = !!(opts && opts.skipProfileSave);
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
   const _payload = {
@@ -766,6 +775,12 @@ function goToFitting() {
     { id: _handoff?.id ?? "", name: _handoff?.name ?? "" },
     currentUserSize
   );
+
+  // Cache the two mandatory measurements locally (30-day TTL) so a returning
+  // visitor's form is pre-filled next time. saveProfile() self-validates, so
+  // out-of-range entries are silently skipped rather than cached. Skipped when
+  // reusing existing data unchanged (see skipProfileSave above).
+  if (!skipProfileSave) saveProfile($("height")?.value, $("weight")?.value);
 
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
@@ -939,11 +954,17 @@ function setActiveItem(item, opts = {}) {
 function setAngle(angle) {
   // Every wearable angle is always selectable (a missing photo falls back to the front
   // image + prompt steering); `detail` is inspection-only and never a live warp target.
-  // "combined" (AI Combined View) is selectable only while the item can be stitched.
-  const isCombined = angle === COMBINED_ANGLE && canCombineViews(activeItem);
-  const next = (WEARABLE_ANGLES.includes(angle) || isCombined) ? angle : "front";
+  // "combined" (AI Combined View) and "auto" (Context-Aware Asset Switching) are
+  // selectable only while the item ships a real, distinct back (canCombineViews).
+  const isSynthetic = (angle === COMBINED_ANGLE || angle === AUTO_ANGLE) && canCombineViews(activeItem);
+  const next = (WEARABLE_ANGLES.includes(angle) || isSynthetic) ? angle : "front";
   if (next === currentAngle) return;
   currentAngle = next;
+  if (next === AUTO_ANGLE) {
+    autoOrientation = "front";               // every auto session opens facing the camera
+    prewarmOrientationAssets();              // fire-and-forget: both Blobs cached before the first turn
+  }
+  syncOrientationWatcher();                  // start/stop the webcam orientation monitor
   renderPerspectiveSelector();
   hotSwapIfLive(`מציג ${ANGLE_LABEL_HE[next]} · ${ANGLE_LABEL_EN[next]} view`);
 }
@@ -1057,11 +1078,14 @@ function renderPerspectiveSelector() {
   if (!activeItem) { sel.hidden = true; sel.innerHTML = ""; renderColorSwatches(); return; }
 
   const gallery = galleryOf(activeItem);
-  // Keep currentAngle valid across item swaps: allow "combined" only while the new item
-  // can actually be stitched, else fall back to front (so a non-combinable item can't get
-  // stuck in a mode it doesn't support).
+  // Keep currentAngle valid across item swaps: allow "combined"/"auto" only while the new
+  // item actually ships both views, else fall back to front (so a non-combinable item can't
+  // get stuck in a mode it doesn't support). syncOrientationWatcher() then retires a watcher
+  // whose mode just got reset out from under it.
   if (!WEARABLE_ANGLES.includes(currentAngle) &&
-      !(currentAngle === COMBINED_ANGLE && canCombineViews(activeItem))) currentAngle = "front";
+      !((currentAngle === COMBINED_ANGLE || currentAngle === AUTO_ANGLE) &&
+        canCombineViews(activeItem))) currentAngle = "front";
+  syncOrientationWatcher();
 
   sel.hidden = false;
   sel.innerHTML = WEARABLE_ANGLES.map((a) => {
@@ -1101,6 +1125,27 @@ function renderPerspectiveSelector() {
         `<span class="persp-tab__label">` +
           `<span class="persp-tab__he">${ANGLE_LABEL_HE.combined}</span>` +
           `<span class="persp-tab__en">${ANGLE_LABEL_EN.combined}</span>` +
+        `</span></button>`);
+
+    // AI Auto — Context-Aware Asset Switching: no stitching at all. Both assets are
+    // pre-cached Blobs and the OrientationWatcher hot-swaps the SINGLE matching reference
+    // as the user turns (front facing camera / back turned away), so the model never sees
+    // both views at once and cannot bleed them. data-orient drives the live FRONT/BACK
+    // chip on the tab (the watcher re-renders this rail on every confirmed flip).
+    const autoOn = currentAngle === AUTO_ANGLE;
+    sel.insertAdjacentHTML("beforeend",
+      `<button type="button" class="persp-tab persp-tab--ai persp-tab--auto${autoOn ? " is-active" : ""}" ` +
+      `data-angle="${AUTO_ANGLE}" aria-pressed="${autoOn}" data-orient="${autoOrientation}" ` +
+      `title="AI Auto · ${ANGLE_LABEL_HE.auto} — auto front/back switching as you turn">` +
+        `<span class="persp-tab__frame persp-tab__frame--split">` +
+          `<img class="persp-tab__thumb" src="${cg.front}" alt="front view" loading="lazy" decoding="async">` +
+          `<img class="persp-tab__thumb" src="${cg.back}" alt="back view" loading="lazy" decoding="async">` +
+          `<span class="persp-tab__ai persp-tab__ai--auto" aria-hidden="true">AUTO</span>` +
+          (autoOn ? `<span class="persp-tab__orient" aria-hidden="true">${autoOrientation === "back" ? "BACK" : "FRONT"}</span>` : "") +
+        `</span>` +
+        `<span class="persp-tab__label">` +
+          `<span class="persp-tab__he">${ANGLE_LABEL_HE.auto}</span>` +
+          `<span class="persp-tab__en">${ANGLE_LABEL_EN.auto}</span>` +
         `</span></button>`);
   }
 
@@ -1729,6 +1774,10 @@ function teardown() {
   // Stop the diagnostic stats poller before the pc is torn down.
   stopStatsMonitor();
 
+  // Retire the AI Auto orientation watcher with the session — it samples the camera and
+  // issues live set() swaps, so it must never outlive isLive().
+  if (orientWatcher) { try { orientWatcher.stop(); } catch (_) {} orientWatcher = null; }
+
   // Feature 2 — flush the recorder while the edited tracks are still live, so the
   // download clip is finalized before disconnect ends the stream.
   stopRecording();
@@ -1798,10 +1847,197 @@ async function fetchGarmentBlob(imgUrl) {
   }
 }
 
+/* ── Context-Aware Asset Switching — pre-cached per-orientation Blobs ─────────
+   The instant-swap guarantee: rtClient.set({ image }) accepts a Blob directly, and a Blob
+   ships the bytes over the already-open session — Decart never has to fetch a URL server-
+   side (the 20-25s worst case that motivated /api/img-proxy). Pre-fetching BOTH orientation
+   assets the moment AI Auto is armed means an orientation flip costs exactly one in-flight
+   set() — no fetch, no reconnect, no flicker; the model transitions over a few frames.
+   Memoized per URL, and a failed fetch is never cached (same policy as _stitchCache). */
+const _assetBlobCache = new Map();   // url → Promise<Blob|null>
+
+function garmentBlobCached(url) {
+  if (!url) return Promise.resolve(null);
+  if (_assetBlobCache.has(url)) return _assetBlobCache.get(url);
+  const job = (async () => {
+    try {
+      // data:/blob: URLs (custom uploads) decode locally; http(s) rides the same-origin proxy.
+      const blob = /^(data:|blob:)/i.test(url)
+        ? await (await fetch(url)).blob()
+        : await fetchGarmentBlob(url);
+      if (!blob) _assetBlobCache.delete(url);      // never cache a failure — allow a retry
+      return blob;
+    } catch (e) {
+      console.warn("[PEAR] asset pre-cache failed:", e?.message || e);
+      _assetBlobCache.delete(url);
+      return null;
+    }
+  })();
+  _assetBlobCache.set(url, job);
+  return job;
+}
+
+/* Warm the cache with the front AND back assets of the active subject (both halves of a
+   full look) — fire-and-forget from setAngle/goLive so the fetches overlap the user's
+   next action (or the WebRTC handshake) instead of serialising into the first swap. */
+function prewarmOrientationAssets() {
+  const look = resolveLook();
+  for (const it of (look ? [look.top, look.bottom] : [activeItem])) {
+    if (!it) continue;
+    const g = galleryOf(it);
+    garmentBlobCached(g.front || it.img);
+    if (g.back && g.back !== g.front) garmentBlobCached(g.back);
+  }
+}
+
+/* ── Context-Aware Asset Switching — OrientationWatcher ───────────────────────
+   Watches the LOCAL camera (localStream — the raw preview feed, NOT the AI output) and
+   flips autoOrientation between "front" and "back" as the user turns, hot-swapping the
+   matching pre-cached reference through the normal applyActive() → rtClient.set() path
+   (same session, no reconnect, no flicker — the model transitions over a few frames).
+
+   Detection engines, best-first:
+     1. Native FaceDetector (Shape Detection API) — zero-dependency, fast; face present →
+        the user faces the camera. Demoted permanently after one runtime failure (some
+        builds expose the class but throw NotSupportedError at detect()).
+     2. Skin-ratio heuristic — % of skin-tone pixels in the head band (upper 45%, central
+        50%) of a tiny 96×96 frame. A frontal face shows far more skin than the back of a
+        head. DUAL thresholds (≥10% → front, ≤4% → back, dead-band between) so ambiguous
+        profile frames vote nothing instead of flapping.
+
+   Anti-flap discipline (what makes auto-switching stable enough for a live session):
+     • ORIENT_CONFIRM consecutive agreeing votes to flip (~750ms confirm latency);
+     • ORIENT_COOLDOWN_MS minimum gap between live set() swaps;
+     • a single in-flight guard — the 4Hz sampler itself is the retry loop, so a turn
+       completed mid-swap is picked up by the very next confirmed vote.
+   The watcher never touches the camera track (shared with the preview); stop() only
+   detaches its own <video> sampler. Lifecycle is owned by syncOrientationWatcher(). */
+const ORIENT_SAMPLE_MS   = 250;   // ~4 analyses/s — cheap on a 96px canvas
+const ORIENT_CONFIRM     = 3;     // consecutive agreeing samples to flip (~750ms)
+const ORIENT_COOLDOWN_MS = 1500;  // min gap between live reference swaps (anti-flap)
+const ORIENT_SIZE        = 96;    // analysis canvas edge — tiny on purpose
+
+let orientWatcher = null;         // { stop } while running, else null
+
+/* Idempotent lifecycle gate — safe to call from ANY state change (angle switch, item swap,
+   go-live, teardown): starts the watcher when AI Auto is live-armed, retires it otherwise. */
+function syncOrientationWatcher() {
+  const want = currentAngle === AUTO_ANGLE && isLive() && canCombineViews(activeItem) && !!localStream;
+  if (want && !orientWatcher) orientWatcher = createOrientationWatcher();
+  else if (!want && orientWatcher) { try { orientWatcher.stop(); } catch (_) {} orientWatcher = null; }
+}
+
+function createOrientationWatcher() {
+  const track = localStream && localStream.getVideoTracks()[0];
+  if (!track) return null;                       // no camera yet — sync will retry later
+
+  // Private sampler onto the SAME track the preview uses — reading is free, and we never
+  // stop the track itself (it belongs to the shared preview camera).
+  const video = document.createElement("video");
+  video.muted = true; video.playsInline = true; video.autoplay = true;
+  video.srcObject = new MediaStream([track]);
+  video.play().catch(() => {});
+
+  const canvas = document.createElement("canvas");
+  canvas.width = ORIENT_SIZE; canvas.height = ORIENT_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  const faceDetector = typeof FaceDetector !== "undefined"
+    ? (() => { try { return new FaceDetector({ fastMode: true, maxDetectedFaces: 1 }); } catch (_) { return null; } })()
+    : null;
+  let fdBroken = false;
+  console.log("[PEAR] AI Auto — orientation watcher armed (engine:",
+    faceDetector ? "FaceDetector + skin-ratio fallback)" : "skin-ratio heuristic)");
+
+  let lastVote = null, streak = 0, sampling = false, applying = false, lastSwapAt = 0, disposed = false;
+
+  /* One vote: "front" | "back" | null (abstain). */
+  async function classify() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const s = Math.max(ORIENT_SIZE / vw, ORIENT_SIZE / vh);   // cover-fit center crop
+    ctx.drawImage(video, (ORIENT_SIZE - vw * s) / 2, (ORIENT_SIZE - vh * s) / 2, vw * s, vh * s);
+
+    if (faceDetector && !fdBroken) {
+      try {
+        const faces = await faceDetector.detect(canvas);
+        return faces.length > 0 ? "front" : "back";
+      } catch (_) { fdBroken = true; console.log("[PEAR] AI Auto — FaceDetector unavailable at runtime; using skin-ratio heuristic"); }
+    }
+    return skinRatioVote();
+  }
+
+  /* Skin-tone share of the head band. Classic RGB skin rule — coarse, but the dual
+     thresholds + confirm streak absorb its noise. */
+  function skinRatioVote() {
+    const x = Math.round(ORIENT_SIZE * 0.25), w = Math.round(ORIENT_SIZE * 0.5);
+    const h = Math.round(ORIENT_SIZE * 0.45);
+    const d = ctx.getImageData(x, 0, w, h).data;
+    let skin = 0;
+    const total = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (r > 95 && g > 40 && b > 20 && mx - mn > 15 && Math.abs(r - g) > 15 && r > g && r > b) skin++;
+    }
+    const ratio = skin / total;
+    if (ratio >= 0.10) return "front";
+    if (ratio <= 0.04) return "back";
+    return null;                                  // ambiguous (profile/transition) — abstain
+  }
+
+  /* Confirmed flip → repaint the rail (orient chip + source preview) and hot-swap the live
+     reference. The sampler keeps voting during the swap, so a turn completed mid-flight is
+     re-confirmed and applied by a later tick — no queue needed. */
+  async function maybeSwap(next) {
+    if (applying || Date.now() - lastSwapAt < ORIENT_COOLDOWN_MS) return;
+    if (disposed || !isLive() || currentAngle !== AUTO_ANGLE) return;
+    applying = true;
+    lastSwapAt = Date.now();
+    autoOrientation = next;
+    console.log("[PEAR] AI Auto — orientation flip →", next.toUpperCase());
+    renderPerspectiveSelector();
+    const sel = $("perspectiveSelector");
+    if (sel) sel.classList.add("is-syncing");
+    try {
+      await applyActive();                       // one rtClient.set() — pre-cached Blob payload
+      toast(next === "back" ? "מציג גב · Back view" : "מציג חזית · Front view");
+    } catch (e) {
+      console.warn("[PEAR] AI Auto swap apply:", e?.message || e);
+    } finally {
+      if (sel) sel.classList.remove("is-syncing");
+      applying = false;
+    }
+  }
+
+  const timer = setInterval(async () => {
+    if (disposed || sampling) return;
+    sampling = true;
+    try {
+      const vote = await classify();
+      if (vote) {
+        streak = vote === lastVote ? streak + 1 : 1;
+        lastVote = vote;
+        if (vote !== autoOrientation && streak >= ORIENT_CONFIRM) await maybeSwap(vote);
+      }
+    } catch (_) {} finally { sampling = false; }
+  }, ORIENT_SAMPLE_MS);
+
+  return {
+    stop() {
+      disposed = true;
+      clearInterval(timer);
+      try { video.pause(); } catch (_) {}
+      video.srcObject = null;                    // detach only — the track is the preview's
+    },
+  };
+}
+
 /* ── AI Combined View — "Stitched Reference" compositor ───────────────────────
-   Draws the FRONT view into a rigid 974×1024 box on the LEFT and the BACK view into a
-   rigid 974×1024 box on the RIGHT of a FIXED 2048×1024 canvas, separated by a 100px
-   high-contrast SOLID BLACK BAR (a "no-man's-land"), plus a high-contrast WHITE label box
+   Draws the FRONT view into a rigid 924×1024 box on the LEFT and the BACK view into a
+   rigid 924×1024 box on the RIGHT of a FIXED 2048×1024 canvas, separated by a WIDE 200px
+   high-contrast SOLID BLACK BAR (a "no-man's-land") with a 44px black gutter framing each
+   view, plus a high-contrast WHITE label box
    ("FRONT" top-left, "BACK" top-right) burned into each section as a hard architectural
    marker. Returns ONE JPEG Blob for rtClient.set({ image }) (the realtime SDK accepts
    Blob | File | string). The matching COMBINED prompt clause (ANGLE_CLAUSE.combined) is an
@@ -1810,11 +2046,12 @@ async function fetchGarmentBlob(imgUrl) {
    pass renders the front while the user faces the camera and the back once they turn away,
    without the two views bleeding into each other.
 
-   WHY A 100px BLACK BAR (composite-bleeding fix): Lucy 2.1 is a diffusion model, so a
-   hairline separator does nothing to stop cross-attention from bleeding the back view
+   WHY A WIDE 200px BLACK BAR + GUTTER (composite-bleeding fix): Lucy 2.1 is a diffusion model,
+   so a hairline separator does nothing to stop cross-attention from bleeding the back view
    onto the front. A wide, fully-opaque black band is a hard, low-information region the
-   model reads as a scene boundary, so it segments the two views cleanly. Each image is
-   clipped to its own column so a wide packshot can't overflow into or across the bar.
+   model reads as a scene boundary, so it segments the two views cleanly; the extra 44px
+   gutter frames each view as an isolated panel whose pixels never even touch the band. Each
+   image is clipped to its own column so a wide packshot can't overflow into or across the bar.
 
    High-performance: both images decode off the main thread via createImageBitmap
    and composite on an OffscreenCanvas when available; the finished Blob is
@@ -1822,12 +2059,18 @@ async function fetchGarmentBlob(imgUrl) {
    garment never re-stitch. Cross-origin CDN images route through /api/img-proxy
    (same-origin, ACAO:*), so the canvas is never tainted and toBlob() can't throw. */
 /* FIXED high-res framing (rigid geometry defeats front/back bleeding): a 2048×1024 canvas =
-   FRONT box (left, 974×1024) + 100px SOLID BLACK separator (no-man's-land) + BACK box (right,
-   974×1024). Each view is clipped to its box so a wide packshot can never overflow into or
-   across the bar, and the wide opaque band is a hard, low-information scene boundary the
-   diffusion model refuses to blend across. */
-const COMBINED_W   = 2048, COMBINED_H = 1024, COMBINED_SEP = 100;
-const COMBINED_BOX = (COMBINED_W - COMBINED_SEP) / 2;   // 974px per view box
+   FRONT box (left, 924×1024) + 200px SOLID BLACK separator (no-man's-land) + BACK box (right,
+   924×1024), each view further inset by a 44px black gutter. Each view is clipped to its box so
+   a wide packshot can never overflow into or across the bar, and the wide opaque band is a hard,
+   low-information scene boundary the diffusion model refuses to blend across. */
+/* Strengthened geometry (front/back bleeding fix): a WIDE 200px black separator band plus a
+   44px black GUTTER framing every view. Widening the band from 100 to 200px enlarges the
+   low-information scene boundary the diffusion model refuses to blend across; the gutter turns
+   each view into an isolated black-framed panel so no garment pixel ever touches the shared
+   centre - the two levels of separation compound. */
+const COMBINED_W   = 2048, COMBINED_H = 1024, COMBINED_SEP = 200;
+const COMBINED_PAD = 44;                                // black gutter framing each view (isolated panel)
+const COMBINED_BOX = (COMBINED_W - COMBINED_SEP) / 2;   // 924px per view box
 const _stitchCache = new Map();   // `${frontUrl} ${backUrl}` → Promise<Blob|null>
 
 /* Decode a garment URL into an ImageBitmap without tainting the canvas: http(s) CDN
@@ -1883,8 +2126,9 @@ function drawSectionLabel(ctx, text, anchorX, top, fontPx, align) {
 
 /**
  * Stitch a front + back garment asset into ONE fixed 2048×1024 reference Blob: FRONT boxed
- * on the left (974×1024) + "FRONT" white marker, a 100px opaque black separator bar, BACK
- * boxed on the right (974×1024) + "BACK" white marker. Rigid geometry + the wide bar give the
+ * on the left (924×1024, inset by a 44px black gutter) + "FRONT" white marker, a WIDE 200px
+ * opaque black separator bar, BACK boxed on the right (924×1024, same gutter) + "BACK" white
+ * marker. Rigid geometry + the wide bar + the gutter give the
  * diffusion model a hard boundary it won't blend across (the front/back bleeding fix).
  * @param {string} frontUrl  front garment image URL (http(s)/data:/blob:)
  * @param {string} backUrl   back garment image URL
@@ -1900,9 +2144,9 @@ function stitchReferenceBlob(frontUrl, backUrl) {
     try {
       const [front, back] = await Promise.all([loadGarmentBitmap(frontUrl), loadGarmentBitmap(backUrl)]);
 
-      // FIXED 2048×1024 framing: 974px FRONT box | 100px black bar | 974px BACK box.
+      // FIXED 2048×1024 framing: 924px FRONT box | 200px black bar | 924px BACK box.
       const boxW = COMBINED_BOX, H = COMBINED_H;
-      const rightX = boxW + COMBINED_SEP;           // 1074 — start of the back box (after the bar)
+      const rightX = boxW + COMBINED_SEP;           // 1124 — start of the back box (after the bar)
 
       const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(COMBINED_W, COMBINED_H) : null;
       const canvas = off || Object.assign(document.createElement("canvas"), { width: COMBINED_W, height: COMBINED_H });
@@ -1911,27 +2155,33 @@ function stitchReferenceBlob(frontUrl, backUrl) {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, COMBINED_W, COMBINED_H);
 
+      // Each view is drawn into an inset rect so a black GUTTER frames it on all four sides:
+      // the garment becomes an isolated panel whose pixels never touch the centre bar (or any
+      // edge), and the clip to the full box still guards against sub-pixel overflow.
+      const pad = COMBINED_PAD;
+      const innerW = boxW - pad * 2, innerH = H - pad * 2;
+
       // Left = FRONT, clipped to its box so a wide packshot can't bleed toward (or across)
       // the black bar — the boundary must stay impermeable.
       ctx.save();
       ctx.beginPath(); ctx.rect(0, 0, boxW, H); ctx.clip();
-      drawImageCover(ctx, front, 0, 0, boxW, H);
+      drawImageCover(ctx, front, pad, pad, innerW, innerH);
       ctx.restore();
 
       // Right = BACK, clipped to its box (starts after the bar).
       ctx.save();
       ctx.beginPath(); ctx.rect(rightX, 0, boxW, H); ctx.clip();
-      drawImageCover(ctx, back, rightX, 0, boxW, H);
+      drawImageCover(ctx, back, rightX + pad, pad, innerW, innerH);
       ctx.restore();
 
-      // High-contrast 100px SOLID BLACK separator bar — the diffusion "no-man's-land".
+      // High-contrast 200px SOLID BLACK separator bar — the diffusion "no-man's-land".
       ctx.fillStyle = "#000000";
       ctx.fillRect(boxW, 0, COMBINED_SEP, COMBINED_H);
 
       // Hard architectural markers: "FRONT" white box in the TOP-LEFT of the front box, "BACK"
       // white box in the TOP-RIGHT of the back box. The prompt names these + forbids rendering
       // the marker text on the garment (see ANGLE_CLAUSE.combined exclusive instruction set).
-      const fontPx = Math.round(COMBINED_H * 0.05);   // ~51px
+      const fontPx = Math.round(COMBINED_H * 0.06);   // ~61px — larger, harder-to-ignore marker
       const inset  = Math.round(COMBINED_H * 0.02);   // ~20px from the edges
       drawSectionLabel(ctx, "FRONT", inset, inset, fontPx, "left");                // top-left of FRONT box
       drawSectionLabel(ctx, "BACK",  COMBINED_W - inset, inset, fontPx, "right");  // top-right of BACK box
@@ -2004,8 +2254,23 @@ const WEARABLE_ANGLES = ["front", "back", "side"];
    half as the user turns. Offered only when the item ships a real, DISTINCT back photo
    (canCombineViews). Handled explicitly everywhere currentAngle is switched on. */
 const COMBINED_ANGLE = "combined";
-const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט",   combined: "משולב AI"   };
-const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail", combined: "AI Combined" };
+/* "AI Auto" — Context-Aware Asset Switching, the anti-bleeding architecture that REPLACES
+   stitching with per-orientation references: both the front and back assets are pre-cached
+   as Blobs, an OrientationWatcher reads the local camera, and the live session hot-swaps
+   rtClient.set({ image }) to the SINGLE matching asset the instant the user turns. The model
+   only ever sees ONE orientation at a time, so front/back cross-contamination is impossible
+   by construction (there is no second view in the reference to bleed from). Like COMBINED,
+   it is a synthetic pseudo-angle offered only when canCombineViews() (a real, distinct back
+   photo exists). `autoOrientation` is the watcher-detected side currently in play; every
+   angle-sensitive resolver reads effectiveAngle() so auto mode transparently reuses the
+   entire existing front/back pipeline (images, clauses, fallbacks). */
+const AUTO_ANGLE = "auto";
+let autoOrientation = "front";        // "front" | "back" — the side the user shows the camera
+/* The angle every resolver should ACT on: auto mode delegates to the detected orientation,
+   every other mode is what the user picked. */
+function effectiveAngle() { return currentAngle === AUTO_ANGLE ? autoOrientation : currentAngle; }
+const ANGLE_LABEL_HE = { front: "חזית", back: "גב",   side: "צד",   detail: "פרט",   combined: "משולב AI",  auto: "אוטומטי AI" };
+const ANGLE_LABEL_EN = { front: "Front", back: "Back", side: "Side", detail: "Detail", combined: "AI Combined", auto: "AI Auto" };
 
 /** Ordered list of variant/colour keys an item ships (empty when it has no variants). */
 function colorsOf(item) {
@@ -2086,19 +2351,21 @@ function liveBlockReason() {
 
 /* The EXACT source image fed to the AI for the active angle. Falls back to the front
    asset when the active angle has no dedicated image, so a Back/Side toggle never
-   breaks — it reuses the front reference and lets the prompt clause steer the warp. */
+   breaks — it reuses the front reference and lets the prompt clause steer the warp.
+   effectiveAngle() makes AI Auto transparent: the detected orientation picks the asset. */
 function activeImageOf(item) {
   if (!item) return undefined;
   const g = galleryOf(item);
-  return g[currentAngle] || g.front || item.img;
+  return g[effectiveAngle()] || g.front || item.img;
 }
 
 /* True when the active angle has its OWN dedicated image (not a front fallback) — for
    a single garment or BOTH halves of a full look. Drives the "real image" UI hint. */
 function hasDedicatedAngle(item) {
+  const a = effectiveAngle();
   const look = resolveLook();
-  if (look) return !!(galleryOf(look.top)[currentAngle] && galleryOf(look.bottom)[currentAngle]);
-  return !!(item && galleryOf(item)[currentAngle]);
+  if (look) return !!(galleryOf(look.top)[a] && galleryOf(look.bottom)[a]);
+  return !!(item && galleryOf(item)[a]);
 }
 
 /* Angle-oriented prompt clauses. Switching the image alone isn't enough — Lucy
@@ -2119,11 +2386,19 @@ const ANGLE_CLAUSE = {
   // white "BACK" marker). The instruction forbids blending across the bar (the bleeding fix),
   // pins each labeled section as the ONLY valid source for its orientation, then forbids
   // rendering the marker text onto the garment.
+  // AI Auto, facing camera: the reference is ONE clean front asset (no composite), so the
+  // clause pins it explicitly as the front and forbids inventing rear details — the
+  // orientation contract that makes Context-Aware Asset Switching bleed-proof.
+  autoFront:
+    " This reference photo shows the FRONT of the garment. The person is facing the camera:" +
+    " reproduce the garment's front faithfully — its front panel, collar, closure, hemline and" +
+    " any front graphics, prints, logos or lettering — keeping each element at the SAME size," +
+    " height and horizontal position as in the reference. Do NOT render the back of the garment.",
   combined:
-    " This image is divided by a high-contrast black separator bar into two rigid boxes that must be treated as a strict no-man's-land." +
-    " The provided image contains two distinct, mutually exclusive garment views. The LEFT section marked 'FRONT' is the only valid source for frontal renders. The RIGHT section marked 'BACK' is the only valid source for rear renders. You are strictly forbidden from blending pixels between these two sections. When the user faces the camera, use ONLY the 'FRONT' section. When the user turns away, use ONLY the 'BACK' section. Failure to adhere to this separation will result in an invalid render." +
-    " Reproduce the selected section's garment with 100% fidelity to its graphics and layout." +
-    " The 'FRONT' and 'BACK' text markers are architectural labels only — never render that text onto the clothing itself.",
+    " This image is two completely separate garment photographs, each isolated inside its own black-framed panel and divided by a WIDE solid-black separator band that is a strict no-man's-land." +
+    " The two panels are distinct, mutually exclusive garment views. The LEFT panel marked 'FRONT' is the ONLY valid source for frontal renders. The RIGHT panel marked 'BACK' is the ONLY valid source for rear renders. Treat the black band and black frames as an impassable wall: you are strictly forbidden from sampling, blending, copying or bleeding ANY pixel from one panel into the other. When the user faces the camera, use ONLY the 'FRONT' panel and completely ignore the 'BACK' panel. When the user turns away, use ONLY the 'BACK' panel and completely ignore the 'FRONT' panel. Mixing the two panels is an invalid render." +
+    " Reproduce the selected panel's garment with 100% fidelity to its graphics and layout." +
+    " The 'FRONT' and 'BACK' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.",
 };
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
@@ -2169,15 +2444,20 @@ function angleClause(item) {
   // AI Combined View — the image IS a stitched front|back composite, so the steering is
   // the composite clause (which half to use for which orientation), not a per-angle one.
   if (currentAngle === COMBINED_ANGLE) return ANGLE_CLAUSE.combined;
-  if (currentAngle === "back") {
+  const angle = effectiveAngle();      // AI Auto resolves to the DETECTED orientation
+  if (angle === "back") {
     // Dual asset (front + a REAL back photo, incl. a user's uploaded back) → reproduce it.
+    // AI Auto always lands here with a real back (canCombineViews gates the mode on one).
     if (activeBackIsReal(item)) return ANGLE_CLAUSE.backReal;
     // Custom upload with only a front → the strict "clean plain rear, no front graphics"
     // constraint (+ inlined negative). Catalog items keep the generic inferred clause.
     if (item && item.custom) return CUSTOM_BACK_INFERRED;
     return ANGLE_CLAUSE.backInferred;
   }
-  return ANGLE_CLAUSE[currentAngle] || "";
+  // AI Auto, facing the camera: unlike the plain front tab (no clause), pin the reference
+  // explicitly as the garment FRONT — the mode's whole contract is one unambiguous side.
+  if (currentAngle === AUTO_ANGLE) return ANGLE_CLAUSE.autoFront;
+  return ANGLE_CLAUSE[angle] || "";
 }
 
 /**
@@ -2194,6 +2474,13 @@ async function referenceImageFor(item, activeImg = activeImageOf(item)) {
     const blob = await stitchReferenceBlob(g.front || item.img, g.back || g.front || item.img);
     if (blob) return blob;                 // Blob → set({ image }) accepts it directly
     console.warn("[PEAR] AI Combined View — stitch failed; falling back to front reference");
+  }
+  // AI Auto — the pre-cached Blob for the DETECTED orientation (activeImg already resolved
+  // through effectiveAngle()). Sending bytes, not a URL, is what makes the swap instant.
+  if (currentAngle === AUTO_ANGLE) {
+    const blob = await garmentBlobCached(activeImg);
+    if (blob) return blob;
+    console.warn("[PEAR] AI Auto — Blob pre-cache miss; falling back to proxied URL reference");
   }
   return garmentImageRef(activeImg);
 }
@@ -2213,6 +2500,7 @@ async function applyGarment(item) {
   console.log("garment  :", item.name, `(id=${item.id}, type=${item.garmentType}${item.custom ? ", custom upload" : ""})`);
   console.log("angle    :", currentAngle,
     currentAngle === COMBINED_ANGLE ? "(stitched front+back composite reference)"
+      : currentAngle === AUTO_ANGLE ? `(AI Auto — detected orientation: ${autoOrientation}, pre-cached Blob)`
       : hasDedicatedAngle(item) ? "(dedicated gallery image)" : "(front fallback + prompt)");
   console.log("subType  :", item.subType, "| color:", item.color);
   console.log("img URL  :", abbrevImg(activeImg));   // data: URLs abbreviated so a base64 blob can't flood the console
@@ -2672,6 +2960,155 @@ function newUuid() {
     "d-" + Date.now().toString(36) + "-" + Math.random().toString(16).slice(2));
 }
 
+/* =============================================================================
+   CACHED BODY PROFILE (height + weight)
+   -----------------------------------------------------------------------------
+   The name/phone identity gate above is skipped for returning visitors, but the
+   measurement form was still blank on every visit — the user re-typed their
+   height + weight each time. This caches those two mandatory values in
+   localStorage so a returning user's form is pre-filled and the size result
+   shows instantly, while FORCING a fresh re-entry every 30 days so a stale body
+   profile can't silently drive the fit for months.
+
+   Bounds mirror calculateSize()'s "mandatoryReady" gate exactly (height
+   130–240 cm, weight 35–220 kg) so we never cache a value the form itself would
+   flag as "not logical" — no garbage survives the round-trip.
+   ============================================================================= */
+const PEAR_PROFILE_KEY   = "pear_body_profile";
+const PROFILE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
+const PROFILE_HEIGHT_MIN = 130, PROFILE_HEIGHT_MAX = 240;
+const PROFILE_WEIGHT_MIN = 35,  PROFILE_WEIGHT_MAX = 220;
+
+function isSaneProfile(height, weight) {
+  return Number.isFinite(height) && Number.isFinite(weight) &&
+    height >= PROFILE_HEIGHT_MIN && height <= PROFILE_HEIGHT_MAX &&
+    weight >= PROFILE_WEIGHT_MIN && weight <= PROFILE_WEIGHT_MAX;
+}
+
+/* Read + parse the stored profile. Returns null if absent or corrupt. */
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(PEAR_PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !isSaneProfile(Number(p.height), Number(p.weight))) return null;
+    return { height: Number(p.height), weight: Number(p.weight), lastUpdated: Number(p.lastUpdated) || 0 };
+  } catch { return null; }
+}
+
+/**
+ * True only when a sane profile exists AND it is younger than 30 days.
+ * False (→ prompt the user to re-enter) when data is missing, corrupt, or stale.
+ * @returns {boolean}
+ */
+function checkProfileValidity() {
+  const p = loadProfile();
+  if (!p) return false;
+  return (Date.now() - p.lastUpdated) < PROFILE_MAX_AGE_MS;
+}
+
+/**
+ * Persist height + weight with a fresh timestamp. Rejects out-of-range values so
+ * the 30-day cache can never hold garbage. Returns whether it was saved.
+ * @param {number} height cm
+ * @param {number} weight kg
+ * @returns {boolean}
+ */
+function saveProfile(height, weight) {
+  return writeProfileCache(height, weight, Date.now());
+}
+
+/* Write the height/weight cache with an EXPLICIT timestamp. saveProfile() stamps
+   now() (a fresh local edit); routeAfterIdentity() passes the server's real
+   "last saved" time so the 30-day re-measure check reflects when the measurements
+   were actually taken — even when loaded onto a brand-new device. */
+function writeProfileCache(height, weight, tsMs) {
+  const h = Number(height), w = Number(weight);
+  if (!isSaneProfile(h, w)) return false;
+  try {
+    localStorage.setItem(PEAR_PROFILE_KEY, JSON.stringify({
+      height: h, weight: w, lastUpdated: Number(tsMs) || Date.now(),
+    }));
+    return true;
+  } catch { return false; }
+}
+
+/* =============================================================================
+   POST-IDENTITY ROUTING — Case A / B / C
+   -----------------------------------------------------------------------------
+   The SINGLE decision point for what happens right after a visitor is identified
+   (whether via a known device on page load, or via submitIdentity() registering /
+   auto-logging-in by phone). Called with the raw /api/users response.
+
+     Case A — no saved measurements at all → reveal Screen 1's measurement form
+              (first-time visitor, or a known profile that never finished sizing).
+     Case B — saved measurements, < 30 days old → skip Screen 1 ENTIRELY: prefill
+              the (hidden) fields, show a "welcome back" toast, and transition
+              straight into the fitting room using that data.
+     Case C — saved measurements, ≥ 30 days old → skip Screen 1, show the re-measure
+              modal instead. "Update" reveals Screen 1 pre-filled for editing;
+              "Dismiss" (or backdrop/Esc) proceeds into the fitting room with the
+              existing (stale) data, exactly like Case B.
+   ============================================================================= */
+function hideAllScreen1Forms() {
+  const idForm = $("identityForm"), sizeForm = $("sizeForm");
+  if (idForm)   { idForm.hidden = true;   idForm.style.display = "none"; }
+  if (sizeForm) { sizeForm.hidden = true; sizeForm.style.display = "none"; }
+}
+
+function routeAfterIdentity(data) {
+  const m = data && data.measurements;
+  const hasMeasurements = m && isSaneProfile(Number(m.height), Number(m.weight));
+
+  if (!hasMeasurements) {                          // Case A
+    showSizeForm();
+    return;
+  }
+
+  // Known profile with real data — Screen 1 is never shown mid-decision; we either
+  // transition straight past it (B) or the modal covers it entirely (C).
+  hideAllScreen1Forms();
+
+  const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
+  setIf("height", m.height); setIf("weight", m.weight);
+  setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
+
+  const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
+  writeProfileCache(m.height, m.weight, tsMs || Date.now());
+  try { calculateSize(); } catch {}
+
+  const fresh = tsMs && (Date.now() - tsMs) < PROFILE_MAX_AGE_MS;
+  const name  = (data.user && data.user.name) || "";
+
+  if (fresh) {                                     // Case B
+    toast(`ברוך שובך${name ? ", " + name : ""}! משתמשים במדידות השמורות שלך ✓`);
+    goToFitting({ skipProfileSave: true });         // reuse EXISTING data — don't re-stamp "now"
+    return;
+  }
+
+  // Case C — nudge, but never trap: dismissing (button / backdrop / Esc) still
+  // gets the visitor into the room with their existing data.
+  openUpdateReminder({
+    onUpdate:  openReminderScreen,
+    onDismiss: () => goToFitting({ skipProfileSave: true }),
+  });
+}
+
+/* Pre-fill the height/weight inputs from a valid (<30-day) cached profile, then
+   recompute so the returning user lands on their size instantly. No-op when the
+   cache is missing/stale (→ empty form, i.e. a natural re-prompt), or when the
+   user already typed something this session (never clobber live input). */
+function prefillProfileFromCache() {
+  if (!checkProfileValidity()) return false;
+  const p = loadProfile();
+  const hEl = $("height"), wEl = $("weight");
+  if (!hEl || !wEl) return false;
+  if (hEl.value || wEl.value) return false;   // don't overwrite in-progress entry
+  hEl.value = String(p.height);
+  wEl.value = String(p.weight);
+  return true;
+}
+
 /* Reveal the measurement form (and recompute, so a returning user with prefilled
    data sees the result immediately). */
 function showSizeForm() {
@@ -2681,7 +3118,80 @@ function showSizeForm() {
   // [hidden] attribute, so toggling `.hidden` alone can't hide/show it reliably.
   if (idForm)   { idForm.hidden = true;    idForm.style.display = "none"; }
   if (sizeForm) { sizeForm.hidden = false; sizeForm.style.display = "";   }
+  prefillProfileFromCache();      // restore cached height/weight if still fresh
   try { calculateSize(); } catch {}
+}
+
+/* =============================================================================
+   30-DAY RE-MEASURE REMINDER + "UPDATE MEASUREMENTS" CTA
+   -----------------------------------------------------------------------------
+   Custom UI only (never native confirm/alert). The reminder is a dismissible
+   modal shown on login when the profile is 30+ days old; the CTA is an
+   always-available button on the size screen that persists a fresh, timestamped
+   measurement snapshot on demand.
+   ============================================================================= */
+let _reminderHandlers = null;   // { onUpdate, onDismiss } for the CURRENT reminder instance
+
+function openUpdateReminder(handlers) {
+  _reminderHandlers = handlers || null;
+  const modal = $("updateReminderModal");
+  if (!modal) return;
+  modal.hidden = false;
+  requestAnimationFrame(() => modal.classList.add("show"));
+}
+
+function closeUpdateReminder() {
+  const modal = $("updateReminderModal");
+  if (!modal) return;
+  modal.classList.remove("show");
+  // let the fade-out play before removing from the layout
+  setTimeout(() => { modal.hidden = true; }, 260);
+}
+
+/* "Update" from Case C: Screen 1 was never shown (routeAfterIdentity skipped it),
+   so reveal it now — pre-filled — then focus the form for editing. */
+function openReminderScreen() {
+  showSizeForm();
+  focusMeasurementForm();
+}
+
+/* Focus the (already-visible) measurement form. Used directly by the always-on
+   Screen 1 CTA, and by openReminderScreen() right after revealing Screen 1. */
+function focusMeasurementForm() {
+  setOptionalVisible(true);
+  const h = $("height");
+  if (h) { h.focus(); try { h.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
+}
+
+/* The reminder's two actions. Both always close the modal; Dismiss additionally
+   runs the caller's fallback (Case C → straight into the fitting room) so the
+   visitor is never left stranded behind a closed modal. */
+function reminderUpdateNow() {
+  const h = _reminderHandlers;
+  closeUpdateReminder();
+  (h && h.onUpdate ? h.onUpdate : openReminderScreen)();
+}
+function reminderDismiss() {
+  const h = _reminderHandlers;
+  closeUpdateReminder();
+  if (h && h.onDismiss) h.onDismiss();
+}
+
+/* Permanent "Update Measurements" action: validate the current form, persist a
+   fresh timestamped snapshot (local cache + server session row stamped with the
+   user id), and confirm with a toast. Invalid → focus height and nudge. */
+function updateMeasurementsNow() {
+  try { calculateSize(); } catch {}
+  const h = $("height") && $("height").value;
+  const w = $("weight") && $("weight").value;
+  if (!saveProfile(h, w)) {                       // validates + caches locally w/ fresh ts
+    setOptionalVisible(true);
+    if ($("height")) $("height").focus();
+    toast("נא למלא גובה ומשקל תקינים כדי לעדכן את המדידות");
+    return;
+  }
+  logSessionMeasurements(null, currentUserSize);  // timestamped server record (user_id stamped)
+  toast("✓ המדידות שלך עודכנו");
 }
 
 /* Show the name/phone gate and wire its controls (idempotent — safe to call
@@ -2712,46 +3222,15 @@ function showIdentityGate() {
   if (errEl) errEl.hidden = true;
 }
 
-/* Decide whether to gate on name/phone. Runs at startup BEFORE the user can fill
-   measurements, so every session links to a real user profile. */
-async function setupIdentityGate() {
-  const deviceId = getDeviceId();
-
-  // Known device → verify the profile still exists server-side.
-  if (deviceId) {
-    try {
-      const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.user?.id) {
-          PEAR_USER_ID = data.user.id;
-          console.log("[identity] returning user:", data.user.name);
-          showSizeForm();
-          return;
-        }
-      }
-      if (res.status === 404) {
-        // Device is remembered locally but has NO server-side user (the profile
-        // store was reset/migrated, or an earlier registration never completed).
-        // Re-register — reusing this device id — so the profile exists again and
-        // future sessions link to it instead of saving user_id = null forever.
-        console.warn("[identity] no server profile for this device — prompting registration");
-        showIdentityGate();
-        return;
-      }
-      // Any other status (e.g. 503 storage down): don't block the fitting room.
-      console.warn("[identity] profile lookup returned", res.status, "— proceeding without gate");
-      showSizeForm();
-      return;
-    } catch (err) {
-      // Network error — don't block the visitor from using the fitting room.
-      console.warn("[identity] profile lookup failed (proceeding anyway):", err?.message || err);
-      showSizeForm();
-      return;
-    }
-  }
-
-  // First-time visitor (no device id) → show the gate.
+/* Step 0 for EVERY visit — the name/phone gate is ALWAYS the first thing shown,
+   never silently skipped for a "remembered" browser. Routing (Case A/B/C) only
+   happens AFTER the visitor submits the form, keyed by the PHONE NUMBER they type
+   (submitIdentity → POST /api/users → routeAfterIdentity), not by a cached device
+   id. The device id is still sent along on submit purely so the same browser
+   re-attaches to the same server profile server-side — it no longer bypasses this
+   screen (that was the bug: a previously-registered device silently skipped
+   straight to an empty measurement form instead of asking for name/phone again). */
+function setupIdentityGate() {
   showIdentityGate();
 }
 
@@ -2783,19 +3262,29 @@ async function submitIdentity() {
     });
     const data = await res.json().catch(() => null);
 
-    // Saved (or this device was already known) → link the session and continue.
+    // Saved, auto-logged-in (name+phone match), or this device was already known →
+    // link the session, load any saved measurements, and continue.
     if (res.ok && data?.ok) {
       setDeviceId(deviceId);                 // remember this browser from now on
       PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
-      console.log("[identity] registered user:", data.user?.name, "→", PEAR_USER_ID);
-      return showSizeForm();
+      console.log(
+        "[identity] " + (data.matched === "phone" ? "auto-login (name+phone)" : "registered") +
+        " user:", data.user?.name, "→", PEAR_USER_ID
+      );
+      routeAfterIdentity(data);              // Case A/B/C routing
+      return;
     }
 
-    // Fixable INPUT problem (400/422) → the visitor can correct it, so surface the
-    // server's message and let them retry. This is the only case that stays on the gate.
-    if (res.status === 400 || res.status === 422) {
+    // Fixable INPUT problem → the visitor can correct it, so surface a message and
+    // let them retry. This is the only case that stays on the gate:
+    //   • 409 phone_taken — phone already registered to a DIFFERENT name
+    //   • 400/422         — missing/invalid fields
+    if (res.status === 409 || res.status === 400 || res.status === 422) {
       if (btn) btn.disabled = false;
-      return showErr((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+      const msg = data?.error === "phone_taken"
+        ? "מספר טלפון זה כבר רשום למשתמש אחר."
+        : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+      return showErr(msg);
     }
 
     // INFRA failure (503 storage_unconfigured, 5xx, …) must NOT trap the visitor on
@@ -2898,6 +3387,10 @@ async function goLive() {
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
 
+    // AI Auto: warm the front+back Blob cache NOW so both assets download in parallel
+    // with the WebRTC handshake — the first orientation flip then costs zero fetches.
+    if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
+
     $("scanOverlay").hidden = false;
     $("scanSub").textContent = "Lucy VTON · photorealistic render";
 
@@ -2922,6 +3415,7 @@ async function goLive() {
     $("scanOverlay").hidden = true;
     card().classList.add("show-live");
     setLiveControls(true);
+    syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
     startRecording();                  // Feature 2 — record while the session is live
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
@@ -4893,9 +5387,28 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-  // Returning-user gate: first-timers fill name/phone once; returning visitors
-  // skip straight to measurements. Runs before the user can touch the form.
+  // Identity gate — ALWAYS Step 0, every visit. Routing to Case A/B/C happens only
+  // after submit, keyed by the phone number typed in (see setupIdentityGate).
   setupIdentityGate();
+
+  // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
+  $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
+  $("reminder-update-now")?.addEventListener("click", reminderUpdateNow);
+  $("reminder-dismiss")?.addEventListener("click", reminderDismiss);
+  // Backdrop click / Esc = the same "Dismiss" action (never traps the user — Case C
+  // dismissal must still route into the fitting room, not just close the modal).
+  $("updateReminderModal")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) reminderDismiss();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) reminderDismiss();
+  });
+  // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
+  // entirely, so it may never have been revealed; this brings it up pre-filled.
+  $("btn-edit-measurements")?.addEventListener("click", () => {
+    backToCalculator();
+    showSizeForm();
+  });
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
     i.addEventListener("input", calculateSize);
