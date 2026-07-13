@@ -495,6 +495,49 @@ async function findUserByDeviceId(deviceId) {
   return data || null;
 }
 
+/* Phone is the human-facing UNIQUE identity (a person keeps their number across
+   browsers/devices). We store and compare it normalized to digits only so
+   "050-1234567", "0501234567" and "050 123 4567" all resolve to the same user. */
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+async function findUserByPhone(phone) {
+  const norm = normalizePhone(phone);
+  if (!norm) return null;
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("phone", norm)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/* The user's most recently saved body measurements (each save is a timestamped
+   `sessions` row). Powers auto-login prefill + the 30-day "time to re-measure"
+   reminder. Returns null when the user has never saved measurements. */
+async function latestMeasurementsForUser(userId) {
+  if (!userId) return null;
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("height, weight, chest, waist, legs, size, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    measurements: {
+      height: data.height, weight: data.weight,
+      chest: data.chest, waist: data.waist, legs: data.legs,
+    },
+    size: data.size || "",
+    measurementsUpdatedAt: data.created_at || null,
+  };
+}
+
 /* Strip a user row down to the non-PII fields the PUBLIC client actually needs
    (returning-visitor recognition uses id + name only). The phone number is PII and
    must NEVER be returned by an unauthenticated endpoint — only the admin API, which
@@ -513,7 +556,7 @@ async function createUser(req, res) {
   const str = (v, max = 80) => (v == null ? "" : String(v).trim().slice(0, max));
   const deviceId = str(b.deviceId, 64);
   const name     = str(b.name, 80);
-  const phone    = str(b.phone, 40);
+  const phone    = normalizePhone(str(b.phone, 40));
 
   if (!deviceId || !name || !phone) {
     return res.status(400).json({
@@ -522,12 +565,43 @@ async function createUser(req, res) {
     });
   }
 
+  const sameName = (a, c) =>
+    String(a || "").trim().toLowerCase() === String(c || "").trim().toLowerCase();
+
   try {
-    // Already known device → return the existing profile, don't duplicate.
+    // Already known device → return the existing profile (with their saved
+    // measurements), don't duplicate.
     const existing = await findUserByDeviceId(deviceId);
     if (existing) {
       console.log(`[users] device "${deviceId}" already known → returning existing user`);
-      return res.json({ ok: true, user: publicUser(existing), existed: true });
+      const m = await latestMeasurementsForUser(existing.id).catch(() => null);
+      return res.json({ ok: true, user: publicUser(existing), existed: true, ...(m || {}) });
+    }
+
+    // Phone is the unique identity. A phone already on file means one of two things:
+    const byPhone = await findUserByPhone(phone);
+    if (byPhone) {
+      // 1) Same person, new browser/device → AUTO-LOGIN. Re-link this device to the
+      //    existing profile and hand back their saved measurements so the client can
+      //    prefill instantly. (device_id is UNIQUE and this device isn't in `users`
+      //    yet — we returned above if it were — so the re-link is always safe.)
+      if (sameName(byPhone.name, name)) {
+        await supabase.from("users").update({ device_id: deviceId }).eq("id", byPhone.id);
+        console.log(`[users] name+phone match → auto-login user ${byPhone.id}, relinked device "${deviceId}"`);
+        const m = await latestMeasurementsForUser(byPhone.id).catch(() => null);
+        return res.json({
+          ok: true, user: publicUser({ ...byPhone, device_id: deviceId }),
+          existed: true, matched: "phone", ...(m || {}),
+        });
+      }
+      // 2) Different name on the same phone → BLOCK the registration (the phone is
+      //    taken). The client surfaces this inline; the visitor must correct it.
+      console.warn(`[users] phone already registered to a different name → blocked`);
+      return res.status(409).json({
+        ok: false,
+        error: "phone_taken",
+        message: "This phone number is already registered to another user.",
+      });
     }
 
     const { data, error } = await supabase
@@ -561,7 +635,11 @@ async function getUserByDevice(req, res) {
   try {
     const user = await findUserByDeviceId(deviceId);
     if (!user) return res.status(404).json({ ok: false, error: "not_found" });
-    res.json({ ok: true, user: publicUser(user) });   // no phone/PII to the public
+    // Include the user's latest saved measurements (own data, keyed by their own
+    // device) so the client can prefill the form and run the 30-day re-measure
+    // check. Still no phone/PII in the payload.
+    const m = await latestMeasurementsForUser(user.id).catch(() => null);
+    res.json({ ok: true, user: publicUser(user), ...(m || {}) });
   } catch (err) {
     console.error("[users] lookup failed:", err?.message);
     res.status(500).json({ ok: false, error: err?.message });

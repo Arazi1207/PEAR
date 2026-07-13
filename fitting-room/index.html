@@ -185,6 +185,18 @@
                     <input type="number" id="legs" min="50" max="120" placeholder="לדוגמה: 102">
                 </div>
             </div>
+
+            <!-- ░░ Permanent "Update Measurements" CTA — always available on the size
+                 screen (the user's dashboard). Saves a fresh, timestamped snapshot
+                 on demand, independent of proceeding to the fitting room. ░░ -->
+            <button id="btn-update-measurements" type="button" class="btn-update-measure">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                     stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                </svg>
+                <span>עדכון מדידות</span>
+            </button>
         </form>
     </div>
     </div><!-- /.calc-main -->
@@ -470,6 +482,27 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ░░ 30-day re-measure reminder — custom modal (never a native confirm). Shown on
+     login when the saved measurements are a month or more old. ░░ -->
+<div class="update-reminder" id="updateReminderModal" role="dialog" aria-modal="true"
+     aria-labelledby="reminderTitle" aria-describedby="reminderBody" hidden>
+    <div class="update-reminder__card" role="document">
+        <div class="update-reminder__badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 7v5l3 2"/>
+            </svg>
+        </div>
+        <h3 id="reminderTitle">עבר יותר מחודש מאז העדכון האחרון!</h3>
+        <p id="reminderBody">הגוף משתנה — כדאי לרענן את המדידות כדי לשמור על התאמת מידה מדויקת. לעדכן עכשיו?</p>
+        <div class="update-reminder__actions">
+            <button id="reminder-update-now" type="button" class="btn-primary">עדכן עכשיו</button>
+            <button id="reminder-dismiss" type="button" class="btn-ghost">אחר כך</button>
+        </div>
+    </div>
+</div>
 
 <script type="module" src="app.js?v=2"></script>
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky

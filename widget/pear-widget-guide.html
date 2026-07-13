@@ -146,10 +146,43 @@
   /* ── 3D stage: a FIXED full-viewport layer — the pear travels the whole
        overview page with the scroll. pointer-events:none keeps every click
        working; hidden on mobile (perf) and while the docs view is open. ── */
-  #pearStage { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  /* The pear rides a FIXED layer BEHIND all content (z:-1), above the page
+     backdrop (z:-2). Because the UI panels are translucent liquid glass, the
+     pear shows softly THROUGH / around them while text stays crisp on top —
+     so it can never obscure what you're reading. */
+  #pearStage { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
   #pearStage canvas { width: 100%; height: 100%; display: block; }
+  #pageBg {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background:
+      radial-gradient(1200px 720px at 80% -8%, rgba(16,185,129,0.12), transparent 60%),
+      radial-gradient(1000px 640px at 6% 104%, rgba(56,189,248,0.09), transparent 60%),
+      linear-gradient(180deg, #f7f9fc 0%, #eef1f6 55%, #f4f7fb 100%);
+  }
   body.docs-active #pearStage, body.docs-active #scrollHud { display: none; }
   @media (max-width: 1023px) { #pearStage { display: none; } }
+
+  /* ── LIQUID GLASS surfaces (Apple-style): translucent + blurred + saturated,
+       with a bright specular top edge, a hairline rim, and soft depth. The pear
+       drifting behind refracts through the blur for the "liquid" feel. ── */
+  .glass {
+    background: linear-gradient(160deg, rgba(255,255,255,0.66), rgba(255,255,255,0.40));
+    -webkit-backdrop-filter: blur(22px) saturate(1.85);
+            backdrop-filter: blur(22px) saturate(1.85);
+    box-shadow:
+      0 14px 44px -14px rgba(15,23,42,0.30),
+      inset 0 1px 0 rgba(255,255,255,0.92),
+      inset 0 0 0 1px rgba(255,255,255,0.35);
+  }
+  .glass-dark {
+    background: linear-gradient(160deg, rgba(15,23,42,0.74), rgba(15,23,42,0.56));
+    -webkit-backdrop-filter: blur(22px) saturate(1.5);
+            backdrop-filter: blur(22px) saturate(1.5);
+    box-shadow:
+      0 14px 44px -14px rgba(0,0,0,0.55),
+      inset 0 1px 0 rgba(255,255,255,0.16),
+      inset 0 0 0 1px rgba(255,255,255,0.08);
+  }
 
   /* Intro gate: scroll is locked while the hero pear drops into place, then released. */
   html.intro-lock, html.intro-lock body { overflow: hidden !important; height: 100%; }
@@ -187,13 +220,14 @@
   </div>
 </div>
 
-<!-- Fixed 3D layer — the traveling pear lives here (see module at end of body) -->
+<!-- Page backdrop (behind the pear) + the fixed 3D pear layer -->
+<div id="pageBg" aria-hidden="true"></div>
 <div id="pearStage" aria-hidden="true"></div>
 
 <!-- ════════════════════════════════════════════════════════════════
      NAVBAR · frosted, sticky. Tabs switch the two views (SPA).
      ════════════════════════════════════════════════════════════════ -->
-<header class="sticky top-0 z-50 bg-white/85 backdrop-blur-xl border-b border-slate-200/80">
+<header class="sticky top-0 z-50 bg-white/55 backdrop-blur-2xl border-b border-white/50" style="box-shadow: inset 0 -1px 0 rgba(255,255,255,0.4), 0 4px 24px -12px rgba(15,23,42,0.15);">
   <nav class="max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between" aria-label="ניווט ראשי">
     <a href="#overview" data-nav="overview" class="nav-link flex items-center gap-2 font-mono font-bold text-lg tracking-tight text-slate-900">
       PEAR<span class="w-2 h-2 rounded-full bg-pear-500 inline-block"></span>
@@ -217,7 +251,7 @@
 <main id="view-overview" class="view active" aria-label="אודות המיזם והפתרון">
 
   <!-- ══════════ HERO · copy + social proof + 3D-tilt product mockup ══════════ -->
-  <section id="hero" data-hud="פתיחה" class="relative overflow-hidden bg-white border-b border-slate-200/80">
+  <section id="hero" data-hud="פתיחה" class="relative overflow-hidden border-b border-white/50">
     <!-- quiet top aura (drifts on scroll — parallax depth layer) -->
     <div class="parallax-blob pointer-events-none absolute inset-x-0 -top-40 h-96 bg-[radial-gradient(ellipse_50%_100%_at_50%_0%,rgb(16_185_129/0.08),transparent_70%)]" data-speed=".35"></div>
 
@@ -248,22 +282,19 @@
             ✨ נסו את הסימולטור — 30 שניות
           </button>
           <button data-scroll="demo"
-             class="inline-flex items-center gap-2 rounded-xl bg-white text-slate-700 font-bold px-7 py-3.5 border border-slate-200 shadow-card hover:border-pear-400 hover:-translate-y-0.5 transition-all">
+             class="inline-flex items-center gap-2 rounded-xl glass text-slate-700 font-bold px-7 py-3.5 hover:-translate-y-0.5 transition-all">
             ▶ סיור של 2 דקות
           </button>
         </div>
         <p class="text-xs text-slate-400 mb-8">בלי הרשמה · בלי כרטיס אשראי</p>
 
-        <!-- Social proof above the fold -->
+        <!-- Above the fold: industry research + product capability (no client claims) -->
         <div class="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="flex text-amber-400 text-sm" aria-hidden="true">★★★★★</span>
-            <span class="text-sm font-bold text-slate-700">4.9/5</span>
-          </span>
+          <span class="text-sm text-slate-500">מחקרי שוק: <span class="font-bold text-slate-700">עד ~25% מהזמנות האופנה מוחזרות</span></span>
           <span class="w-px h-4 bg-slate-200 hidden sm:block"></span>
-          <span class="text-sm text-slate-500">מהימן על ידי <span class="font-bold text-slate-700">40+ חנויות אופנה</span></span>
+          <span class="text-sm text-slate-500">אי-התאמת מידה — <span class="font-bold text-slate-700">סיבת ההחזרה מס' 1</span></span>
           <span class="w-px h-4 bg-slate-200 hidden sm:block"></span>
-          <span class="text-sm text-slate-500"><span class="font-bold text-slate-700">120K+</span> מדידות בחודש</span>
+          <span class="text-sm text-slate-500">הטמעה ב<span class="font-bold text-slate-700">שורת קוד אחת</span></span>
         </div>
       </div>
 
@@ -271,17 +302,17 @@
       <div class="tilt-scene relative z-10 order-first lg:order-none">
         <div class="parallax-blob pointer-events-none absolute -inset-10 bg-[radial-gradient(ellipse_at_center,rgb(16_185_129/0.12),transparent_65%)] blur-2xl" data-speed="-.25" aria-hidden="true"></div>
 
-        <div id="tiltCard" class="tilt-card relative max-w-md mx-auto rounded-3xl bg-white ring-1 ring-slate-200 shadow-lift p-4">
+        <div id="tiltCard" class="tilt-card relative max-w-md mx-auto rounded-3xl glass p-4">
           <!-- brand animation = the product visual -->
           <video class="w-full rounded-2xl" src="pear-anmtion.mp4" autoplay muted loop playsinline aria-label="אנימציית המותג של PEAR"></video>
 
           <!-- floating chips: hover above the card in 3D space -->
-          <div class="tilt-float absolute -top-4 -left-3 sm:-left-6 rounded-xl bg-white ring-1 ring-slate-200 shadow-lift px-4 py-2.5 flex items-center gap-2">
+          <div class="tilt-float absolute -top-4 -left-3 sm:-left-6 rounded-xl glass px-4 py-2.5 flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-pear-500 animate-pulse"></span>
             <span class="text-xs font-bold text-slate-700">מידה מומלצת: <span class="font-mono text-pear-600">M</span></span>
           </div>
-          <div class="tilt-float absolute -bottom-4 -right-3 sm:-right-6 rounded-xl bg-slate-900 text-white shadow-lift px-4 py-2.5">
-            <span class="text-xs font-bold">החזרות <span class="font-mono text-pear-400">38%-</span> ↓</span>
+          <div class="tilt-float absolute -bottom-4 -right-3 sm:-right-6 rounded-xl glass-dark text-white px-4 py-2.5">
+            <span class="text-xs font-bold">התאמה בזמן אמת ✨</span>
           </div>
         </div>
       </div>
@@ -310,7 +341,7 @@
     <div class="grid md:grid-cols-12 gap-5">
 
       <!-- BIG · Try-On (emerald) -->
-      <div class="bento reveal md:col-span-7 rounded-3xl bg-gradient-to-br from-pear-50 to-white border border-pear-100 p-8 shadow-card" data-tone="emerald">
+      <div class="bento reveal md:col-span-7 rounded-3xl glass border border-pear-100/70 p-8" data-tone="emerald">
         <span class="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-pear-700 bg-white border border-pear-100 rounded-full px-2.5 py-1 mb-5">TRY-ON · LIVE</span>
         <h3 class="text-2xl font-extrabold text-slate-900 mb-3">הלבשה פוטוריאליסטית בזמן אמת</h3>
         <p class="text-slate-500 leading-relaxed max-w-md mb-6">
@@ -326,7 +357,7 @@
       </div>
 
       <!-- Fit / sizing (sky) -->
-      <div class="bento reveal md:col-span-5 rounded-3xl bg-gradient-to-br from-sky-50 to-white border border-sky-100 p-8 shadow-card" data-tone="sky">
+      <div class="bento reveal md:col-span-5 rounded-3xl glass border border-sky-100/70 p-8" data-tone="sky">
         <span class="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-sky-700 bg-white border border-sky-100 rounded-full px-2.5 py-1 mb-5">FIT · SIZING</span>
         <h3 class="text-2xl font-extrabold text-slate-900 mb-3">חישוב מידה חכם</h3>
         <p class="text-slate-500 leading-relaxed mb-5">
@@ -336,21 +367,21 @@
       </div>
 
       <!-- Body profile memory (sky, small) -->
-      <div class="bento reveal md:col-span-4 rounded-3xl bg-white border border-sky-100 p-7 shadow-card" data-tone="sky">
+      <div class="bento reveal md:col-span-4 rounded-3xl glass border border-sky-100/70 p-7" data-tone="sky">
         <span class="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-sky-700 bg-sky-50 border border-sky-100 rounded-full px-2.5 py-1 mb-4">FIT · PROFILE</span>
         <h3 class="text-lg font-extrabold text-slate-900 mb-2">פרופיל גוף נשמר</h3>
         <p class="text-sm text-slate-500 leading-relaxed">בביקור הבא PEAR כבר מכיר את המידות — מדידה אחת, קניות בכל החנות.</p>
       </div>
 
       <!-- Recommendations (violet, small) -->
-      <div class="bento reveal md:col-span-4 rounded-3xl bg-white border border-violet-100 p-7 shadow-card" data-tone="violet">
+      <div class="bento reveal md:col-span-4 rounded-3xl glass border border-violet-100/70 p-7" data-tone="violet">
         <span class="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full px-2.5 py-1 mb-4">CONVERT · AI STYLIST</span>
         <h3 class="text-lg font-extrabold text-slate-900 mb-2">אאוטפיטים והמלצות</h3>
         <p class="text-sm text-slate-500 leading-relaxed">ה-AI מרכיב לוק שלם מהקטלוג — פריטים משלימים שמעלים סל ממוצע.</p>
       </div>
 
       <!-- Inventory sync (violet, small) -->
-      <div class="bento reveal md:col-span-4 rounded-3xl bg-gradient-to-br from-violet-50 to-white border border-violet-100 p-7 shadow-card" data-tone="violet">
+      <div class="bento reveal md:col-span-4 rounded-3xl glass border border-violet-100/70 p-7" data-tone="violet">
         <span class="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-violet-700 bg-white border border-violet-100 rounded-full px-2.5 py-1 mb-4">CONVERT · INVENTORY</span>
         <h3 class="text-lg font-extrabold text-slate-900 mb-2">סנכרון מלאי חכם</h3>
         <p class="text-sm text-slate-500 leading-relaxed">התראות חוסרים בזמן אמת — הלקוח לא יתאהב בפריט שאזל, והמלאי הנעול מ-Bracketing משתחרר.</p>
@@ -359,7 +390,7 @@
   </section>
 
   <!-- ══════════ INTERACTIVE PLAYGROUND · size simulator, zero signup ══════════ -->
-  <section id="playground" data-hud="סימולטור" class="bg-white border-y border-slate-200/80">
+  <section id="playground" data-hud="סימולטור" class="border-y border-white/50">
     <div class="max-w-6xl mx-auto px-5 sm:px-8 py-20 sm:py-28">
       <div class="max-w-2xl mx-auto text-center mb-12 reveal">
         <p class="text-xs font-mono font-semibold tracking-[0.2em] text-pear-600 uppercase mb-3">Playground · בלי הרשמה</p>
@@ -370,7 +401,7 @@
       <div class="grid lg:grid-cols-2 gap-8 items-stretch max-w-4xl mx-auto">
 
         <!-- ── inputs card ── -->
-        <div class="reveal rounded-3xl border border-slate-200 shadow-card p-7 bg-slate-50/60">
+        <div class="reveal rounded-3xl glass p-7">
           <p class="text-xs font-mono tracking-widest text-slate-400 uppercase mb-5">1 · הפרופיל שלכם</p>
 
           <!-- height -->
@@ -400,7 +431,7 @@
         </div>
 
         <!-- ── result card ── -->
-        <div class="reveal rounded-3xl border border-slate-200 shadow-card p-7 bg-white flex flex-col">
+        <div class="reveal rounded-3xl glass p-7 flex flex-col">
           <p class="text-xs font-mono tracking-widest text-slate-400 uppercase mb-5">2 · ההמלצה של PEAR</p>
 
           <!-- idle / busy / done states are swapped by JS -->
@@ -416,7 +447,7 @@
           <div id="simDone" class="flex-1 hidden flex-col">
             <div class="flex items-end justify-between mb-2">
               <span class="text-6xl font-black font-mono text-pear-600" id="simSize">M</span>
-              <span class="text-xs font-mono text-slate-400" id="simBase">לפי 12,400 מדידות דומות</span>
+              <span class="text-xs font-mono text-slate-400" id="simBase">הערכת התאמה · הדגמה</span>
             </div>
             <p class="text-sm font-bold text-slate-700 mb-1.5">רמת ביטחון <span class="font-mono text-pear-600" id="simConfTxt">94%</span></p>
             <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden mb-6">
@@ -433,7 +464,7 @@
   </section>
 
   <!-- ══════════ DEMO · 2-minute tour (dark band) ══════════ -->
-  <section id="demo" data-hud="הדגמה חיה" class="bg-slate-900">
+  <section id="demo" data-hud="הדגמה חיה" class="glass-dark">
     <div class="max-w-4xl mx-auto px-5 sm:px-8 py-20 sm:py-28">
       <div class="max-w-2xl mb-12 reveal">
         <p class="text-xs font-mono font-semibold tracking-[0.2em] text-pear-400 uppercase mb-3">סיור של 2 דקות</p>
@@ -448,55 +479,43 @@
     </div>
   </section>
 
-  <!-- ══════════ SOCIAL PROOF · highlighted testimonials + stats ══════════ -->
-  <section id="voices" data-hud="לקוחות מספרים" class="max-w-6xl mx-auto px-5 sm:px-8 py-20 sm:py-28">
+  <!-- ══════════ MARKET RESEARCH · industry data + product potential ══════════ -->
+  <section id="voices" data-hud="נתוני שוק" class="max-w-6xl mx-auto px-5 sm:px-8 py-20 sm:py-28">
     <div class="max-w-2xl mx-auto text-center mb-14 reveal">
-      <p class="text-xs font-mono font-semibold tracking-[0.2em] text-pear-600 uppercase mb-3">לקוחות מספרים</p>
-      <h2 data-split class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-4">החנויות כבר מרגישות את זה</h2>
+      <p class="text-xs font-mono font-semibold tracking-[0.2em] text-pear-600 uppercase mb-3">נתוני שוק</p>
+      <h2 data-split class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-4">מה שמחקרי השוק מראים</h2>
+      <p class="text-slate-500 text-lg">הפער בין המסך למציאות עולה למותגי אופנה ביוקר — וזו בדיוק הבעיה ש-PEAR נבנתה כדי לפתור.</p>
     </div>
 
-    <!-- headline stat row -->
-    <div class="grid sm:grid-cols-3 gap-5 mb-10">
-      <div class="reveal rounded-2xl bg-slate-900 text-white p-7 text-center shadow-lift">
-        <p class="font-mono text-4xl font-black text-pear-400 mb-1"><span class="stat-num" data-to="38" data-suffix="%-">38%-</span></p>
-        <p class="text-sm text-slate-300">בשיעור ההחזרות (ממוצע)</p>
+    <!-- Industry-research stat cards (findings, not client results) -->
+    <div class="grid sm:grid-cols-3 gap-5 mb-8">
+      <div class="reveal rounded-2xl glass-dark text-white p-7 text-center">
+        <p class="font-mono text-4xl font-black text-pear-400 mb-2"><span class="stat-num" data-to="25" data-prefix="~" data-suffix="%">~25%</span></p>
+        <p class="text-sm text-slate-300">שיעור ההחזרות באופנה מקוונת — מהגבוהים באיקומרס</p>
       </div>
-      <div class="reveal rounded-2xl bg-slate-900 text-white p-7 text-center shadow-lift">
-        <p class="font-mono text-4xl font-black text-pear-400 mb-1"><span class="stat-num" data-to="2.4" data-dec="1" data-suffix="x">2.4x</span></p>
-        <p class="text-sm text-slate-300">יחס המרה בעמודי מוצר</p>
+      <div class="reveal rounded-2xl glass-dark text-white p-7 text-center">
+        <p class="font-mono text-4xl font-black text-pear-400 mb-2">#1</p>
+        <p class="text-sm text-slate-300">אי-התאמת מידה היא סיבת ההחזרה המובילה בהלבשה</p>
       </div>
-      <div class="reveal rounded-2xl bg-slate-900 text-white p-7 text-center shadow-lift">
-        <p class="font-mono text-4xl font-black text-pear-400 mb-1"><span class="stat-num" data-to="5" data-suffix=" דק'">5 דק'</span></p>
-        <p class="text-sm text-slate-300">מהטמעה ללקוח מודד</p>
+      <div class="reveal rounded-2xl glass-dark text-white p-7 text-center">
+        <p class="font-mono text-2xl font-black text-pear-400 mb-2 mt-3">Bracketing</p>
+        <p class="text-sm text-slate-300">קונים מזמינים כמה מידות ומחזירים את העודף — ונועלים מלאי מבוקש</p>
       </div>
     </div>
 
-    <!-- testimonials -->
-    <div class="grid md:grid-cols-3 gap-5">
-      <figure class="reveal rounded-2xl bg-white border border-slate-200/80 p-7 shadow-card">
-        <div class="flex text-amber-400 text-sm mb-4" aria-hidden="true">★★★★★</div>
-        <blockquote class="text-slate-600 leading-relaxed mb-5">
-          "תוך חודש <mark class="hl">ההחזרות ירדו ב-41%</mark>. הלקוחות פשוט יודעים מה הם קונים — זה שינה לנו את התפעול."
-        </blockquote>
-        <figcaption class="text-sm"><span class="font-bold text-slate-800">מיכל ר.</span><span class="text-slate-400"> · מנהלת איקומרס, מותג אופנת נשים</span></figcaption>
-      </figure>
-
-      <figure class="reveal rounded-2xl bg-white border border-slate-200/80 p-7 shadow-card">
-        <div class="flex text-amber-400 text-sm mb-4" aria-hidden="true">★★★★★</div>
-        <blockquote class="text-slate-600 leading-relaxed mb-5">
-          "ההטמעה לקחה <mark class="hl">פחות מחמש דקות</mark> — שורת קוד אחת. למחרת בבוקר כבר ראינו לקוחות מודדים."
-        </blockquote>
-        <figcaption class="text-sm"><span class="font-bold text-slate-800">עומר ד.</span><span class="text-slate-400"> · CTO, חנות סטריטוור</span></figcaption>
-      </figure>
-
-      <figure class="reveal rounded-2xl bg-white border border-slate-200/80 p-7 shadow-card">
-        <div class="flex text-amber-400 text-sm mb-4" aria-hidden="true">★★★★★</div>
-        <blockquote class="text-slate-600 leading-relaxed mb-5">
-          "יחס ההמרה בעמודים עם הוויג'ט <mark class="hl">כמעט הכפיל את עצמו</mark>. ה-AI סטייליסט מוכר בשבילנו פריטים משלימים."
-        </blockquote>
-        <figcaption class="text-sm"><span class="font-bold text-slate-800">נועה ק.</span><span class="text-slate-400"> · בעלת בוטיק אונליין</span></figcaption>
-      </figure>
+    <!-- Product potential — forward-looking, focused on capability (no clients) -->
+    <div class="reveal rounded-3xl glass p-8 sm:p-10 text-center max-w-3xl mx-auto">
+      <p class="text-lg sm:text-xl text-slate-700 leading-relaxed font-medium">
+        PEAR הופכת את חוסר הוודאות הזה לביטחון:
+        <span class="text-pear-700 font-bold">מדידה חזותית מבוססת AI</span>
+        שמאפשרת לכל קונה לראות את הבגד על עצמו ולקבל את המידה המדויקת — עוד לפני התשלום.
+      </p>
+      <p class="text-xs font-mono tracking-widest text-slate-400 uppercase mt-6">הפוטנציאל · פחות החזרות · יותר המרות · קונים בטוחים</p>
     </div>
+
+    <p class="text-center text-xs text-slate-400 mt-6 reveal">
+      * הנתונים לעיל מבוססים על מחקרי אופנה ואיקומרס מקובלים בתעשייה, לא על ביצועי לקוח.
+    </p>
   </section>
 
   <!-- ══════════ FINAL CTA ══════════ -->
@@ -510,7 +529,7 @@
         <button data-scroll="playground" class="cta-glow inline-flex items-center gap-2 rounded-xl bg-pear-600 text-white font-bold px-8 py-4 shadow-btn hover:bg-pear-700 hover:-translate-y-0.5 transition-all">
           ✨ נסו את הסימולטור
         </button>
-        <a href="#docs" data-nav="docs" class="nav-link inline-flex items-center rounded-xl bg-white text-slate-700 font-bold px-8 py-4 border border-slate-200 shadow-card hover:border-pear-400 transition-all">
+        <a href="#docs" data-nav="docs" class="nav-link inline-flex items-center rounded-xl glass text-slate-700 font-bold px-8 py-4 hover:-translate-y-0.5 transition-all">
           למדריך ההטמעה ←
         </a>
       </div>
@@ -524,7 +543,7 @@
 <main id="view-docs" class="view" aria-label="מדריך הטמעת הוויג'ט">
 
   <!-- Docs hero -->
-  <section class="bg-white border-b border-slate-200/80">
+  <section class="border-b border-white/50">
     <div class="max-w-3xl mx-auto px-5 sm:px-8 pt-20 pb-14 sm:pt-24 sm:pb-16">
       <p class="text-xs font-mono font-semibold tracking-[0.2em] text-pear-600 uppercase mb-3">Developer Docs</p>
       <h1 class="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight mb-5">מדריך הטמעת הוויג'ט</h1>
@@ -543,7 +562,7 @@
         <span class="font-mono text-xs font-bold text-pear-600 bg-pear-50 border border-pear-100 rounded-md px-2 py-1">01</span>
         <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">הקדמה ודרישות מערכת</h2>
       </div>
-      <div class="rounded-2xl bg-white border border-slate-200/80 shadow-card p-7">
+      <div class="rounded-2xl glass p-7">
         <p class="text-slate-600 mb-6">
           הוויג'ט הוא סקריפט JavaScript קל-משקל שנטען אסינכרונית ואינו משפיע על מהירות האתר.
           אין תלות בפלטפורמה — הוא עובד עם כל פלטפורמות האיקומרס:
@@ -566,7 +585,7 @@
 
       <div class="space-y-8">
         <!-- Step 1: CDN -->
-        <div class="rounded-2xl bg-white border border-slate-200/80 shadow-card overflow-hidden">
+        <div class="rounded-2xl glass overflow-hidden">
           <div class="p-7 pb-5">
             <h3 class="font-bold text-slate-900 text-lg mb-1.5">שלב 1 · הוספת סקריפט המערכת (CDN)</h3>
             <p class="text-sm text-slate-500">הדביקו את השורה הבאה לפני תג <code class="font-mono text-xs bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 text-slate-700" dir="ltr">&lt;/body&gt;</code> — פעם אחת, בכל עמודי המוצר.</p>
@@ -582,7 +601,7 @@
         </div>
 
         <!-- Step 2: container -->
-        <div class="rounded-2xl bg-white border border-slate-200/80 shadow-card overflow-hidden">
+        <div class="rounded-2xl glass overflow-hidden">
           <div class="p-7 pb-5">
             <h3 class="font-bold text-slate-900 text-lg mb-1.5">שלב 2 · מיקום כפתור המדידה בדף המוצר</h3>
             <p class="text-sm text-slate-500">הניחו את הקונטיינר בכל מקום בעמוד המוצר — לרוב מתחת לבורר המידות. הוויג'ט יעצב את עצמו בהתאם למקום.</p>
@@ -601,7 +620,7 @@
         </div>
 
         <!-- Step 3: init -->
-        <div class="rounded-2xl bg-white border border-slate-200/80 shadow-card overflow-hidden">
+        <div class="rounded-2xl glass overflow-hidden">
           <div class="p-7 pb-5">
             <h3 class="font-bold text-slate-900 text-lg mb-1.5">שלב 3 · אתחול והגדרות מותאמות אישית</h3>
             <p class="text-sm text-slate-500">שליטה מלאה על שפה, ערכת נושא, טקסט הכפתור ו-callbacks — הכל מאובייקט קונפיגורציה אחד.</p>
@@ -636,7 +655,7 @@
 
       <div class="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-8 sm:p-10">
         <p class="text-center text-xs font-mono tracking-widest text-slate-400 uppercase mb-8">כך ייראה הכפתור בדף המוצר שלכם</p>
-        <div class="max-w-sm mx-auto rounded-2xl border border-slate-200 shadow-card p-6 bg-white">
+        <div class="max-w-sm mx-auto rounded-2xl glass p-6">
           <div class="h-40 rounded-xl bg-slate-100 mb-5 flex items-center justify-center text-slate-300">
             <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M18 12h.008v.008H18V12zm-1.5-9H7.5A2.25 2.25 0 005.25 5.25v13.5A2.25 2.25 0 007.5 21h9a2.25 2.25 0 002.25-2.25V5.25A2.25 2.25 0 0016.5 3z"/></svg>
           </div>
@@ -667,7 +686,7 @@
 </main>
 
 <!-- ══════════ FOOTER ══════════ -->
-<footer class="border-t border-slate-200/80 bg-white">
+<footer class="border-t border-white/50 glass">
   <div class="max-w-6xl mx-auto px-5 sm:px-8 py-10 flex flex-col sm:flex-row items-center justify-between gap-3">
     <span class="font-mono font-bold text-slate-900">PEAR<span class="text-pear-500">.</span></span>
     <p class="text-xs text-slate-400">© 2026 PEAR Virtual Try-On · כל הזכויות שמורות</p>
@@ -823,7 +842,7 @@ document.getElementById('simBtn').addEventListener('click', () => {
     const sizeEl = document.getElementById('simSize'), confTxt = document.getElementById('simConfTxt');
     sizeEl.textContent = size;
     document.getElementById('simNote').textContent = NOTES[simGarment];
-    document.getElementById('simBase').textContent = 'לפי ' + (11200 + Math.floor(Math.random() * 3800)).toLocaleString('he-IL') + ' מדידות דומות';
+    document.getElementById('simBase').textContent = 'הערכת AI · הדגמה';
     const bar = document.getElementById('simConf');
     if (window.gsap) {
       /* elastic size pop + glowing count-up + liquid bar */
@@ -1106,9 +1125,34 @@ try {
                           t.anisotropy = renderer.capabilities.getMaxAnisotropy(); return t; };
       const map = mk(col);
       map.colorSpace = THREE.SRGBColorSpace;   // CRITICAL: without this the greens wash out to pale
-      return { map, bump: mk(bmp) };
+      return { map, bump: mk(bmp), bumpCanvas: bmp };
     }
     const skin = makeSkin();
+
+    /* Derive a proper TANGENT-SPACE NORMAL MAP from the speckle/bump canvas
+       (Sobel gradients → per-texel surface normal). Real normals catch the
+       lights far more convincingly than a scalar bumpScale — this is the main
+       lift toward a photoreal skin without shipping a scanned asset. */
+    function makeNormalMap(srcCanvas, strength) {
+      const w = srcCanvas.width, h = srcCanvas.height;
+      const s = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+      const out = document.createElement('canvas'); out.width = w; out.height = h;
+      const octx = out.getContext('2d'); const d = octx.createImageData(w, h);
+      const g = (x, y) => s[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const dx = (g(x - 1, y) - g(x + 1, y)) * strength;
+        const dy = (g(x, y - 1) - g(x, y + 1)) * strength;
+        const len = Math.hypot(dx, dy, 1), i = (y * w + x) * 4;
+        d.data[i]     = (dx / len * 0.5 + 0.5) * 255;
+        d.data[i + 1] = (dy / len * 0.5 + 0.5) * 255;
+        d.data[i + 2] = (1 / len * 0.5 + 0.5) * 255;
+        d.data[i + 3] = 255;
+      }
+      octx.putImageData(d, 0, 0);
+      const t = new THREE.CanvasTexture(out); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      return t;
+    }
+    skin.normal = makeNormalMap(skin.bumpCanvas, 3.0);
 
     /* ── geometry: high-res lathe + organic vertex noise (asymmetry) ── */
     const PROFILE = [
@@ -1130,10 +1174,11 @@ try {
 
     const skinMat = new THREE.MeshPhysicalMaterial({
       map: skin.map,
-      bumpMap: skin.bump, bumpScale: 0.35,
-      roughnessMap: skin.bump, roughness: 0.62,
-      clearcoat: 0.22, clearcoatRoughness: 0.5,            // waxy skin, not plastic
-      sheen: 0.3, sheenColor: 0xdde8b8, sheenRoughness: 0.6, // faked subsurface softness
+      normalMap: skin.normal, normalScale: new THREE.Vector2(0.55, 0.55),  // real relief
+      roughnessMap: skin.bump, roughness: 0.5,
+      envMapIntensity: 1.15,                                // pick up the studio reflections
+      clearcoat: 0.28, clearcoatRoughness: 0.45,           // waxy skin, not plastic
+      sheen: 0.4, sheenColor: 0xe6efc4, sheenRoughness: 0.55, // faked subsurface softness
     });
 
     /* bent stem: tube along a curve; leaf: a flat shape with both sides lit */

@@ -2917,14 +2917,53 @@ function checkProfileValidity() {
  * @returns {boolean}
  */
 function saveProfile(height, weight) {
+  return writeProfileCache(height, weight, Date.now());
+}
+
+/* Write the height/weight cache with an EXPLICIT timestamp. saveProfile() stamps
+   now() (a fresh local edit); applyServerProfile() passes the server's real
+   "last saved" time so the 30-day re-measure check reflects when the measurements
+   were actually taken — even when loaded onto a brand-new device. */
+function writeProfileCache(height, weight, tsMs) {
   const h = Number(height), w = Number(weight);
   if (!isSaneProfile(h, w)) return false;
   try {
     localStorage.setItem(PEAR_PROFILE_KEY, JSON.stringify({
-      height: h, weight: w, lastUpdated: Date.now(),
+      height: h, weight: w, lastUpdated: Number(tsMs) || Date.now(),
     }));
     return true;
   } catch { return false; }
+}
+
+/* Apply a server-loaded profile after login/auto-login: prefill every measurement
+   field, recompute the recommended size, refresh the local cache with the server's
+   real timestamp, then (if 30+ days old) nudge the user to re-measure. Safe to call
+   with a payload that has no measurements — it simply no-ops the prefill. */
+function applyServerProfile(data) {
+  if (!data) return;
+  const m = data.measurements || null;
+  const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
+  if (m) {
+    const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
+    setIf("height", m.height); setIf("weight", m.weight);
+    setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
+    if (isSaneProfile(Number(m.height), Number(m.weight))) {
+      writeProfileCache(m.height, m.weight, tsMs || Date.now());
+    }
+    try { calculateSize(); } catch {}
+  }
+  maybeShowUpdateReminder(tsMs);
+}
+
+/* Show the 30-day "time to re-measure" reminder when the last measurement is a
+   month or more old. Falls back to the local cache timestamp when the server
+   didn't supply one. No-op when there's no prior measurement (nothing to remind). */
+function maybeShowUpdateReminder(tsMs) {
+  let ts = Number(tsMs) || 0;
+  if (!ts) { const p = loadProfile(); ts = (p && p.lastUpdated) || 0; }
+  if (!ts) return;
+  if (Date.now() - ts < PROFILE_MAX_AGE_MS) return;
+  openUpdateReminder();
 }
 
 /* Pre-fill the height/weight inputs from a valid (<30-day) cached profile, then
@@ -2953,6 +2992,55 @@ function showSizeForm() {
   if (sizeForm) { sizeForm.hidden = false; sizeForm.style.display = "";   }
   prefillProfileFromCache();      // restore cached height/weight if still fresh
   try { calculateSize(); } catch {}
+}
+
+/* =============================================================================
+   30-DAY RE-MEASURE REMINDER + "UPDATE MEASUREMENTS" CTA
+   -----------------------------------------------------------------------------
+   Custom UI only (never native confirm/alert). The reminder is a dismissible
+   modal shown on login when the profile is 30+ days old; the CTA is an
+   always-available button on the size screen that persists a fresh, timestamped
+   measurement snapshot on demand.
+   ============================================================================= */
+function openUpdateReminder() {
+  const modal = $("updateReminderModal");
+  if (!modal) return;
+  modal.hidden = false;
+  requestAnimationFrame(() => modal.classList.add("show"));
+}
+
+function closeUpdateReminder() {
+  const modal = $("updateReminderModal");
+  if (!modal) return;
+  modal.classList.remove("show");
+  // let the fade-out play before removing from the layout
+  setTimeout(() => { modal.hidden = true; }, 260);
+}
+
+/* Reveal + focus the measurement form so the user can edit right away. Used by the
+   reminder's "update now" button and available directly via the CTA. */
+function focusMeasurementForm() {
+  closeUpdateReminder();
+  setOptionalVisible(true);
+  const h = $("height");
+  if (h) { h.focus(); try { h.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
+}
+
+/* Permanent "Update Measurements" action: validate the current form, persist a
+   fresh timestamped snapshot (local cache + server session row stamped with the
+   user id), and confirm with a toast. Invalid → focus height and nudge. */
+function updateMeasurementsNow() {
+  try { calculateSize(); } catch {}
+  const h = $("height") && $("height").value;
+  const w = $("weight") && $("weight").value;
+  if (!saveProfile(h, w)) {                       // validates + caches locally w/ fresh ts
+    setOptionalVisible(true);
+    if ($("height")) $("height").focus();
+    toast("נא למלא גובה ומשקל תקינים כדי לעדכן את המדידות");
+    return;
+  }
+  logSessionMeasurements(null, currentUserSize);  // timestamped server record (user_id stamped)
+  toast("✓ המדידות שלך עודכנו");
 }
 
 /* Show the name/phone gate and wire its controls (idempotent — safe to call
@@ -2998,6 +3086,7 @@ async function setupIdentityGate() {
           PEAR_USER_ID = data.user.id;
           console.log("[identity] returning user:", data.user.name);
           showSizeForm();
+          applyServerProfile(data);   // prefill saved measurements + 30-day reminder
           return;
         }
       }
@@ -3054,19 +3143,30 @@ async function submitIdentity() {
     });
     const data = await res.json().catch(() => null);
 
-    // Saved (or this device was already known) → link the session and continue.
+    // Saved, auto-logged-in (name+phone match), or this device was already known →
+    // link the session, load any saved measurements, and continue.
     if (res.ok && data?.ok) {
       setDeviceId(deviceId);                 // remember this browser from now on
       PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
-      console.log("[identity] registered user:", data.user?.name, "→", PEAR_USER_ID);
-      return showSizeForm();
+      console.log(
+        "[identity] " + (data.matched === "phone" ? "auto-login (name+phone)" : "registered") +
+        " user:", data.user?.name, "→", PEAR_USER_ID
+      );
+      showSizeForm();
+      applyServerProfile(data);              // prefill previous measurements + 30-day reminder
+      return;
     }
 
-    // Fixable INPUT problem (400/422) → the visitor can correct it, so surface the
-    // server's message and let them retry. This is the only case that stays on the gate.
-    if (res.status === 400 || res.status === 422) {
+    // Fixable INPUT problem → the visitor can correct it, so surface a message and
+    // let them retry. This is the only case that stays on the gate:
+    //   • 409 phone_taken — phone already registered to a DIFFERENT name
+    //   • 400/422         — missing/invalid fields
+    if (res.status === 409 || res.status === 400 || res.status === 422) {
       if (btn) btn.disabled = false;
-      return showErr((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+      const msg = data?.error === "phone_taken"
+        ? "מספר טלפון זה כבר רשום למשתמש אחר."
+        : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+      return showErr(msg);
     }
 
     // INFRA failure (503 storage_unconfigured, 5xx, …) must NOT trap the visitor on
@@ -5172,6 +5272,18 @@ function init() {
   // Returning-user gate: first-timers fill name/phone once; returning visitors
   // skip straight to measurements. Runs before the user can touch the form.
   setupIdentityGate();
+
+  // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
+  $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
+  $("reminder-update-now")?.addEventListener("click", focusMeasurementForm);
+  $("reminder-dismiss")?.addEventListener("click", closeUpdateReminder);
+  // Backdrop click / Esc dismiss the reminder (never traps the user).
+  $("updateReminderModal")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeUpdateReminder();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) closeUpdateReminder();
+  });
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
     i.addEventListener("input", calculateSize);

@@ -306,6 +306,79 @@ h1, h2, h3, h4 {
 .btn-back:hover { color: var(--ink); background: rgba(255, 255, 255, .65); transform: translateY(-2px); }
 .btn-back:active { transform: scale(.96); }
 
+/* ── "Update Measurements" CTA — always-available secondary action on the size
+   screen (the user's dashboard). Pear-green outline pill, quieter than the primary
+   Continue button but clearly interactive. ── */
+.btn-update-measure {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 16px auto 4px; padding: 11px 22px;
+  border: 1px solid rgba(141, 182, 0, .40); border-radius: var(--pill);
+  background: var(--pear-soft);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--pear-deep); font-family: "Urbanist"; font-weight: 800;
+  font-size: .9rem; letter-spacing: .01em; cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, .5);
+  transition: transform .4s var(--ease), background .3s var(--ease), border-color .3s var(--ease), box-shadow .4s var(--ease);
+}
+.btn-update-measure svg { flex: none; }
+.btn-update-measure:hover {
+  transform: translateY(-2px);
+  background: rgba(141, 182, 0, .20); border-color: rgba(141, 182, 0, .55);
+  box-shadow: 0 10px 26px rgba(141, 182, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .55);
+}
+.btn-update-measure:active { transform: scale(.96); }
+.btn-update-measure:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--pear-ring), var(--shadow-soft); }
+
+/* ── 30-day re-measure reminder modal — custom (no native confirm). Black scrim +
+   glass card, pear-green accent, honours prefers-reduced-motion. ── */
+.update-reminder {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(8, 8, 10, .58);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .26s var(--ease);
+}
+.update-reminder[hidden] { display: none; }
+.update-reminder.show { opacity: 1; }
+
+.update-reminder__card {
+  width: min(420px, 100%);
+  padding: 30px 28px 26px; text-align: center;
+  border: 1px solid var(--glass-border); border-radius: var(--radius);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(14px) scale(.96);
+  transition: transform .32s var(--ease);
+}
+.update-reminder.show .update-reminder__card { transform: translateY(0) scale(1); }
+
+.update-reminder__badge {
+  width: 58px; height: 58px; margin: 0 auto 16px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--pill);
+  color: var(--pear-deep);
+  background: var(--pear-tint); border: 1px solid rgba(141, 182, 0, .35);
+  box-shadow: var(--shadow-pear);
+}
+.update-reminder__card h3 {
+  margin: 0 0 8px; font-family: "Urbanist"; font-weight: 800;
+  font-size: 1.24rem; color: var(--ink); letter-spacing: -.01em;
+}
+.update-reminder__card p {
+  margin: 0 0 22px; color: var(--muted); font-size: .96rem; line-height: 1.55;
+}
+.update-reminder__actions {
+  display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+}
+.update-reminder__actions .btn-primary { margin-top: 0; }
+.update-reminder__actions .btn-ghost { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .update-reminder, .update-reminder__card { transition: none; }
+  .update-reminder__card { transform: none; }
+}
+
 /* ── conditional optional fields — fluid "Liquid Glass" expandable panel ───
    No display:none toggle. The panel is always in the DOM and opens organically
    via max-height + opacity + transform + visibility, so the card stretches
