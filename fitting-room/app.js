@@ -3134,46 +3134,15 @@ function showIdentityGate() {
   if (errEl) errEl.hidden = true;
 }
 
-/* Decide whether to gate on name/phone. Runs at startup BEFORE the user can fill
-   measurements, so every session links to a real user profile. */
-async function setupIdentityGate() {
-  const deviceId = getDeviceId();
-
-  // Known device → verify the profile still exists server-side.
-  if (deviceId) {
-    try {
-      const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.user?.id) {
-          PEAR_USER_ID = data.user.id;
-          console.log("[identity] returning user:", data.user.name);
-          routeAfterIdentity(data);   // Case A/B/C — never defaults to the size form
-          return;
-        }
-      }
-      if (res.status === 404) {
-        // Device is remembered locally but has NO server-side user (the profile
-        // store was reset/migrated, or an earlier registration never completed).
-        // Re-register — reusing this device id — so the profile exists again and
-        // future sessions link to it instead of saving user_id = null forever.
-        console.warn("[identity] no server profile for this device — prompting registration");
-        showIdentityGate();
-        return;
-      }
-      // Any other status (e.g. 503 storage down): don't block the fitting room.
-      console.warn("[identity] profile lookup returned", res.status, "— proceeding without gate");
-      showSizeForm();
-      return;
-    } catch (err) {
-      // Network error — don't block the visitor from using the fitting room.
-      console.warn("[identity] profile lookup failed (proceeding anyway):", err?.message || err);
-      showSizeForm();
-      return;
-    }
-  }
-
-  // First-time visitor (no device id) → show the gate.
+/* Step 0 for EVERY visit — the name/phone gate is ALWAYS the first thing shown,
+   never silently skipped for a "remembered" browser. Routing (Case A/B/C) only
+   happens AFTER the visitor submits the form, keyed by the PHONE NUMBER they type
+   (submitIdentity → POST /api/users → routeAfterIdentity), not by a cached device
+   id. The device id is still sent along on submit purely so the same browser
+   re-attaches to the same server profile server-side — it no longer bypasses this
+   screen (that was the bug: a previously-registered device silently skipped
+   straight to an empty measurement form instead of asking for name/phone again). */
+function setupIdentityGate() {
   showIdentityGate();
 }
 
@@ -5330,8 +5299,8 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-  // Returning-user gate: first-timers fill name/phone once; returning visitors
-  // skip straight to measurements. Runs before the user can touch the form.
+  // Identity gate — ALWAYS Step 0, every visit. Routing to Case A/B/C happens only
+  // after submit, keyed by the phone number typed in (see setupIdentityGate).
   setupIdentityGate();
 
   // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
