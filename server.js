@@ -115,12 +115,13 @@ function rateLimit({ windowMs, max }) {
 }
 
 // Per-surface limiters (generous enough to never bother a real user).
-const tokenLimiter   = rateLimit({ windowMs: 60_000, max: 30 });   // ek_ token mint — costs money
-const sessionLimiter = rateLimit({ windowMs: 60_000, max: 40 });   // session-log ingest
-const userLimiter    = rateLimit({ windowMs: 60_000, max: 20 });   // user registration
-const trackLimiter   = rateLimit({ windowMs: 60_000, max: 60 });   // analytics ping
-const proxyLimiter   = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
-const authLimiter    = rateLimit({ windowMs: 60_000, max: 10 });   // admin login — brake password guessing
+const tokenLimiter    = rateLimit({ windowMs: 60_000, max: 30 });   // ek_ token mint — costs money
+const sessionLimiter  = rateLimit({ windowMs: 60_000, max: 40 });   // session-log ingest
+const userLimiter     = rateLimit({ windowMs: 60_000, max: 20 });   // user registration
+const trackLimiter    = rateLimit({ windowMs: 60_000, max: 60 });   // analytics ping
+const proxyLimiter    = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
+const authLimiter     = rateLimit({ windowMs: 60_000, max: 10 });   // admin login — brake password guessing
+const classifyLimiter = rateLimit({ windowMs: 60_000, max: 20 });   // garment front/back classification — calls Gemini
 
 /* ── CORS enforcement ────────────────────────────────────────────────────────
    The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
@@ -923,6 +924,100 @@ app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
     console.error("[img-proxy] fetch failed:", err?.message || err);
     res.status(502).json({ error: "proxy_fetch_failed", message: err?.message || String(err) });
   }
+});
+
+/* ── Garment front/back classification (Gemini + Supabase cache) ────────────────
+   Classifies a garment product photo as depicting the front or back of the item.
+   Backed by the garment_cache table (see supabase_setup_v5.sql) so the same CDN
+   image is never re-classified — shared with scanner/scan-store.js, which writes
+   to the same table during a bulk store crawl.
+   Requires GEMINI_API_KEY (https://aistudio.google.com/apikey) in .env.        */
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_CLASSIFY_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+async function fetchImageAsBase64(imageUrl) {
+  const resp = await fetch(imageUrl);
+  if (!resp.ok) throw new Error(`image fetch failed: HTTP ${resp.status}`);
+  const contentType = resp.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  return { base64: buffer.toString("base64"), mimeType: contentType };
+}
+
+async function classifyFrontBack(imageUrl) {
+  const { base64, mimeType } = await fetchImageAsBase64(imageUrl);
+  const resp = await fetch(GEMINI_CLASSIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: "Is this the front or the back of the garment? Answer with exactly one word: front or back" },
+          { inline_data: { mime_type: mimeType, data: base64 } },
+        ],
+      }],
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const answer = text.trim().toLowerCase();
+  return answer.includes("back") ? "back" : "front";
+}
+
+async function getCachedClassification(imageUrl) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("garment_cache")
+    .select("classification")
+    .eq("image_url", imageUrl)
+    .maybeSingle();
+  if (error) { console.warn("[garment_cache] read failed:", error.message); return null; }
+  return data ? data.classification : null;
+}
+
+async function saveClassification(imageUrl, classification) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("garment_cache")
+    .upsert([{ image_url: imageUrl, classification }], { onConflict: "image_url" });
+  if (error) console.warn("[garment_cache] write failed:", error.message);
+}
+
+/* POST /api/classify-images — { images: string[] } → { results: ("front"|"back")[] },
+   one result per input URL, in order. Cache-first; uncached images are classified via
+   Gemini and written back to garment_cache. A single image's classification failure
+   falls back to "front" rather than failing the whole batch. */
+app.post("/api/classify-images", classifyLimiter, async (req, res) => {
+  const images = Array.isArray(req.body?.images)
+    ? req.body.images.filter((u) => typeof u === "string" && u)
+    : [];
+  if (!images.length) {
+    return res.status(400).json({ error: "missing_images", message: "images: string[] is required." });
+  }
+  if (!GEMINI_API_KEY) {
+    return res.status(503).json({ error: "gemini_unconfigured", message: "GEMINI_API_KEY not set." });
+  }
+
+  const results = [];
+  for (const url of images) {
+    try {
+      let classification = await getCachedClassification(url);
+      if (!classification) {
+        classification = await classifyFrontBack(url);
+        await saveClassification(url, classification);
+        await new Promise((r) => setTimeout(r, 1100)); // stay under Gemini's 60 RPM
+      }
+      results.push(classification);
+    } catch (err) {
+      console.error(`[classify-images] failed for ${url}:`, err?.message || err);
+      results.push("front");
+    }
+  }
+  res.json({ results });
 });
 
 app.all("/api/*", (req, res) => {

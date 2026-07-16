@@ -1,0 +1,19 @@
+{
+  "name": "pear-store-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PEAR — standalone store crawler that finds product images and classifies front/back via Gemini, caching results in Supabase.",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node scan-store.js"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.6.1"
+  }
+}

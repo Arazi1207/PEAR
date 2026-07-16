@@ -322,6 +322,34 @@
     d.head.appendChild(style);
   }
 
+  /* ── front/back classification (Gemini, via the PEAR server) ──────────────────
+     For a multi-photo gallery we ask the server which images are the garment's
+     front vs. back (POST /api/classify-images), instead of assuming images[0] is
+     the front and images[1] the back. Cache-backed server-side (garment_cache),
+     so repeat visits to the same product are instant. On any failure — network,
+     timeout, missing Gemini key — falls back to the first two images. */
+  function classifyImages(urls) {
+    return fetch(PEAR_BASE + "/api/classify-images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images: urls })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("classify-images HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      return (data && data.results) || [];
+    });
+  }
+
+  function resolveFrontBack(urls, results) {
+    var front, back;
+    for (var i = 0; i < urls.length; i++) {
+      if (results[i] === "front" && !front) front = urls[i];
+      else if (results[i] === "back" && !back) back = urls[i];
+    }
+    return { front: front || urls[0], back: back || urls[1] || undefined };
+  }
+
   /* ── STEP 3 — fullscreen modal with the fitting-room iframe ─────────────── */
   var activeOverlay = null;
   var escHandler = null;
@@ -449,7 +477,8 @@
       pop.appendChild(row);
     });
 
-    /* "Try front + back" — send the WHOLE gallery so the fitting room shows its switcher. */
+    /* "Try front + back" — classify the gallery so the correct photos land as front/back,
+       then send the WHOLE gallery so the fitting room shows its switcher. */
     if (imgs.length >= 2) {
       var both = d.createElement("div");
       both.className = "pear-widget-popup__both";
@@ -460,7 +489,17 @@
         e.preventDefault();
         e.stopPropagation();
         closePopup();
-        openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+        var originalText = pearBtn.textContent;
+        pearBtn.textContent = "מזהה בגד...";
+        classifyImages(imgs).then(function (results) {
+          var picked = resolveFrontBack(imgs, results);
+          pearBtn.textContent = originalText;
+          openModal({ url: picked.front, type: garment.category, name: garment.name, back: picked.back, images: imgs });
+        }).catch(function (err) {
+          console.warn("[PEAR widget] classify-images failed, using first two images as front/back:", err && err.message);
+          pearBtn.textContent = originalText;
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs });
+        });
       });
       pop.appendChild(both);
     }
