@@ -5,7 +5,7 @@
   "type": "module",
   "description": "PEAR / MERIDIAN — photorealistic Virtual Try-On powered by Decart Lucy VTON (realtime), fronted by a secure ephemeral-token proxy so the permanent dct_ API key never reaches the browser.",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "start": "node server.js",
