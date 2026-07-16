@@ -7,14 +7,16 @@
    classifies each one as front/back via Gemini — caching results in Supabase's
    garment_cache table so repeat scans never re-classify the same image.
 
-   No browser involved: product pages are fetched as plain HTML and image URLs
-   are pulled out with regex (<img src>, <img data-src> for lazy-loaded images,
-   <meta property="og:image" content>). This works on any host with no Chrome/
-   Chromium install (Railway's Nix-based Chromium install proved unreliable) —
-   the tradeoff is that images injected purely by client-side JavaScript after
-   page load won't be found, since the HTML is never rendered. In practice most
-   storefronts (Shopify, WooCommerce, etc.) put product images in the initial
-   HTML, so this covers the common case.
+   No browser involved. Shopify stores (detected via a "Shopify"/"shopify"
+   substring on the homepage) are scanned through the /products.json catalog
+   API — every product and its full image list, paginated, no page-by-page
+   scraping needed. Everything else falls back to fetching each product page
+   as plain HTML and pulling image URLs out with regex (<img src>, <img
+   data-src> for lazy-loaded images, <meta property="og:image" content>). This
+   works on any host with no Chrome/Chromium install (Railway's Nix-based
+   Chromium install proved unreliable) — the tradeoff on the HTML-scrape path
+   is that images injected purely by client-side JavaScript after page load
+   won't be found, since the HTML is never rendered.
 
    Usage:
      node scan-store.js https://fox.co.il
@@ -218,60 +220,126 @@ async function classifyFrontBack(imageUrl) {
   return answer.includes("back") ? "back" : "front";
 }
 
+/* ── Shopify JSON catalog ─────────────────────────────────────────────────────
+   Shopify storefronts expose every product (with its full image list) at
+   /products.json — paginated, 250/page — so a Shopify store never needs its
+   product pages scraped at all. Detected via a plain substring check on the
+   homepage HTML for "Shopify"/"shopify" (the theme's asset URLs, the
+   Shopify.shop JS global, etc. reliably contain it). */
+async function scanShopify(baseUrl) {
+  const allImages = [];
+  let productCount = 0;
+  let page = 1;
+
+  while (true) {
+    const url = `${baseUrl}/products.json?limit=250&page=${page}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    if (!res.ok) break;
+
+    const data = await res.json();
+    if (!data.products || data.products.length === 0) break;
+
+    productCount += data.products.length;
+    for (const product of data.products) {
+      for (const image of product.images || []) {
+        if (image.src) {
+          allImages.push({ url: image.src, productTitle: product.title });
+        }
+      }
+    }
+
+    if (data.products.length < 250) break;
+    page++;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  return { images: allImages, productCount };
+}
+
+/* ── classification tally (shared by both crawl paths) ──────────────────── */
+
+async function classifyAndTally(imageUrl, index, counters) {
+  counters.total++;
+  try {
+    let classification = await getCachedClassification(imageUrl);
+    let cached = !!classification;
+
+    if (!classification) {
+      classification = await classifyFrontBack(imageUrl);
+      await saveClassification(imageUrl, classification);
+      await sleep(GEMINI_RATE_LIMIT_MS);
+    }
+
+    if (cached) counters.cached++;
+    if (classification === "back") counters.back++; else counters.front++;
+
+    console.log(`Image ${index + 1}: ${classification}${cached ? " (cached)" : " (new)"}`);
+  } catch (err) {
+    console.warn(`Image ${index + 1}: classification failed — ${err.message}`);
+  }
+}
+
 /* ── main crawl ──────────────────────────────────────────────────────────── */
 
 async function main() {
   console.log(`Scanning store: ${storeUrl}\n`);
 
-  let totalImages = 0;
-  let frontCount = 0;
-  let backCount = 0;
-  let cachedCount = 0;
-
+  const counters = { total: 0, front: 0, back: 0, cached: 0 };
   const homeHtml = await fetchHtml(storeUrl);
-  const productLinks = findProductLinks(homeHtml, storeUrl);
-  console.log(`Found ${productLinks.length} product page(s).\n`);
+  const isShopify = homeHtml.includes("Shopify") || homeHtml.includes("shopify");
 
-  for (let i = 0; i < productLinks.length; i++) {
-    const url = productLinks[i];
-    console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
+  if (isShopify) {
+    console.log("Detected Shopify store — using /products.json catalog API\n");
+    const { images: shopifyImages, productCount } = await scanShopify(storeUrl);
 
-    let html;
-    try {
-      html = await fetchHtml(url);
-    } catch (err) {
-      console.warn(`  ⚠ failed to load page: ${err.message}`);
-      continue;
+    const seen = new Set();
+    const images = [];
+    for (const item of shopifyImages) {
+      let abs;
+      try {
+        abs = new URL(item.url, storeUrl).href;
+      } catch {
+        continue;
+      }
+      if (isExcludedSrc(abs) || seen.has(abs)) continue;
+      seen.add(abs);
+      images.push(abs);
     }
 
-    const images = findProductImages(html, url);
-    console.log(`Found ${images.length} image(s) — classifying...`);
-
+    console.log(`Found ${productCount} products with ${images.length} images`);
+    console.log("Classifying...");
     for (let j = 0; j < images.length; j++) {
-      const imageUrl = images[j];
-      totalImages++;
+      await classifyAndTally(images[j], j, counters);
+    }
+  } else {
+    const productLinks = findProductLinks(homeHtml, storeUrl);
+    console.log(`Found ${productLinks.length} product page(s).\n`);
+
+    for (let i = 0; i < productLinks.length; i++) {
+      const url = productLinks[i];
+      console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
+
+      let html;
       try {
-        let classification = await getCachedClassification(imageUrl);
-        let cached = !!classification;
-
-        if (!classification) {
-          classification = await classifyFrontBack(imageUrl);
-          await saveClassification(imageUrl, classification);
-          await sleep(GEMINI_RATE_LIMIT_MS);
-        }
-
-        if (cached) cachedCount++;
-        if (classification === "back") backCount++; else frontCount++;
-
-        console.log(`Image ${j + 1}: ${classification}${cached ? " (cached)" : " (new)"}`);
+        html = await fetchHtml(url);
       } catch (err) {
-        console.warn(`Image ${j + 1}: classification failed — ${err.message}`);
+        console.warn(`  ⚠ failed to load page: ${err.message}`);
+        continue;
+      }
+
+      const images = findProductImages(html, url);
+      console.log(`Found ${images.length} image(s) — classifying...`);
+
+      for (let j = 0; j < images.length; j++) {
+        await classifyAndTally(images[j], j, counters);
       }
     }
   }
 
   console.log(
-    `\nDone. Total: ${totalImages} images | ${frontCount} front | ${backCount} back | ${cachedCount} cached`
+    `\nDone. Total: ${counters.total} images | ${counters.front} front | ${counters.back} back | ${counters.cached} cached`
   );
 }
 

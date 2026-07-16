@@ -27,15 +27,17 @@ Fill in `.env`:
 The `garment_cache` table must exist — see `supabase_setup_v5.sql` in the
 project root.
 
-No browser is involved — product pages are fetched as plain HTML (Node's
-built-in `fetch`) and image URLs are pulled out with regex (`<img src>`,
+No browser is involved. Shopify stores are detected from the homepage HTML
+and scanned via the `/products.json` catalog API — every product and its
+full image list, paginated 250 at a time, no page scraping needed. Every
+other store falls back to fetching each product page as plain HTML (Node's
+built-in `fetch`) and pulling image URLs out with regex (`<img src>`,
 `<img data-src>` for lazy-loaded images, `<meta property="og:image" content>`).
 Puppeteer/Chromium proved unreliable to install on Railway's Nix-based build,
-so this trades away JavaScript-rendered content for a crawler that runs
-anywhere with no browser dependency. Most storefronts (Shopify, WooCommerce,
-etc.) put product images in the initial HTML, so this covers the common case
-— a store whose product images are injected purely by client-side JS after
-load won't be picked up.
+so the HTML-scrape fallback trades away JavaScript-rendered content for a
+crawler that runs anywhere with no browser dependency — a non-Shopify store
+whose product images are injected purely by client-side JS after load won't
+be picked up.
 
 ## Run
 
