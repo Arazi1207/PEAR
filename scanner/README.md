@@ -27,6 +27,14 @@ Fill in `.env`:
 The `garment_cache` table must exist — see `supabase_setup_v5.sql` in the
 project root.
 
+This uses `puppeteer-core`, which does **not** ship its own Chrome — it drives
+whatever browser you point it at. It looks for a system Chrome/Chromium at
+`/usr/bin/google-chrome-stable`, `/usr/bin/chromium-browser`, or
+`/usr/bin/chromium` (Railway/Nixpacks installs one of these — see
+`nixpacks.toml` in the project root). Running locally, either install Chrome
+at one of those paths or set `PUPPETEER_EXECUTABLE_PATH` in `.env` to your
+local Chrome/Chromium binary.
+
 ## Run
 
 ```

@@ -12,9 +12,24 @@
    ============================================================================= */
 
 import "dotenv/config";
-import puppeteer from "puppeteer";
+import fs from "node:fs";
+import puppeteer from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
 // Node.js 20 has built-in fetch — no node-fetch dependency needed.
+
+/* Railway/Nixpacks installs a system Chromium rather than letting Puppeteer
+   download its own (see nixpacks.toml + the postinstall no-op in package.json).
+   PUPPETEER_EXECUTABLE_PATH wins when set; otherwise pick the first of these
+   well-known install locations that actually exists on disk. */
+function resolveChromePath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  const candidates = [
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || candidates[0];
+}
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -172,8 +187,17 @@ async function main() {
   console.log(`Scanning store: ${storeUrl}\n`);
 
   const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath: resolveChromePath(),
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+    ],
+    headless: true,
   });
 
   let totalImages = 0;
