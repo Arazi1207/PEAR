@@ -14,7 +14,7 @@
 import "dotenv/config";
 import puppeteer from "puppeteer";
 import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
+// Node.js 20 has built-in fetch — no node-fetch dependency needed.
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
