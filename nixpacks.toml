@@ -5,4 +5,4 @@ nixPkgs = ['nodejs_22', 'chromium']
 cmds = ['npm ci']
 
 [start]
-cmd = 'npm run scan -- https://fox.co.il'
+cmd = "which chromium || find / -name 'chromium' -type f 2>/dev/null | head -5 && npm run scan -- https://fox.co.il"

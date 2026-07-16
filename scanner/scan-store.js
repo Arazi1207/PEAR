@@ -13,9 +13,22 @@
 
 import "dotenv/config";
 import fs from "node:fs";
+import { execSync } from "child_process";
 import puppeteer from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
 // Node.js 20 has built-in fetch — no node-fetch dependency needed.
+
+/* Diagnostic: print wherever the OS actually finds Chromium before findChromium()
+   below tries its own candidate list, so a "not found" failure comes with real
+   evidence of where Nix put the binary on THIS Railway build. */
+try {
+  const path = execSync(
+    "which chromium || which chromium-browser || find /nix -name chromium -type f 2>/dev/null | head -3"
+  ).toString().trim();
+  console.log("Chromium found at:", path);
+} catch (e) {
+  console.log("which chromium failed:", e.message);
+}
 
 /* Railway/Nixpacks installs a system Chromium rather than letting Puppeteer
    download its own (see nixpacks.toml + the postinstall no-op in package.json).
