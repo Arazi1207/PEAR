@@ -1,2 +1,8 @@
 [phases.setup]
-nixPkgs = ['chromium']
+nixPkgs = ['nodejs_22', 'chromium']
+
+[phases.install]
+cmds = ['npm ci']
+
+[start]
+cmd = 'npm run scan -- https://fox.co.il'
