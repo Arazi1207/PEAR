@@ -27,13 +27,15 @@ Fill in `.env`:
 The `garment_cache` table must exist — see `supabase_setup_v5.sql` in the
 project root.
 
-This uses `puppeteer-core`, which does **not** ship its own Chrome — it drives
-whatever browser you point it at. It looks for a system Chrome/Chromium at
-`/usr/bin/google-chrome-stable`, `/usr/bin/chromium-browser`, or
-`/usr/bin/chromium` (Railway/Nixpacks installs one of these — see
-`nixpacks.toml` in the project root). Running locally, either install Chrome
-at one of those paths or set `PUPPETEER_EXECUTABLE_PATH` in `.env` to your
-local Chrome/Chromium binary.
+No browser is involved — product pages are fetched as plain HTML (Node's
+built-in `fetch`) and image URLs are pulled out with regex (`<img src>`,
+`<img data-src>` for lazy-loaded images, `<meta property="og:image" content>`).
+Puppeteer/Chromium proved unreliable to install on Railway's Nix-based build,
+so this trades away JavaScript-rendered content for a crawler that runs
+anywhere with no browser dependency. Most storefronts (Shopify, WooCommerce,
+etc.) put product images in the initial HTML, so this covers the common case
+— a store whose product images are injected purely by client-side JS after
+load won't be picked up.
 
 ## Run
 

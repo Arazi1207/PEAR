@@ -7,53 +7,22 @@
    classifies each one as front/back via Gemini — caching results in Supabase's
    garment_cache table so repeat scans never re-classify the same image.
 
+   No browser involved: product pages are fetched as plain HTML and image URLs
+   are pulled out with regex (<img src>, <img data-src> for lazy-loaded images,
+   <meta property="og:image" content>). This works on any host with no Chrome/
+   Chromium install (Railway's Nix-based Chromium install proved unreliable) —
+   the tradeoff is that images injected purely by client-side JavaScript after
+   page load won't be found, since the HTML is never rendered. In practice most
+   storefronts (Shopify, WooCommerce, etc.) put product images in the initial
+   HTML, so this covers the common case.
+
    Usage:
      node scan-store.js https://fox.co.il
    ============================================================================= */
 
 import "dotenv/config";
-import fs from "node:fs";
-import { execSync } from "child_process";
-import puppeteer from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
-// Node.js 20 has built-in fetch — no node-fetch dependency needed.
-
-/* Diagnostic: print wherever the OS actually finds Chromium before findChromium()
-   below tries its own candidate list, so a "not found" failure comes with real
-   evidence of where Nix put the binary on THIS Railway build. */
-try {
-  const path = execSync(
-    "which chromium || which chromium-browser || find /nix -name chromium -type f 2>/dev/null | head -3"
-  ).toString().trim();
-  console.log("Chromium found at:", path);
-} catch (e) {
-  console.log("which chromium failed:", e.message);
-}
-
-/* Railway/Nixpacks installs a system Chromium rather than letting Puppeteer
-   download its own (see nixpacks.toml + the postinstall no-op in package.json).
-   Nix environments put it at /run/current-system/sw/bin/chromium (or a
-   /nix/var/nix profile path), not the FHS /usr/bin locations — so check both,
-   plus the PUPPETEER_EXECUTABLE_PATH / CHROMIUM_PATH env overrides, and
-   confirm the binary is actually executable before trusting it. */
-function findChromium() {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    process.env.CHROMIUM_PATH,
-    "/run/current-system/sw/bin/chromium",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/nix/var/nix/profiles/default/bin/chromium",
-  ].filter(Boolean);
-
-  for (const p of candidates) {
-    try {
-      fs.accessSync(p, fs.constants.X_OK);
-      return p;
-    } catch {}
-  }
-  return null;
-}
+// Node.js 20+ has built-in fetch — no node-fetch dependency needed.
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -92,7 +61,7 @@ const GEMINI_RATE_LIMIT_MS = 1100; // stay under 60 requests/minute
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
-const MIN_IMG_SIZE = 200;
+const FETCH_USER_AGENT = "Mozilla/5.0 (compatible; PEAR-StoreScanner/1.0)";
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -111,13 +80,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/* Resolve every <a> on the homepage whose href matches a product-page pattern,
-   de-duplicated and normalized to absolute URLs. */
-async function findProductLinks(page, baseUrl) {
-  const hrefs = await page.$$eval("a", (as) => as.map((a) => a.getAttribute("href") || ""));
+async function fetchHtml(url) {
+  const resp = await fetch(url, { headers: { "User-Agent": FETCH_USER_AGENT } });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+  return resp.text();
+}
+
+/* Pull a single attribute's value out of a raw HTML tag string, e.g.
+   extractAttr('<img src="a.jpg">', 'src') -> "a.jpg". */
+function extractAttr(tag, attr) {
+  const re = new RegExp(attr + "\\s*=\\s*[\"']([^\"']+)[\"']", "i");
+  const m = tag.match(re);
+  return m ? m[1] : "";
+}
+
+/* Every <a> tag's href that matches a product-page pattern, de-duplicated and
+   normalized to absolute URLs. */
+function findProductLinks(html, baseUrl) {
+  const aTags = html.match(/<a\b[^>]*>/gi) || [];
   const seen = new Set();
   const links = [];
-  for (const href of hrefs) {
+  for (const tag of aTags) {
+    const href = extractAttr(tag, "href");
     if (!href || !isProductLink(href)) continue;
     let abs;
     try {
@@ -132,24 +116,46 @@ async function findProductLinks(page, baseUrl) {
   return links;
 }
 
-/* Collect every <img> on a product page whose rendered size exceeds
-   MIN_IMG_SIZE x MIN_IMG_SIZE and whose src isn't decorative chrome. */
-async function findProductImages(page) {
-  const raw = await page.$$eval("img", (imgs) =>
-    imgs.map((img) => ({
-      src: img.currentSrc || img.src || "",
-      width: img.naturalWidth || img.width || 0,
-      height: img.naturalHeight || img.height || 0,
-    }))
-  );
+/* Every garment image referenced in a product page's raw HTML:
+     - <img src="...">
+     - <img data-src="..."> (lazy-loaded images — most themes swap this into
+       src via JS on scroll, so the real image only lives here pre-render)
+     - <meta property="og:image" content="...">
+   De-duplicated and filtered against EXCLUDE_IMG_SRC. Note: without rendering
+   the page there's no way to read naturalWidth/naturalHeight, so — unlike a
+   browser-driven crawl — this can't filter by rendered image size; it relies
+   entirely on the src/filename exclusion list to skip decorative chrome. */
+function findProductImages(html, baseUrl) {
+  const urls = [];
+
+  const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    const src = extractAttr(tag, "data-src") || extractAttr(tag, "src");
+    if (src) urls.push(src);
+  }
+
+  const metaTags = html.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of metaTags) {
+    if (/property\s*=\s*["']og:image["']/i.test(tag)) {
+      const content = extractAttr(tag, "content");
+      if (content) urls.push(content);
+    }
+  }
+
   const seen = new Set();
   const images = [];
-  for (const { src, width, height } of raw) {
-    if (!src || width < MIN_IMG_SIZE || height < MIN_IMG_SIZE) continue;
-    if (isExcludedSrc(src)) continue;
-    if (seen.has(src)) continue;
-    seen.add(src);
-    images.push(src);
+  for (const raw of urls) {
+    let abs;
+    try {
+      abs = new URL(raw, baseUrl).href;
+    } catch {
+      continue;
+    }
+    if (!/^https?:\/\//i.test(abs)) continue;
+    if (isExcludedSrc(abs)) continue;
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    images.push(abs);
   }
   return images;
 }
@@ -217,79 +223,51 @@ async function classifyFrontBack(imageUrl) {
 async function main() {
   console.log(`Scanning store: ${storeUrl}\n`);
 
-  const executablePath = findChromium();
-  if (!executablePath) {
-    console.error("✗ Chromium not found. Set PUPPETEER_EXECUTABLE_PATH.");
-    process.exit(1);
-  }
-  console.log("Using Chromium at:", executablePath);
-
-  const browser = await puppeteer.launch({
-    executablePath,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-      "--headless=new",
-    ],
-    headless: true,
-  });
-
   let totalImages = 0;
   let frontCount = 0;
   let backCount = 0;
   let cachedCount = 0;
 
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent("Mozilla/5.0 (compatible; PEAR-StoreScanner/1.0)");
-    await page.goto(storeUrl, { waitUntil: "networkidle2", timeout: 60_000 });
+  const homeHtml = await fetchHtml(storeUrl);
+  const productLinks = findProductLinks(homeHtml, storeUrl);
+  console.log(`Found ${productLinks.length} product page(s).\n`);
 
-    const productLinks = await findProductLinks(page, storeUrl);
-    console.log(`Found ${productLinks.length} product page(s).\n`);
+  for (let i = 0; i < productLinks.length; i++) {
+    const url = productLinks[i];
+    console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
 
-    for (let i = 0; i < productLinks.length; i++) {
-      const url = productLinks[i];
-      console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
+    let html;
+    try {
+      html = await fetchHtml(url);
+    } catch (err) {
+      console.warn(`  ⚠ failed to load page: ${err.message}`);
+      continue;
+    }
 
+    const images = findProductImages(html, url);
+    console.log(`Found ${images.length} image(s) — classifying...`);
+
+    for (let j = 0; j < images.length; j++) {
+      const imageUrl = images[j];
+      totalImages++;
       try {
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 60_000 });
-      } catch (err) {
-        console.warn(`  ⚠ failed to load page: ${err.message}`);
-        continue;
-      }
+        let classification = await getCachedClassification(imageUrl);
+        let cached = !!classification;
 
-      const images = await findProductImages(page);
-      console.log(`Found ${images.length} image(s) — classifying...`);
-
-      for (let j = 0; j < images.length; j++) {
-        const imageUrl = images[j];
-        totalImages++;
-        try {
-          let classification = await getCachedClassification(imageUrl);
-          let cached = !!classification;
-
-          if (!classification) {
-            classification = await classifyFrontBack(imageUrl);
-            await saveClassification(imageUrl, classification);
-            await sleep(GEMINI_RATE_LIMIT_MS);
-          }
-
-          if (cached) cachedCount++;
-          if (classification === "back") backCount++; else frontCount++;
-
-          console.log(`Image ${j + 1}: ${classification}${cached ? " (cached)" : " (new)"}`);
-        } catch (err) {
-          console.warn(`Image ${j + 1}: classification failed — ${err.message}`);
+        if (!classification) {
+          classification = await classifyFrontBack(imageUrl);
+          await saveClassification(imageUrl, classification);
+          await sleep(GEMINI_RATE_LIMIT_MS);
         }
+
+        if (cached) cachedCount++;
+        if (classification === "back") backCount++; else frontCount++;
+
+        console.log(`Image ${j + 1}: ${classification}${cached ? " (cached)" : " (new)"}`);
+      } catch (err) {
+        console.warn(`Image ${j + 1}: classification failed — ${err.message}`);
       }
     }
-  } finally {
-    await browser.close();
   }
 
   console.log(
