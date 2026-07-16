@@ -52,7 +52,14 @@ if (!storeUrl) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
+  realtime: { enabled: false },
+  global: {
+    headers: {},
+  },
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
 });
 
 const GEMINI_URL =
