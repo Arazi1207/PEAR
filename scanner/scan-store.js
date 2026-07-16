@@ -19,16 +19,27 @@ import { createClient } from "@supabase/supabase-js";
 
 /* Railway/Nixpacks installs a system Chromium rather than letting Puppeteer
    download its own (see nixpacks.toml + the postinstall no-op in package.json).
-   PUPPETEER_EXECUTABLE_PATH wins when set; otherwise pick the first of these
-   well-known install locations that actually exists on disk. */
-function resolveChromePath() {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+   Nix environments put it at /run/current-system/sw/bin/chromium (or a
+   /nix/var/nix profile path), not the FHS /usr/bin locations — so check both,
+   plus the PUPPETEER_EXECUTABLE_PATH / CHROMIUM_PATH env overrides, and
+   confirm the binary is actually executable before trusting it. */
+function findChromium() {
   const candidates = [
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium-browser",
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROMIUM_PATH,
+    "/run/current-system/sw/bin/chromium",
     "/usr/bin/chromium",
-  ];
-  return candidates.find((p) => fs.existsSync(p)) || candidates[0];
+    "/usr/bin/chromium-browser",
+    "/nix/var/nix/profiles/default/bin/chromium",
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      return p;
+    } catch {}
+  }
+  return null;
 }
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
@@ -193,8 +204,15 @@ async function classifyFrontBack(imageUrl) {
 async function main() {
   console.log(`Scanning store: ${storeUrl}\n`);
 
+  const executablePath = findChromium();
+  if (!executablePath) {
+    console.error("✗ Chromium not found. Set PUPPETEER_EXECUTABLE_PATH.");
+    process.exit(1);
+  }
+  console.log("Using Chromium at:", executablePath);
+
   const browser = await puppeteer.launch({
-    executablePath: resolveChromePath(),
+    executablePath,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -203,6 +221,7 @@ async function main() {
       "--no-first-run",
       "--no-zygote",
       "--single-process",
+      "--headless=new",
     ],
     headless: true,
   });
