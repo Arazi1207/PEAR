@@ -51,16 +51,25 @@ Example:
 node scan-store.js https://fox.co.il
 ```
 
-Progress prints to the console as it crawls:
+Progress prints to the console as it crawls, then classifies once every
+product page (or the Shopify catalog) has been gathered:
 
 ```
-Scanning page 1/45: fox.co.il/products/shirt-123
-Found 3 images — classifying...
+Found 45 products with 134 images
+Classifying...
 Image 1: front (cached)
 Image 2: back (new)
 Image 3: front (new)
+...
+Progress: 10/134 images classified
+...
 Done. Total: 134 images | 89 front | 45 back | 12 cached
 ```
+
+Uncached images are classified via Gemini (free tier: 60 requests/minute) —
+a 2s delay runs between calls, and a 429 (rate limited) response is retried
+after a 30s wait, up to 3 attempts, before falling back to `front` so a
+single stubborn image never stalls the whole scan.
 
 ## Deploy on Railway
 

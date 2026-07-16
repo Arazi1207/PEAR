@@ -59,7 +59,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-const GEMINI_RATE_LIMIT_MS = 1100; // stay under 60 requests/minute
+const GEMINI_RATE_LIMIT_MS = 2000; // stay under 60 requests/minute
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
@@ -220,6 +220,27 @@ async function classifyFrontBack(imageUrl) {
   return answer.includes("back") ? "back" : "front";
 }
 
+/* Gemini's free tier is 60 requests/minute — a burst of uncached images can
+   still trip a 429 despite the inter-request delay. Wait 30s and retry, up
+   to 3 attempts total; if every attempt is rate-limited (or fails for any
+   other reason), default to "front" rather than losing the image entirely. */
+async function classifyWithRetry(imageUrl, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await classifyFrontBack(imageUrl);
+      return result;
+    } catch (e) {
+      if (e.message.includes("429") && i < retries - 1) {
+        console.log("Rate limited — waiting 30s...");
+        await sleep(30000);
+      } else {
+        return "front";
+      }
+    }
+  }
+  return "front";
+}
+
 /* ── Shopify JSON catalog ─────────────────────────────────────────────────────
    Shopify storefronts expose every product (with its full image list) at
    /products.json — paginated, 250/page — so a Shopify store never needs its
@@ -260,28 +281,66 @@ async function scanShopify(baseUrl) {
 
 /* ── classification tally (shared by both crawl paths) ──────────────────── */
 
-async function classifyAndTally(imageUrl, index, counters) {
-  counters.total++;
+async function classifyAndTally(imageUrl, index, counters, total) {
   try {
     let classification = await getCachedClassification(imageUrl);
     let cached = !!classification;
 
     if (!classification) {
-      classification = await classifyFrontBack(imageUrl);
+      classification = await classifyWithRetry(imageUrl);
       await saveClassification(imageUrl, classification);
       await sleep(GEMINI_RATE_LIMIT_MS);
     }
 
+    counters.total++;
     if (cached) counters.cached++;
     if (classification === "back") counters.back++; else counters.front++;
 
     console.log(`Image ${index + 1}: ${classification}${cached ? " (cached)" : " (new)"}`);
   } catch (err) {
+    counters.total++;
     console.warn(`Image ${index + 1}: classification failed — ${err.message}`);
+  }
+
+  if (counters.total % 10 === 0) {
+    console.log(`Progress: ${counters.total}/${total} images classified`);
   }
 }
 
 /* ── main crawl ──────────────────────────────────────────────────────────── */
+
+/* Crawl every product page's HTML and gather a single de-duplicated image
+   list (mirrors scanShopify's shape) so classification below has a known
+   total up front, for the every-10-images progress log. */
+async function scanHtml(homeHtml, baseUrl) {
+  const productLinks = findProductLinks(homeHtml, baseUrl);
+  console.log(`Found ${productLinks.length} product page(s).\n`);
+
+  const seen = new Set();
+  const images = [];
+  for (let i = 0; i < productLinks.length; i++) {
+    const url = productLinks[i];
+    console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
+
+    let html;
+    try {
+      html = await fetchHtml(url);
+    } catch (err) {
+      console.warn(`  ⚠ failed to load page: ${err.message}`);
+      continue;
+    }
+
+    const pageImages = findProductImages(html, url);
+    console.log(`Found ${pageImages.length} image(s)`);
+    for (const img of pageImages) {
+      if (seen.has(img)) continue;
+      seen.add(img);
+      images.push(img);
+    }
+  }
+
+  return { images, productCount: productLinks.length };
+}
 
 async function main() {
   console.log(`Scanning store: ${storeUrl}\n`);
@@ -290,12 +349,14 @@ async function main() {
   const homeHtml = await fetchHtml(storeUrl);
   const isShopify = homeHtml.includes("Shopify") || homeHtml.includes("shopify");
 
+  let images, productCount;
   if (isShopify) {
     console.log("Detected Shopify store — using /products.json catalog API\n");
-    const { images: shopifyImages, productCount } = await scanShopify(storeUrl);
+    const { images: shopifyImages, productCount: count } = await scanShopify(storeUrl);
+    productCount = count;
 
     const seen = new Set();
-    const images = [];
+    images = [];
     for (const item of shopifyImages) {
       let abs;
       try {
@@ -307,35 +368,17 @@ async function main() {
       seen.add(abs);
       images.push(abs);
     }
-
     console.log(`Found ${productCount} products with ${images.length} images`);
-    console.log("Classifying...");
-    for (let j = 0; j < images.length; j++) {
-      await classifyAndTally(images[j], j, counters);
-    }
   } else {
-    const productLinks = findProductLinks(homeHtml, storeUrl);
-    console.log(`Found ${productLinks.length} product page(s).\n`);
+    const result = await scanHtml(homeHtml, storeUrl);
+    images = result.images;
+    productCount = result.productCount;
+    console.log(`\nFound ${productCount} products with ${images.length} images`);
+  }
 
-    for (let i = 0; i < productLinks.length; i++) {
-      const url = productLinks[i];
-      console.log(`Scanning page ${i + 1}/${productLinks.length}: ${url}`);
-
-      let html;
-      try {
-        html = await fetchHtml(url);
-      } catch (err) {
-        console.warn(`  ⚠ failed to load page: ${err.message}`);
-        continue;
-      }
-
-      const images = findProductImages(html, url);
-      console.log(`Found ${images.length} image(s) — classifying...`);
-
-      for (let j = 0; j < images.length; j++) {
-        await classifyAndTally(images[j], j, counters);
-      }
-    }
+  console.log("Classifying...");
+  for (let j = 0; j < images.length; j++) {
+    await classifyAndTally(images[j], j, counters, images.length);
   }
 
   console.log(
