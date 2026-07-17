@@ -470,6 +470,44 @@
   </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════════════
+     SCREEN 3 — one-time public demo already used (localStorage gate)
+     Shown INSTEAD of Screen 1/2 the moment 'pear_demo_measured' is set: on
+     load for a returning visitor (init(), app.js), and immediately — no
+     reload — the instant the first measurement finishes this session (see
+     lockDemoAfterFirstMeasurement() in app.js). Reuses the exact .calc-shell
+     / .calc-editorial layout Screen 1 uses so no new grid CSS is needed. ════ -->
+<div id="screen-locked" class="screen">
+  <div class="calc-shell">
+    <aside class="calc-editorial">
+      <img class="calc-editorial__img"
+           src="https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=1100&q=80&sat=-100&auto=format&fit=crop"
+           alt="" aria-hidden="true" loading="eager" onerror="this.remove()">
+      <div class="calc-editorial__scrim"></div>
+      <div class="calc-editorial__content">
+        <span class="calc-editorial__kicker">PEAR · Atelier</span>
+        <h1 class="calc-editorial__headline">תודה שניסית<br>את PEAR</h1>
+        <p class="calc-editorial__lead">חדר הלבשה וירטואלי בזמן אמת — הלוק נמדד על הגוף שלך, מתוך נתונים ולא ניחושים.</p>
+        <span class="calc-editorial__meta">Lookbook № 01 — Monochrome Capsule</span>
+      </div>
+    </aside>
+
+    <div class="calc-main">
+      <div class="container" style="text-align:center">
+        <div class="update-reminder__badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5"/>
+          </svg>
+        </div>
+        <span class="kicker">PEAR · Personal Fit Engine</span>
+        <h2>המדידה כבר בוצעה</h2>
+        <p class="subtitle">כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- ░░ 30-day re-measure reminder — custom modal (never a native confirm). Shown on

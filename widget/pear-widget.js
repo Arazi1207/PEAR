@@ -77,6 +77,30 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
+  /* ── one-time public demo lock ────────────────────────────────────────────
+     This host page and the fitting-room iframe (PEAR_BASE, a DIFFERENT origin)
+     each have their OWN localStorage, so they can't share this flag directly.
+     The fitting room sets its own copy the instant a first look is saved and
+     posts a message here so every trigger button on THIS page locks too,
+     with no reload — see the "message" listener near the bottom of this file. */
+  var PEAR_DEMO_LOCK_KEY = "pear_demo_measured";
+  var injectedButtons = [];
+
+  function isDemoLocked() {
+    try { return w.localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch (_) { return false; }
+  }
+  function setDemoLocked() {
+    try { w.localStorage.setItem(PEAR_DEMO_LOCK_KEY, "true"); } catch (_) {}
+  }
+  function lockButton(btn) {
+    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
+    btn.textContent = isHebrewPage() ? "כבר ביצעת מדידה" : "Already Measured";
+  }
+  function lockAllButtons() {
+    for (var i = 0; i < injectedButtons.length; i++) lockButton(injectedButtons[i]);
+  }
+
   /* Garment-category keyword map (scanned against product name + page title). */
   var CATEGORY_KEYWORDS = {
     shirt: ["חולצה", "טישרט", "גופייה", "shirt", "tee", "top",
@@ -277,6 +301,9 @@
         "font-family:inherit;line-height:1.2;" +
       "}" +
       ".pear-widget-btn:hover{background:#222;}" +
+      ".pear-widget-btn:disabled,.pear-widget-btn:disabled:hover{" +
+        "background:#ccc;color:#666;cursor:not-allowed;" +
+      "}" +
       ".pear-widget-overlay{" +
         "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.88);" +
         "display:flex;align-items:center;justify-content:center;" +
@@ -563,15 +590,18 @@
   }
 
   /* CHANGE 1 — button label follows the page language: Hebrew/RTL storefronts get
-     the Hebrew label, everything else the English one. */
-  function getButtonText() {
+     the Hebrew label, everything else the English one. Also drives the locked
+     ("already measured") label, so both states speak the same language. */
+  function isHebrewPage() {
     var docEl = d.documentElement;
     var lang   = (docEl && (docEl.lang || readAttr(docEl, "lang"))) || "";
     var dirEl  = (docEl && (docEl.dir  || readAttr(docEl, "dir")))  || "";
     var dirBody = (d.body && (d.body.dir || readAttr(d.body, "dir"))) || "";
-    var isHebrew = lang.toLowerCase().indexOf("he") === 0 ||
-                   dirEl.toLowerCase() === "rtl" || dirBody.toLowerCase() === "rtl";
-    return isHebrew ? "מדוד וירטואלית" : "VIRTUAL FIT";
+    return lang.toLowerCase().indexOf("he") === 0 ||
+           dirEl.toLowerCase() === "rtl" || dirBody.toLowerCase() === "rtl";
+  }
+  function getButtonText() {
+    return isHebrewPage() ? "מדוד וירטואלית" : "VIRTUAL FIT";
   }
 
   /* ── per-button garment resolution ──────────────────────────────────────────
@@ -697,21 +727,29 @@
     btn.className = "pear-widget-btn";
     btn.type = "button";
     btn.textContent = getButtonText();
-    btn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      /* 2+ product photos → let the shopper pick which photo(s) to try on first;
-         a single photo skips the popup and opens the fitting room directly, as before. */
-      if (garment.images && garment.images.length > 1) {
-        if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
-        showImagePopup(btn, garment);
-      } else {
-        openModal({
-          url: garment.url, type: garment.category, name: garment.name,
-          back: garment.back, images: garment.images
-        });
-      }
-    });
+    if (isDemoLocked()) {
+      /* Locked from a previous visit on this browser+origin — render disabled from
+         the start; a genuinely disabled <button> never dispatches click events, so
+         no extra guard is needed inside the handler below. */
+      lockButton(btn);
+    } else {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        /* 2+ product photos → let the shopper pick which photo(s) to try on first;
+           a single photo skips the popup and opens the fitting room directly, as before. */
+        if (garment.images && garment.images.length > 1) {
+          if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
+          showImagePopup(btn, garment);
+        } else {
+          openModal({
+            url: garment.url, type: garment.category, name: garment.name,
+            back: garment.back, images: garment.images
+          });
+        }
+      });
+    }
+    injectedButtons.push(btn);
     return btn;
   }
 
@@ -762,6 +800,17 @@
       injectFallbackButton();
     }
   }
+
+  /* Fitting room (PEAR_BASE, a different origin) posts this the instant a visitor's
+     FIRST look is saved, so every trigger button on this page locks immediately —
+     no reload, no polling. Origin-checked against the same base the iframe itself
+     was opened from, so only the actual PEAR fitting room can trigger this. */
+  w.addEventListener("message", function (e) {
+    if (e.origin !== PEAR_BASE) return;
+    if (!e.data || e.data.source !== "pear-fitting-room" || e.data.type !== "pear-demo-measured") return;
+    setDemoLocked();
+    lockAllButtons();
+  });
 
   /* ── boot ───────────────────────────────────────────────────────────────── */
   /* Coalesce bursts of DOM mutations into a single injection pass per frame. */
