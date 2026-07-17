@@ -1223,7 +1223,7 @@ function showPearLoader(label) {
   el.setAttribute("aria-hidden", "true");
   el.innerHTML =
     `<div class="pear-loader">` +
-      `<img class="pear-loader__fruit" src="./image_9d45b0.svg" alt="" width="46" height="58">` +
+      `<img class="pear-loader__fruit" src="/pear-logo.png" alt="" width="46">` +
       `<div class="pear-loader__shadow"></div>` +
       (label ? `<div class="pear-loader__label">${label}</div>` : "") +
     `</div>`;
@@ -1260,6 +1260,11 @@ async function startCamera() {
       v.srcObject = localStream;
       await v.play().catch(() => {});
       card().classList.add("live");
+      // Auto-scroll (UX): once the stream is live, bring the camera preview
+      // and the Go-Live button into view. rAF lets the .live layout settle first.
+      requestAnimationFrame(() => {
+        $("cameraCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
       $("camError").hidden = true;
       $("captureBtn").disabled = false;
       return true;

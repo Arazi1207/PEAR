@@ -46,32 +46,10 @@
      paths, NO secondary "bite" shape — pure transform + opacity. -->
 <div class="pear-transition" id="pearTransition" aria-hidden="true" hidden>
   <div class="pear-transition__bg"></div>
-  <!-- Authentic PEAR logo: a filled pear with the serif "P" + hanger knocked out
-       as negative space, exactly like the brand mark. -->
-  <svg class="pear-transition__shape" viewBox="0 0 120 152" role="presentation">
-    <defs>
-      <linearGradient id="luxPearGrad" x1="20%" y1="8%" x2="80%" y2="100%">
-        <stop offset="0%"   stop-color="#2a2a2c"/>
-        <stop offset="50%"  stop-color="#141416"/>
-        <stop offset="100%" stop-color="#0a0a0b"/>
-      </linearGradient>
-      <!-- STATIC mask (rasterised once, never animated) -->
-      <mask id="luxLogoMask">
-        <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z" fill="#fff"/>
-        <g stroke="#000" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M70 60 L70 126" stroke-width="6"/>
-          <path d="M70 62 H85 C93 62 99 68 99 77 C99 86 93 91 85 91 H70" stroke-width="5"/>
-          <path d="M59 112 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
-          <path d="M41 123 L59 110 L83 123" stroke-width="2.6"/>
-        </g>
-      </mask>
-    </defs>
-    <path class="pear-transition__stem" d="M61 31 C59 22 62 15 70 12" fill="none" stroke="#0a0a0b" stroke-width="3.4" stroke-linecap="round"/>
-    <path class="pear-transition__leaf" d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="#0a0a0b"/>
-    <path class="pear-transition__body"
-          d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"
-          fill="url(#luxPearGrad)" mask="url(#luxLogoMask)"/>
-  </svg>
+  <!-- Authentic PEAR logo (official raster mark). Scales/fades via the same
+       .pear-transition__shape animation; the pear-green flood below is untouched. -->
+  <img class="pear-transition__shape" src="/pear-logo.png" alt="" role="presentation" decoding="async">
+
   <!-- the pear-green liquid flood / aperture (single GPU layer) -->
   <div class="pear-transition__flood" aria-hidden="true"></div>
 </div>
@@ -220,6 +198,8 @@
     </div>
 
     <div class="app-header">
+        <!-- Nav zone (start / right in RTL): storefront + edit-measurements -->
+        <div class="app-header__nav">
         <!-- Back to Store — breaks out of any iframe (target="_top") and returns
              to the storefront homepage. -->
         <a class="back-to-store" href="/" target="_top" aria-label="חזרה לחנות · Back to store">
@@ -244,25 +224,21 @@
             </svg>
             <span>עריכת מדידות</span>
         </button>
-        <!-- Authentic PEAR brand mark — inline SVG (pear · serif "P" · hanger),
-             so it is bulletproof on any host with no external path to 404.
-             The same artwork also ships as the relative asset ./image_9d45b0.svg
-             (used by the loaders); swap an <img src="./image_9d45b0.svg"> in here
-             if you prefer the external file. -->
-        <svg class="brand-mark" viewBox="0 0 120 152" fill="none" stroke="currentColor"
-             stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M61 30 C67 30 69 39 65 46 C81 54 91 74 91 101 C91 128 77 143 59 143 C41 143 27 128 27 101 C27 74 38 54 53 46 C49 39 51 30 61 30 Z"/>
-            <path d="M61 31 C59 22 62 15 70 12"/>
-            <path d="M70 14 C81 8 94 12 95 22 C86 28 74 24 70 14 Z" fill="currentColor" stroke="none"/>
-            <path d="M70 58 L70 128" stroke-width="6"/>
-            <path d="M70 60 H86 C95 60 101 67 101 77 C101 87 95 93 86 93 H70" stroke-width="5"/>
-            <path d="M61 58 H79" stroke-width="5"/>
-            <path d="M61 128 H79" stroke-width="5"/>
-            <path d="M59 110 v-5 a4 4 0 1 1 5 4" stroke-width="2.6"/>
-            <path d="M40 122 L59 108 L84 122" stroke-width="2.6"/>
-        </svg>
-        <span class="app-header__brand">PEAR</span>
-        <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+        </div><!-- /.app-header__nav -->
+
+        <!-- Brand lockup (centre): official raster logo + PEAR wordmark stacked
+             over the subtitle. Black-on-transparent art on the light cream theme,
+             so it renders crisp with no filter. -->
+        <div class="app-header__brand-lockup">
+            <img class="brand-mark" src="/pear-logo.png" alt="PEAR Logo" decoding="async">
+            <span class="app-header__titles">
+                <span class="app-header__brand">PEAR</span>
+                <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+            </span>
+        </div>
+
+        <!-- Actions zone (end / left in RTL): cart + engine status dot -->
+        <div class="app-header__actions">
         <button class="cart-btn" id="cartBtn" type="button" aria-label="סל קניות · Shopping cart">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M6 8h12l-1 11.5a1.5 1.5 0 0 1-1.5 1.4H8.5A1.5 1.5 0 0 1 7 19.5L6 8Z"></path>
@@ -271,6 +247,7 @@
             <span class="cart-btn__count is-empty" id="cartCount">0</span>
         </button>
         <span class="app-header__engine" id="engineBadge" title="מנוע">●</span>
+        </div><!-- /.app-header__actions -->
     </div>
 
     <div class="container fitting-container">
@@ -320,7 +297,7 @@
             <div class="scan-overlay" id="scanOverlay" hidden>
                 <div class="scan-overlay__lines"></div>
                 <div class="pear-loader" aria-hidden="true">
-                    <img class="pear-loader__fruit" src="./image_9d45b0.svg" alt="" width="48" height="60">
+                    <img class="pear-loader__fruit" src="/pear-logo.png" alt="" width="48">
                     <div class="pear-loader__shadow"></div>
                 </div>
                 <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
@@ -329,8 +306,8 @@
 
             <div class="camera-card__placeholder" id="camPlaceholder">
                 <div class="camera-card__icon">📷</div>
-                <p>הפעל את המצלמה כדי להתחיל מדידה</p>
-                <button class="btn-primary" id="startCamBtn">הפעל מצלמה</button>
+                <p>כדי להתחיל במדידה, נשמח לקבל גישה למצלמה. אל דאגה, הצילום משמש למדידת מידות הגוף בלבד ואינו נשמר בשרתים שלנו.</p>
+                <button class="btn-primary" id="startCamBtn">הפעלת מצלמה לתחילת מדידה</button>
             </div>
 
             <div class="camera-card__error" id="camError" hidden></div>
@@ -340,7 +317,7 @@
         <div class="cam-controls">
             <button class="btn-capture" id="captureBtn" disabled>
                 <span class="btn-capture__icon">📸</span>
-                <span class="btn-capture__label">התחל מדידה חיה</span>
+                <span class="btn-capture__label">מתחילים במדידה</span>
                 <span class="btn-capture__en">Go Live</span>
             </button>
             <!-- #retakeBtn now lives inside the unified .pear-interaction-pod below -->

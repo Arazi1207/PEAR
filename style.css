@@ -5,6 +5,8 @@
    ============================================================ */
 
 :root {
+  /* PEAR brand wordmark — Didot serif, PEAR/pear text only (never MERIDIAN) */
+  --pear-wordmark: 'Didot', 'Didot LT STD', 'Bodoni MT', 'Cochin', 'Georgia', serif;
   --blue:        #0b3c95;
   --blue-deep:   #082e73;
   --blue-night:  #061f4d;
@@ -812,3 +814,6 @@ body.gd-open { overflow: hidden; }
   .gd-corner { opacity: 1; }
   .gd-scrim { background: rgba(6,18,45,0.32); }
 }
+
+/* PEAR wordmark — Didot on literal PEAR text (feature name), not MERIDIAN */
+.pear-wordmark { font-family: var(--pear-wordmark); }
