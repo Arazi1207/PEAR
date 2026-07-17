@@ -267,6 +267,20 @@
         <div class="camera-card" id="cameraCard">
             <span class="camera-card__live" id="liveBadge"><i></i>LIVE</span>
 
+            <!-- Flip front/rear camera — floating glass control, preview only
+                 (hidden during the billed live session). -->
+            <button class="camera-card__flip" id="flipCamBtn" type="button"
+                    aria-label="הפוך מצלמה · Flip camera" title="הפוך מצלמה">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
+                    <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="m18 22-3-3 3-3"/>
+                    <path d="m6 2 3 3-3 3"/>
+                </svg>
+            </button>
+
             <!-- ░░ Colour swatches — the only floating gallery control on the live stage ░░
                  #productSwatches — colour bubbles, shown only when the ACTIVE item has 2+
                  variants; picking one hot-swaps the same WebRTC session in place (no

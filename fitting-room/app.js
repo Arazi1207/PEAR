@@ -432,6 +432,8 @@ const activeOutfit = { top: null, bottom: null };
 const slotOf = (item) => (item && item.garmentType === "lower_body" ? "bottom" : "top");
 const outfitComplete = () => !!(activeOutfit.top && activeOutfit.bottom);
 let localStream = null;
+let cameraFacing = "user";           // active camera: "user" (front) | "environment" (rear)
+let cameraOrientation = "portrait";  // detected preview orientation: "portrait" | "landscape"
 let rtClient = null;
 let connState = "idle";
 let connecting = false;
@@ -913,7 +915,9 @@ function enterRoom() {
     setActiveItem(toItem(PEAR_CATALOG[0]), { silent: true });
   }
 
-  $("completeLook").hidden = false;
+  // #completeLook visibility is owned by renderCompleteTheLook() (invoked from
+  // setActiveItem above): it un-hides ONLY when real catalog complements exist, and
+  // hides otherwise — so we never force an empty section visible here.
   // AI Combined is the only mode now, so the storefront's front/back/side deep-link
   // angle no longer matters — renderPerspectiveSelector() sets currentAngle itself.
   renderPerspectiveSelector();
@@ -1234,7 +1238,30 @@ function hidePearLoader() {
   if (el) el.remove();
 }
 
-async function startCamera() {
+/* Build getUserMedia video constraints for the CURRENT device + physical orientation.
+   - Phones: request an orientation-matched aspect (portrait 9:16 / landscape 16:9) so the
+     selfie preview fills the viewport without stretch, squish, or heavy crop.
+   - Desktop: keep the compact landscape hint (512×288) — desktop webcams are landscape.
+   `aspectRatio` is an *ideal* (best-effort); whatever the browser actually returns is then
+   measured in loadedmetadata and the stage adapts. createThrottledInputStream() still
+   downscales to LIVE_W×LIVE_H before Decart, so the billed input is never affected. */
+function buildVideoConstraints(facing) {
+  const isPhone  = window.matchMedia("(max-width: 768px)").matches;
+  const portrait = window.matchMedia("(orientation: portrait)").matches;
+  const video = {
+    facingMode: facing,
+    frameRate: { ideal: LIVE_FPS, max: LIVE_FPS },
+  };
+  if (isPhone) {
+    video.aspectRatio = { ideal: portrait ? 9 / 16 : 16 / 9 };
+  } else {
+    video.width  = { ideal: LIVE_W };
+    video.height = { ideal: LIVE_H };
+  }
+  return video;
+}
+
+async function startCamera(facing = cameraFacing) {
   if (localStream) return true;
   if (cameraStartPromise) return cameraStartPromise;   // a request is already in flight
 
@@ -1242,29 +1269,29 @@ async function startCamera() {
     showPearLoader("מפעיל מצלמה…");        // 🍐 loading cue while permission/stream opens
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          // Optimized capture: matches the Decart inference size (LIVE_W×LIVE_H) and
-          // caps the rate at LIVE_FPS. A smaller, slower stream means less to
-          // encode + upload → faster connect/first-frame AND lower in-feed latency.
-          width:  { ideal: LIVE_W },
-          height: { ideal: LIVE_H },
-          frameRate: { ideal: LIVE_FPS, max: LIVE_FPS },
-        },
+        video: buildVideoConstraints(facing),
         audio: false,
       });
+      cameraFacing = facing;
       localStream.getVideoTracks().forEach((t) => {
         if ("contentHint" in t) t.contentHint = "motion";
       });
       const v = $("webcam");
       v.srcObject = localStream;
+      // Reflect the active camera so CSS mirrors ONLY the front ("user") feed —
+      // the rear camera must not mirror, or background text would read backwards.
+      card().dataset.facing = facing;
+      // Detect portrait vs landscape from the real stream once metadata arrives and
+      // adapt the on-screen stage. Display only — Decart's 512×288 input is untouched.
+      v.onloadedmetadata = () => {
+        const vw = v.videoWidth, vh = v.videoHeight;
+        if (!vw || !vh) return;
+        cameraOrientation = vw < vh ? "portrait" : "landscape";
+        card().dataset.orientation = cameraOrientation;
+        console.log(`Camera orientation: ${cameraOrientation} (${vw}×${vh}) · facing: ${facing}`);
+      };
       await v.play().catch(() => {});
       card().classList.add("live");
-      // Auto-scroll (UX): once the stream is live, bring the camera preview
-      // and the Go-Live button into view. rAF lets the .live layout settle first.
-      requestAnimationFrame(() => {
-        $("cameraCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
       $("camError").hidden = true;
       $("captureBtn").disabled = false;
       return true;
@@ -1279,6 +1306,94 @@ async function startCamera() {
 
   try { return await cameraStartPromise; }
   finally { cameraStartPromise = null; }
+}
+
+/* Flip between the front ("user") and rear ("environment") camera. Stops ALL current
+   preview tracks before requesting the new device so single-camera machines don't
+   throw "device in use". Disabled while a billed session is live — we never swap the
+   camera mid-generation, so the Decart throttler/connect are left completely untouched. */
+async function flipCamera() {
+  if (isLive()) return;                        // never flip during a billed session
+  const btn = $("flipCamBtn");
+  if (btn && btn.disabled) return;             // ignore double-taps while a switch is in flight
+  const next = cameraFacing === "user" ? "environment" : "user";
+  if (btn) btn.disabled = true;
+  try {
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());   // release the device first
+      localStream = null;
+    }
+    // Keep .live on (the pear loader covers the card) so the placeholder doesn't flash.
+    $("captureBtn").disabled = true;
+    const ok = await startCamera(next);
+    if (!ok) await startCamera(next === "user" ? "environment" : "user");  // roll back if the new camera fails
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* Rotate handling — when the device flips between portrait and landscape, re-request the
+   PREVIEW stream so its capture aspect follows the new orientation (no stretch on rotate).
+   Guards: only when the camera is open, never during a billed session (would break the
+   Decart stream), and never mid-flip. The localStream-null check keeps the two listeners
+   (matchMedia + orientationchange) idempotent for a single rotation. Fires only on a real
+   portrait↔landscape flip, so it ignores plain resizes (mobile URL-bar show/hide). */
+function reinitCameraForOrientation() {
+  if (!localStream) return;                 // camera not open — nothing to re-init
+  if (isLive()) return;                     // never swap the stream mid-generation
+  if ($("flipCamBtn")?.disabled) return;    // a flip is already switching cameras
+  const facing = cameraFacing;
+  localStream.getTracks().forEach((t) => t.stop());
+  localStream = null;
+  startCamera(facing);                       // re-open with orientation-matched constraints
+}
+
+/* Smoothly bring the camera stage into a comfortable reading position after the user
+   opens the camera — replaces the old `cameraCard.scrollIntoView({ block: "start" })`,
+   which glued the card to the very top edge (and on mobile, partly UNDER the sticky
+   header) and over-scrolled past the Go-Live button below it.
+
+   Uses getBoundingClientRect() + window.scrollTo() instead of scrollIntoView so we can
+   compute an exact offset rather than a hardcoded edge alignment, and can additionally
+   check where the "Start Virtual Measurement" button (#captureBtn) lands and adjust.
+
+   Two constraints, both measured live (no hardcoded pixel guesses):
+     A) the camera top should sit just below whatever sticky chrome is on screen right
+        now (the mobile sticky .app-header, or .focus-bar in a focused/deep-link entry)
+        plus a bit of breathing room — the "offset" this fix introduces.
+     B) the Go-Live button's bottom edge should stay above the viewport's bottom edge.
+   When both fit on screen (the common case), (A) alone already satisfies (B), so the
+   camera top lands just under the header exactly as requested. On a very short
+   viewport where the two can't both fit, we favour (B) — showing the actionable
+   button — over glueing the camera to the exact offset. */
+function scrollToCamera() {
+  const stage = $("cameraCard");
+  if (!stage) return;
+  const cta = $("captureBtn");
+
+  // Whichever sticky bar is actually rendered right now (only one ever is: the mobile
+  // sticky .app-header, or .focus-bar for a focused/deep-link product entry) reserves
+  // real space at the viewport top, so the camera must not scroll to underneath it.
+  const stickyBar = [document.querySelector(".focus-bar"), document.querySelector(".app-header")]
+    .find((el) => el && !el.hidden && getComputedStyle(el).position === "sticky");
+  const stickyH = stickyBar ? stickyBar.getBoundingClientRect().height : 0;
+
+  const BREATHING_ROOM = 56;   // px of air below the sticky chrome — the comfortable offset
+  const BOTTOM_PAD     = 24;   // px of air above the viewport's bottom edge for the button
+  const topOffset = stickyH + BREATHING_ROOM;
+
+  const stageRect = stage.getBoundingClientRect();
+  const scrollA = window.scrollY + stageRect.top - topOffset;          // (A) camera top → offset
+
+  let target = scrollA;
+  if (cta) {
+    const ctaRect = cta.getBoundingClientRect();
+    const scrollB = window.scrollY + ctaRect.bottom - window.innerHeight + BOTTOM_PAD;  // (B) button bottom → on-screen
+    target = Math.max(scrollA, scrollB);   // whichever needs MORE scroll wins — see constraints above
+  }
+
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo({ top: Math.max(0, Math.min(target, maxScroll)), behavior: "smooth" });
 }
 
 function showCamError(msg) {
@@ -4122,7 +4237,14 @@ function recommendFor(item) {
   const lum = (hex) => { const f = parseInt(hex.slice(1), 16); return (0.299 * (f >> 16) + 0.587 * ((f >> 8) & 255) + 0.114 * (f & 255)) / 255; };
   const base = lum(item.color);
   return PEAR_CATALOG
-    .filter((x) => x.type === want && x.id !== item.id)
+    // STRICT catalog match — a recommendation must be:
+    //   • the complementary category (shirt ⇄ pants),
+    //   • a DIFFERENT product than the one being worn,
+    //   • a real, purchasable item with a valid front image, and
+    //   • not blocked/incomplete — itemBlockReason() is the same gate as go-live, so
+    //     the Gatekeeper "Incomplete Test" entry (id 99) and any item missing required
+    //     imagery are never suggested. Nothing fictional or unavailable can slip in.
+    .filter((x) => x.type === want && x.id !== item.id && !!x.img && !itemBlockReason(x))
     .map((x) => ({ x, score: Math.abs(lum(x.color) - base) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 4)
@@ -4131,6 +4253,16 @@ function recommendFor(item) {
 
 function renderCompleteTheLook(item) {
   const recs = recommendFor(item);
+  // Conditional render (requirement 3): when the catalog has NO real complementary
+  // product, hide the whole section — never an empty shell, placeholder, or the wrong
+  // category. This function owns #completeLook's visibility (see enterRoom).
+  const section = $("completeLook");
+  if (!recs.length) {
+    $("clTrack").innerHTML = "";
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
   const he = item.garmentType === "lower_body" ? "חולצות שמשלימות את המכנסיים" : "מכנסיים שמשלימים את החולצה";
   $("clSub").textContent = he + " · Complete the Look";
   $("clTrack").innerHTML = recs.map((r, i) => `
@@ -5422,8 +5554,20 @@ function init() {
   $("btn-next-screen").addEventListener("click", goToFitting);
   $("btn-back").addEventListener("click", backToCalculator);
 
-  $("startCamBtn").addEventListener("click", () => startCamera());
+  // Explicit open only — startCamera() is also called from flipCamera() and
+  // reinitCameraForOrientation(), where the page shouldn't jump since the user is
+  // already looking at the camera. rAF lets the newly-.live layout (card grows,
+  // Go-Live button enables) settle before we measure it.
+  $("startCamBtn").addEventListener("click", () => {
+    startCamera().then((ok) => { if (ok) requestAnimationFrame(scrollToCamera); });
+  });
+  $("flipCamBtn")?.addEventListener("click", () => flipCamera());
   $("captureBtn").addEventListener("click", onLiveToggle);
+
+  // Re-fit the preview camera to the device's orientation on rotate. matchMedia fires
+  // exactly on a portrait↔landscape flip; orientationchange is a legacy fallback.
+  window.matchMedia("(orientation: portrait)").addEventListener?.("change", reinitCameraForOrientation);
+  window.addEventListener("orientationchange", reinitCameraForOrientation);
   $("retakeBtn").addEventListener("click", onRetake);
 
   // Colour swatches — delegated over the (dynamically rebuilt) bubbles so one listener

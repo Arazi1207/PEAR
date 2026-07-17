@@ -1212,9 +1212,16 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 /* staggered liquid entry — the size box first, the Continue button just after */
 #btn-next-screen {
   opacity: 0; transform: translateY(12px) scale(.98);
+  /* This ID selector outranks .btn-primary's `transition: all .4s var(--ease)` for the
+     WHOLE `transition` property (ID beats class — the cascade doesn't merge the two
+     lists, it replaces one with the other). `color` was missing from this list, so the
+     text colour (grey ↔ pear-green on disabled/enabled) snapped instantly while the
+     pill's background/border/glow eased in — a jarring, out-of-sync flash on the exact
+     moment the button becomes clickable. Included here to keep every property in sync. */
   transition: opacity .6s cubic-bezier(.25, 1, .5, 1),
               transform .6s cubic-bezier(.25, 1, .5, 1),
-              background .4s var(--ease), border-color .4s var(--ease), box-shadow .4s var(--ease);
+              background .4s var(--ease), border-color .4s var(--ease),
+              box-shadow .4s var(--ease), color .4s var(--ease);
   transition-delay: .18s;
 }
 #btn-next-screen:not(:disabled) { opacity: 1; transform: none; }
@@ -2518,3 +2525,40 @@ body.gd-open { overflow: hidden; }
   .app-header__nav,
   .app-header__actions { flex: 0 1 auto; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ CAMERA — flip control · front-only mirror · orientation-adaptive stage
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Flip front/rear — floating glass icon pinned to the free (inline-end) corner,
+   opposite the LIVE badge and the swatch rail. Shown only in the live preview;
+   hidden the moment a billed session / result / clip takes over the stage. */
+.camera-card__flip {
+  position: absolute; top: 14px; inset-inline-end: 14px; z-index: 7;
+  display: none; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,.85);
+  -webkit-backdrop-filter: blur(10px) saturate(160%); backdrop-filter: blur(10px) saturate(160%);
+  color: var(--ink); cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.6);
+  transition: transform .35s var(--ease), background .3s var(--ease), box-shadow .3s var(--ease);
+}
+.camera-card.live .camera-card__flip { display: inline-flex; }
+.camera-card.show-live  .camera-card__flip,
+.camera-card.show-result .camera-card__flip,
+.camera-card.show-clip  .camera-card__flip { display: none; }
+.camera-card__flip:hover { transform: rotate(-20deg); background: #fff; box-shadow: var(--shadow); }
+.camera-card__flip:active { transform: scale(.9) rotate(-180deg); }
+.camera-card__flip:focus-visible { outline: 2px solid var(--pear); outline-offset: 2px; }
+.camera-card__flip[disabled] { opacity: .5; cursor: default; }
+
+/* Selfie mirror is for the FRONT camera only. On the rear ("environment") camera the
+   preview must read true so background text isn't reversed. (JS sets data-facing.) */
+.camera-card[data-facing="environment"] #webcam { transform: none; }
+
+/* Orientation-adaptive stage (display only — Decart still receives 512×288). Once the
+   real stream reports its shape, the card follows it so the preview isn't over-cropped:
+   portrait on a phone held upright, wider when the feed is landscape. */
+.camera-card[data-orientation="portrait"]  { aspect-ratio: 3 / 4; }
+.camera-card[data-orientation="landscape"] { aspect-ratio: 4 / 3; }
