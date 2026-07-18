@@ -3704,7 +3704,7 @@ function stopLive() {
   teardown();                          // rtClient.disconnect() → billing stops now (also hides #aiVideo)
   card().classList.remove("show-live");
   if (frozen) card().classList.add("show-result");   // surface the frozen snapshot as the final result
-  setLiveControls(false);
+  setLiveControls(false);              // reset the button back to "Go Live" so a new session can start
   $("captureBtn").disabled = !localStream;
 }
 
@@ -5598,7 +5598,7 @@ function replayFitLive(it) {
    result, then return to the live-camera standby. */
 function onRetake() {
   if (isLive()) {
-    stopLive();   // saves + locks as usual (see stopLive)
+    stopLive();   // saves, then resets the button — see stopLive
   } else if (isDemoLocked()) {
     toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!");
     return;
@@ -5613,7 +5613,7 @@ function init() {
   // One-time public demo — strict check BEFORE anything else runs: no camera
   // wiring, no identity gate, no size-form listeners, nothing. A returning
   // visitor who already completed their demo measurement sees only the
-  // locked screen.
+  // locked screen. (No-op outside DEMO_MODE — see isDemoLocked().)
   if (isDemoLocked()) {
     demoLocked = true;
     showDemoLockedScreen();

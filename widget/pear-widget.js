@@ -52,8 +52,15 @@
 (function (w, d) {
   "use strict";
 
-  /* Re-embed guard — a page that includes the script twice gets one widget. */
-  if (w.__pearWidgetLoaded) return;
+  /* Re-embed guard — a page that includes the script twice (or a store re-runs it
+     on purpose, e.g. after an SPA navigation swaps the DOM) reinjects rather than
+     silently no-oping: __pearReinject clears the idempotency stamps and re-scans
+     the page so buttons come back instead of staying gone for the rest of the
+     script's lifetime. */
+  if (w.__pearWidgetLoaded) {
+    w.__pearReinject && w.__pearReinject();
+    return;
+  }
   w.__pearWidgetLoaded = true;
 
   /* ── configuration ──────────────────────────────────────────────────────── */
@@ -866,6 +873,17 @@
       injectFallbackButton();
     }
   }
+
+  /* Global re-inject hook — invoked by the re-embed guard at the top of the IIFE
+     when the widget script runs a second time on the same page. Clears the
+     idempotency stamp so injectAllButtons() treats every Add-to-Cart button as
+     unseen and reattaches a PEAR button next to it. */
+  w.__pearReinject = function () {
+    d.querySelectorAll("[data-pear-injected]").forEach(function (el) {
+      el.removeAttribute("data-pear-injected");
+    });
+    injectAllButtons();
+  };
 
   /* Fitting room (PEAR_BASE, a different origin) posts this the instant a visitor's
      FIRST look is saved, so every trigger button on this page locks immediately —
