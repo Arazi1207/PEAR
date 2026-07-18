@@ -765,7 +765,6 @@ function toItem(raw) {
  * instead, whose .skipProfileSave is undefined → falsy → the normal save path.
  */
 function goToFitting(opts) {
-  if (isDemoLocked()) { showDemoLockedScreen(); return; }
   const skipProfileSave = !!(opts && opts.skipProfileSave);
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
@@ -1263,11 +1262,6 @@ function buildVideoConstraints(facing) {
 }
 
 async function startCamera(facing = cameraFacing) {
-  if (isDemoLocked()) {
-    toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!");
-    showDemoLockedScreen();
-    return false;
-  }
   if (localStream) return true;
   if (cameraStartPromise) return cameraStartPromise;   // a request is already in flight
 
@@ -3041,58 +3035,6 @@ function newUuid() {
 }
 
 /* =============================================================================
-   ONE-TIME PUBLIC DEMO LOCK
-   -----------------------------------------------------------------------------
-   This public demo permits exactly one virtual measurement per browser. The
-   FIRST completed try-on (a look actually saved to the gallery — see
-   lockDemoAfterFirstMeasurement, called from stopLive()/beginFreezeHold())
-   sets 'pear_demo_measured' in localStorage. Every entry point that can start
-   a camera stream, recompute a size, or re-enter the fitting room checks it
-   first (init(), goToFitting(), startCamera(), onRetake(), replayFitLive()).
-
-   This iframe and the host page's "מדוד וירטואלית" trigger button
-   (widget/pear-widget.js) run on DIFFERENT origins, so they each have their
-   OWN localStorage — postMessage is the only channel between them. We notify
-   the parent the instant the lock is set so the outer button locks too,
-   without the host page needing a reload.
-   ============================================================================= */
-const PEAR_DEMO_LOCK_KEY = "pear_demo_measured";
-let demoLocked = false;
-
-function isDemoLocked() {
-  try { return localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch { return demoLocked; }
-}
-
-function notifyParentDemoLocked() {
-  try {
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ source: "pear-fitting-room", type: "pear-demo-measured" }, "*");
-    }
-  } catch {}
-}
-
-/* Full-screen takeover — replaces Screen 1/2 entirely. Used both on load for a
-   returning (already-locked) visitor and by every "tried to restart" guard. */
-function showDemoLockedScreen() {
-  $("screen-calculator")?.classList.remove("active");
-  $("screen-fitting")?.classList.remove("active");
-  $("screen-locked")?.classList.add("active");
-}
-
-/* Called once, right after the FIRST look is successfully saved to the
-   gallery. Persists the lock and flips in-memory state so every guard below
-   takes effect immediately — but does NOT navigate away from the result the
-   user is currently looking at; that would yank away the try-on they just
-   finished. The lock only blocks the NEXT attempt (reload, retake, edit
-   measurements, …). */
-function lockDemoAfterFirstMeasurement() {
-  if (demoLocked) return;
-  demoLocked = true;
-  try { localStorage.setItem(PEAR_DEMO_LOCK_KEY, "true"); } catch {}
-  notifyParentDemoLocked();
-}
-
-/* =============================================================================
    CACHED BODY PROFILE (height + weight)
    -----------------------------------------------------------------------------
    The name/phone identity gate above is skipped for returning visitors, but the
@@ -3675,14 +3617,13 @@ function stopLive() {
       const size = activeTryOnSize || currentUserSize || "—";
       lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                    activeItem && activeItem.id);
-      if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
     }
   } catch (_) {}
 
   teardown();                          // rtClient.disconnect() → billing stops now (also hides #aiVideo)
   card().classList.remove("show-live");
   if (frozen) card().classList.add("show-result");   // surface the frozen snapshot as the final result
-  setLiveControls(false);
+  setLiveControls(false);              // reset the button back to "Go Live" so a new session can start
   $("captureBtn").disabled = !localStream;
 }
 
@@ -3705,7 +3646,6 @@ function beginFreezeHold() {
     const size = activeTryOnSize || currentUserSize || "—";
     lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                  activeItem && activeItem.id);
-    if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
   } catch (_) {}
 
   // 3) Kill Decart billing immediately (tokens stop at LIVE_DURATION_MS) — but leave
@@ -5560,7 +5500,6 @@ function openFitLightbox(idx) {
 /* "Try again live" — restore the exact garment this fit was captured with (when
    still in the catalog) and open a fresh, optimized 5-second live session. */
 function replayFitLive(it) {
-  if (isDemoLocked()) { toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!"); return; }
   if (isLive()) { toast("עצור מדידה חיה כדי להתחיל מחדש"); return; }
   if (it && it.itemId != null) {
     const p = PEAR_CATALOG.find((x) => x.id === it.itemId);
@@ -5576,10 +5515,7 @@ function replayFitLive(it) {
    result, then return to the live-camera standby. */
 function onRetake() {
   if (isLive()) {
-    stopLive();   // saves + locks as usual (see stopLive)
-  } else if (isDemoLocked()) {
-    toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!");
-    return;
+    stopLive();   // saves, then resets the button — see stopLive
   } else {
     resetToLive();
   }
@@ -5588,16 +5524,6 @@ function onRetake() {
 }
 
 function init() {
-  // One-time public demo — strict check BEFORE anything else runs: no camera
-  // wiring, no identity gate, no size-form listeners, nothing. A returning
-  // visitor who already completed their demo measurement sees only the
-  // locked screen.
-  if (isDemoLocked()) {
-    demoLocked = true;
-    showDemoLockedScreen();
-    return;
-  }
-
   injectReplayStyles();
   updateProgress();
 
@@ -5639,7 +5565,6 @@ function init() {
   // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
   // entirely, so it may never have been revealed; this brings it up pre-filled.
   $("btn-edit-measurements")?.addEventListener("click", () => {
-    if (isDemoLocked()) { showDemoLockedScreen(); return; }
     backToCalculator();
     showSizeForm();
   });
