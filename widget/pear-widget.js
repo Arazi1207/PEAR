@@ -120,7 +120,19 @@
     ".thumbnails img",
     "[data-thumbnail] img",
     ".slick-slide img",
-    ".swiper-slide img"
+    ".swiper-slide img",
+    // Shopify gallery variants seen on fox.co.il and similar themes — the
+    // plain ".product__media-list img"/.slick-slide selectors above miss
+    // these markup shapes (media wrapped in <li> or gated by data attrs
+    // instead of a list container, or images identified only by their CDN
+    // URL rather than any surrounding class).
+    '[data-media-type="image"] img',
+    '.product__media img',
+    '.product-single__media img',
+    'li.product__media-item img',
+    '[data-product-media-type-image] img',
+    '.slick-slide img[src*="cdn.shopify"]',
+    'img[src*="cdn.shopify.com/s/files"]'
   ].join(", ");
 
   /* Known single-product gallery containers — checked BEFORE the ancestor
@@ -309,6 +321,8 @@
       if (!el || el.tagName !== "IMG") continue;
       add(el.currentSrc || el.src || "");
     }
+    var candidates = urls;
+    console.log('[PEAR] Gallery candidates found:', candidates.length, candidates.map(c => c.src || c));
     return urls;
   }
 
@@ -729,10 +743,12 @@
     var primaryUrl = resolvePrimaryProductImage();
     if (primaryUrl) {
       var pgName = getGarmentName();
+      var pgImages = collectGalleryImages(primaryUrl, d);
+      console.log('[PEAR] All images for this product:', pgImages);
       return {
         url: primaryUrl,
         back: findGalleryBack(primaryUrl, d),
-        images: collectGalleryImages(primaryUrl, d),
+        images: pgImages,
         name: pgName,
         category: detectCategory(pgName)
       };
@@ -747,10 +763,12 @@
         var url = explicitAttr(img, "data-pear-front") || (img.currentSrc || img.src) || "";
         if (url && !isExcludedSrc(url)) {
           var name = cardNameFor(node, img);
+          var cardImages = collectGalleryImages(url, node);
+          console.log('[PEAR] All images for this product:', cardImages);
           return {
             url: url,
             back: explicitAttr(img, "data-pear-back") || findGalleryBack(url, node),
-            images: collectGalleryImages(url, node),
+            images: cardImages,
             name: name,
             category: detectCategory(name)
           };
@@ -762,9 +780,11 @@
     var primary = findProductImages()[0];
     if (primary && primary.url) {
       var pname = getGarmentName();
+      var fallbackImages = collectGalleryImages(primary.url, d);
+      console.log('[PEAR] All images for this product:', fallbackImages);
       return {
         url: primary.url, back: primary.back,
-        images: collectGalleryImages(primary.url, d),
+        images: fallbackImages,
         name: pname, category: detectCategory(pname)
       };
     }
