@@ -29,16 +29,15 @@
         <h1> when the page has no cart button). A MutationObserver re-runs the
         injection as products load in (infinite scroll, tab/filter switches),
         and each cart button is stamped data-pear-injected so it's never doubled.
-     3. On click, classifies the full gallery via the PEAR server first (so every
-        visit contributes to the server's front/back cache), then opens a
-        fullscreen modal with the PEAR fitting room in an iframe — straight away
-        for a single-image product, or via a front/back picker popup for a
-        multi-photo one — handing over the garment via URL params
-        (garment_url / garment_type / garment_name), plus an OPTIONAL
-        garment_url_back so the live Back view warps from a real rear photo
-        instead of a prompt-steered guess off the front image, and an OPTIONAL
-        garment_images list (all gallery photos) that powers a thumbnail switcher
-        above the camera in the fitting room.
+     3. On click, classifies the full gallery via the PEAR server (so every visit
+        contributes to the server's front/back cache), sorts the images front-
+        first/back-second, then immediately opens a fullscreen modal with the
+        PEAR fitting room in an iframe — no picker popup — handing over the
+        garment via URL params (garment_url / garment_type / garment_name),
+        plus garment_url_back so the live Back view warps from a real rear photo
+        instead of a prompt-steered guess off the front image, and a
+        garment_images list (all gallery photos, front-sorted) that powers a
+        thumbnail switcher above the camera in the fitting room.
 
    Back-image discovery (opt-in, best-effort): an explicit data-pear-back on the
    product <img> or its container wins; otherwise the widget falls back to the
@@ -396,31 +395,7 @@
         "font-size:20px;border:none;cursor:pointer;line-height:40px;" +
         "padding:0;text-align:center;" +
       "}" +
-      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}" +
-      /* Image-picker popup — floats above the PEAR button (its offset parent) when the
-         page has 2+ product photos, so the shopper picks which photo(s) to try on. */
-      ".pear-widget-popup{" +
-        "position:absolute;bottom:calc(100% + 8px);right:0;" +
-        "background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px;" +
-        "box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:999999;" +
-        "display:flex;flex-direction:column;gap:8px;min-width:160px;" +
-        "font-family:inherit;text-transform:none;letter-spacing:normal;" +
-      "}" +
-      ".pear-widget-popup__title{font-size:12px;color:#666;margin-bottom:4px;font-weight:600;}" +
-      ".pear-widget-popup__row{" +
-        "display:flex;align-items:center;gap:8px;cursor:pointer;" +
-        "padding:4px;border-radius:6px;transition:background 0.15s;" +
-      "}" +
-      ".pear-widget-popup__row:hover{background:#f5f5f5;}" +
-      ".pear-widget-popup__thumb{" +
-        "width:48px;height:48px;object-fit:cover;border-radius:6px;flex:0 0 auto;display:block;" +
-      "}" +
-      ".pear-widget-popup__label{font-size:13px;color:#222;font-weight:500;}" +
-      ".pear-widget-popup__both{" +
-        "margin-top:4px;padding:9px 12px;background:#000;color:#fff;border-radius:6px;" +
-        "font-size:13px;font-weight:600;text-align:center;cursor:pointer;" +
-      "}" +
-      ".pear-widget-popup__both:hover{background:#222;}";
+      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}";
     var style = d.createElement("style");
     style.className = "pear-widget-styles";
     style.textContent = css;
@@ -465,11 +440,11 @@
     return { front: front || urls[0], back: back || urls[1] || undefined };
   }
 
-  /* Re-order the gallery so the popup's rows read front-first, back-second — the
-     positional imageLabel() below assumes index 0/1 are front/back, which only
-     holds once the classifier's results are folded in (raw DOM order is not
-     reliable). Anything the classifier didn't call front/back keeps its
-     relative order after those two. */
+  /* Re-order the gallery so front images lead and back images follow — the
+     fitting room's garment_url/garment_url_back and thumbnail switcher assume
+     index 0/1 are front/back, which only holds once the classifier's results
+     are folded in (raw DOM order is not reliable). Anything the classifier
+     didn't call front/back keeps its relative order after those two. */
   function sortByFrontBack(urls, results) {
     var front = [], back = [], other = [];
     for (var i = 0; i < urls.length; i++) {
@@ -556,105 +531,6 @@
     overlay.appendChild(close);
     d.body.appendChild(overlay);
     activeOverlay = overlay;
-  }
-
-  /* ── Image-picker popup (only when the page has 2+ product photos) ───────────
-     Instead of opening the modal straight away, the PEAR button first opens this
-     small popup ABOVE itself: tap one photo to try on just that image, or
-     "נסה חזית + גב" to hand the whole gallery to the fitting room's thumbnail
-     switcher. A click anywhere outside closes it with no modal. It is anchored as an
-     absolutely-positioned child of the PEAR button (its offset parent). A single-photo
-     page skips this entirely and opens the modal directly (see makePearButton). */
-  var activePopup = null;
-  var popupDocHandler = null;
-
-  function closePopup() {
-    if (activePopup && activePopup.parentNode) activePopup.parentNode.removeChild(activePopup);
-    activePopup = null;
-    if (popupDocHandler) { d.removeEventListener("click", popupDocHandler, true); popupDocHandler = null; }
-  }
-
-  /* Gallery-position label, matched to the fitting room's switcher: 1=front, 2=back. */
-  function imageLabel(i) {
-    return i === 0 ? "חזית" : i === 1 ? "גב" : "תמונה " + (i + 1);
-  }
-
-  function showImagePopup(pearBtn, garment, images, picked) {
-    closePopup();                            // never stack two popups
-    injectStyles();
-    pearBtn.style.position = "relative";     // become the popup's offset parent
-
-    var pop = d.createElement("div");
-    pop.className = "pear-widget-popup";
-
-    var title = d.createElement("div");
-    title.className = "pear-widget-popup__title";
-    title.textContent = "בחר תמונה לניסיון";
-    pop.appendChild(title);
-
-    /* Already classified (front-sorted) by the caller — see the PEAR button's
-       click handler, which calls /api/classify-images before ever showing this
-       popup, so no classify call happens in here anymore. */
-    var imgs = images || garment.images || [];
-    imgs.forEach(function (url, i) {
-      var row = d.createElement("div");
-      row.className = "pear-widget-popup__row";
-      row.setAttribute("role", "button");
-      row.tabIndex = 0;
-
-      var thumb = d.createElement("img");
-      thumb.className = "pear-widget-popup__thumb";
-      thumb.src = url;
-      thumb.alt = "";
-      thumb.loading = "lazy";
-
-      var label = d.createElement("span");
-      label.className = "pear-widget-popup__label";
-      label.textContent = imageLabel(i);
-
-      row.appendChild(thumb);
-      row.appendChild(label);
-      row.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();               // don't bubble to the PEAR button's own handler
-        closePopup();
-        /* Only this photo → single-image try-on (no switcher in the fitting room). */
-        openModal({ url: url, type: garment.category, name: garment.name, images: [url] });
-      });
-      pop.appendChild(row);
-    });
-
-    /* "Try front + back" — front/back is already resolved (the caller classified
-       the whole gallery before this popup ever opened), so just hand the WHOLE
-       gallery to the fitting room's switcher with those two photos as the start. */
-    if (imgs.length >= 2) {
-      var resolved = picked || resolveFrontBack(imgs, []);
-      var both = d.createElement("div");
-      both.className = "pear-widget-popup__both";
-      both.setAttribute("role", "button");
-      both.tabIndex = 0;
-      both.textContent = "נסה חזית + גב";
-      both.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        closePopup();
-        openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: imgs });
-      });
-      pop.appendChild(both);
-    }
-
-    /* Swallow clicks on popup chrome (title/padding) so they don't reach the button. */
-    pop.addEventListener("click", function (e) { e.stopPropagation(); });
-
-    pearBtn.appendChild(pop);
-    activePopup = pop;
-
-    /* Any click outside the button (the popup lives inside it) closes the popup with no
-       modal. Added next tick so the click that OPENED it doesn't immediately close it. */
-    popupDocHandler = function (e) {
-      if (!pearBtn.contains(e.target)) closePopup();
-    };
-    w.setTimeout(function () { d.addEventListener("click", popupDocHandler, true); }, 0);
   }
 
   /* ── STEP 2 — locate the store's Add-to-Cart button(s) ───────────────────────
@@ -894,33 +770,22 @@
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
 
-        /* Always classify the full gallery up front — even a single-image product —
-           so every visit contributes to the Supabase cache, not just the ones where
-           the shopper happens to land on a page with 2+ photos and taps "try front +
-           back". The result then decides: one image → straight into the fitting
-           room; 2+ → front/back-sorted picker popup. */
+        /* Classify the full gallery, sort front-first/back-second, then open the
+           fitting room immediately with everything — no picker popup. */
         var imgs = (garment.images && garment.images.length) ? garment.images : [garment.url];
         var originalText = btn.textContent;
         btn.textContent = "מזהה בגד...";
         classifyImages(imgs).then(function (results) {
+          console.log('[PEAR] Saving to cache:', imgs, results);
           btn.textContent = originalText;
-          if (imgs.length <= 1) {
-            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
-            return;
-          }
           var sorted = sortByFrontBack(imgs, results);
-          var picked = resolveFrontBack(imgs, results);
-          showImagePopup(btn, garment, sorted, picked);
+          var resolved = resolveFrontBack(imgs, results);
+          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted });
         }).catch(function (err) {
           console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
           btn.textContent = originalText;
-          if (imgs.length <= 1) {
-            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
-          } else {
-            showImagePopup(btn, garment, imgs, { front: imgs[0], back: imgs[1] });
-          }
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs });
         });
       });
     }
