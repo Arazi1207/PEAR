@@ -88,30 +88,6 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
-  /* ── one-time public demo lock ────────────────────────────────────────────
-     This host page and the fitting-room iframe (PEAR_BASE, a DIFFERENT origin)
-     each have their OWN localStorage, so they can't share this flag directly.
-     The fitting room sets its own copy the instant a first look is saved and
-     posts a message here so every trigger button on THIS page locks too,
-     with no reload — see the "message" listener near the bottom of this file. */
-  var PEAR_DEMO_LOCK_KEY = "pear_demo_measured";
-  var injectedButtons = [];
-
-  function isDemoLocked() {
-    try { return w.localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch (_) { return false; }
-  }
-  function setDemoLocked() {
-    try { w.localStorage.setItem(PEAR_DEMO_LOCK_KEY, "true"); } catch (_) {}
-  }
-  function lockButton(btn) {
-    btn.disabled = true;
-    btn.setAttribute("aria-disabled", "true");
-    btn.textContent = isHebrewPage() ? "כבר ביצעת מדידה" : "Already Measured";
-  }
-  function lockAllButtons() {
-    for (var i = 0; i < injectedButtons.length; i++) lockButton(injectedButtons[i]);
-  }
-
   /* Garment-category keyword map (scanned against product name + page title). */
   var CATEGORY_KEYWORDS = {
     shirt: ["חולצה", "טישרט", "גופייה", "shirt", "tee", "top",
@@ -765,46 +741,38 @@
     btn.className = "pear-widget-btn";
     btn.type = "button";
     btn.textContent = getButtonText();
-    if (isDemoLocked()) {
-      /* Locked from a previous visit on this browser+origin — render disabled from
-         the start; a genuinely disabled <button> never dispatches click events, so
-         no extra guard is needed inside the handler below. */
-      lockButton(btn);
-    } else {
-      btn.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
 
-        /* Always classify the full gallery up front — even a single-image product —
-           so every visit contributes to the Supabase cache, not just the ones where
-           the shopper happens to land on a page with 2+ photos and taps "try front +
-           back". The result then decides: one image → straight into the fitting
-           room; 2+ → front/back-sorted picker popup. */
-        var imgs = (garment.images && garment.images.length) ? garment.images : [garment.url];
-        var originalText = btn.textContent;
-        btn.textContent = "מזהה בגד...";
-        classifyImages(imgs).then(function (results) {
-          btn.textContent = originalText;
-          if (imgs.length <= 1) {
-            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
-            return;
-          }
-          var sorted = sortByFrontBack(imgs, results);
-          var picked = resolveFrontBack(imgs, results);
-          showImagePopup(btn, garment, sorted, picked);
-        }).catch(function (err) {
-          console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
-          btn.textContent = originalText;
-          if (imgs.length <= 1) {
-            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
-          } else {
-            showImagePopup(btn, garment, imgs, { front: imgs[0], back: imgs[1] });
-          }
-        });
+      /* Always classify the full gallery up front — even a single-image product —
+         so every visit contributes to the Supabase cache, not just the ones where
+         the shopper happens to land on a page with 2+ photos and taps "try front +
+         back". The result then decides: one image → straight into the fitting
+         room; 2+ → front/back-sorted picker popup. */
+      var imgs = (garment.images && garment.images.length) ? garment.images : [garment.url];
+      var originalText = btn.textContent;
+      btn.textContent = "מזהה בגד...";
+      classifyImages(imgs).then(function (results) {
+        btn.textContent = originalText;
+        if (imgs.length <= 1) {
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+          return;
+        }
+        var sorted = sortByFrontBack(imgs, results);
+        var picked = resolveFrontBack(imgs, results);
+        showImagePopup(btn, garment, sorted, picked);
+      }).catch(function (err) {
+        console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
+        btn.textContent = originalText;
+        if (imgs.length <= 1) {
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+        } else {
+          showImagePopup(btn, garment, imgs, { front: imgs[0], back: imgs[1] });
+        }
       });
-    }
-    injectedButtons.push(btn);
+    });
     return btn;
   }
 
@@ -866,17 +834,6 @@
     });
     injectAllButtons();
   };
-
-  /* Fitting room (PEAR_BASE, a different origin) posts this the instant a visitor's
-     FIRST look is saved, so every trigger button on this page locks immediately —
-     no reload, no polling. Origin-checked against the same base the iframe itself
-     was opened from, so only the actual PEAR fitting room can trigger this. */
-  w.addEventListener("message", function (e) {
-    if (e.origin !== PEAR_BASE) return;
-    if (!e.data || e.data.source !== "pear-fitting-room" || e.data.type !== "pear-demo-measured") return;
-    setDemoLocked();
-    lockAllButtons();
-  });
 
   /* ── boot ───────────────────────────────────────────────────────────────── */
   /* Coalesce bursts of DOM mutations into a single injection pass per frame. */
