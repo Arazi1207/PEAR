@@ -153,11 +153,28 @@ const isOriginAllowed = (origin, reqHost) => {
   return false;
 };
 
+/* /api/classify-images is called cross-origin FROM the third-party store's own
+   domain (fox.co.il, etc.) by widget/pear-widget.js's classifyImages() — by
+   design that call must succeed from ANY storefront, unlike the rest of /api
+   which is deliberately locked to our own storefront via DECART_ALLOWED_ORIGINS.
+   When ORIGINS_LOCKED is on and the store's origin isn't allowlisted, the
+   origin-lock below used to reject it — both the OPTIONS preflight (403, via
+   `allowed ? 204 : 403`) and the real POST (403 with ACAO: "null") — which the
+   browser surfaces as a CORS failure (ERR_FAILED) exactly as reported. This is
+   the ONLY origin-lock bypass; every other /api route keeps the existing
+   DECART_ALLOWED_ORIGINS enforcement below, completely untouched. */
+const PUBLIC_API_PATHS = new Set(["/classify-images"]);   // mount-relative (see app.use("/api", …) below)
+
 app.use("/api", (req, res, next) => {
   const origin = req.headers.origin || "";
-  const allowed = isOriginAllowed(origin, req.headers.host);
+  const isPublicEndpoint = PUBLIC_API_PATHS.has(req.path);
+  const allowed = isPublicEndpoint || isOriginAllowed(origin, req.headers.host);
 
-  if (origin) res.header("Access-Control-Allow-Origin", allowed ? origin : "null");
+  if (isPublicEndpoint) {
+    res.header("Access-Control-Allow-Origin", "*");
+  } else if (origin) {
+    res.header("Access-Control-Allow-Origin", allowed ? origin : "null");
+  }
   res.header("Vary",                          "Origin");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -1002,6 +1019,14 @@ async function saveClassification(imageUrl, classification) {
    Gemini and written back to garment_cache. A single image's classification failure
    falls back to "front" rather than failing the whole batch. */
 app.post("/api/classify-images", classifyLimiter, async (req, res) => {
+  // Belt-and-suspenders alongside the PUBLIC_API_PATHS bypass in the shared /api
+  // CORS middleware above (which already sets these for this path) — explicit
+  // here too so this endpoint's cross-origin behavior doesn't silently depend on
+  // that middleware never changing.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
   const images = Array.isArray(req.body?.images)
     ? req.body.images.filter((u) => typeof u === "string" && u)
     : [];
