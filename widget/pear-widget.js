@@ -77,7 +77,20 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
-  /* ── one-time public demo lock ────────────────────────────────────────────
+  /* ── demo mode — opt-in, explicit, OFF by default ─────────────────────────
+     This SAME script embeds on the main platform and on real merchant stores
+     (full registration, no measurement limit — the default, untouched
+     behavior) AND on the marketing site's own public demo widget (no
+     registration, one measurement per browser). The two must never be
+     conflated, so demo behavior only activates when the embedding page's own
+     <script> tag explicitly opts in:
+       <script src="…/pear-widget.js" data-pear-key="…" data-pear-demo="true">
+     Absent (every normal embed) → DEMO_MODE is false and nothing below in
+     this file behaves any differently than before demo mode existed. */
+  var _demoAttr = script ? script.getAttribute("data-pear-demo") : null;
+  var DEMO_MODE = _demoAttr === "true" || _demoAttr === "1";
+
+  /* ── one-time public demo lock — active ONLY when DEMO_MODE is true ──────
      This host page and the fitting-room iframe (PEAR_BASE, a DIFFERENT origin)
      each have their OWN localStorage, so they can't share this flag directly.
      The fitting room sets its own copy the instant a first look is saved and
@@ -87,6 +100,7 @@
   var injectedButtons = [];
 
   function isDemoLocked() {
+    if (!DEMO_MODE) return false;   // normal embeds: never locked
     try { return w.localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch (_) { return false; }
   }
   function setDemoLocked() {
@@ -405,7 +419,11 @@
       (garment.images && garment.images.length > 1
         ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
-      (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
+      (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "") +
+      /* Tells the fitting room to skip registration + apply the one-time lock —
+         see the "demo mode" block above. Only ever set for the marketing-site
+         embed; every other embed (main app, real merchants) omits it entirely. */
+      (DEMO_MODE ? "&pear_demo=1" : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
 
     var overlay = d.createElement("div");

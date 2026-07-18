@@ -3025,7 +3025,25 @@ function newUuid() {
 }
 
 /* =============================================================================
-   ONE-TIME PUBLIC DEMO LOCK
+   DEMO MODE — scoped to ONE specific embed, never the general product
+   -----------------------------------------------------------------------------
+   The fitting room is shared infrastructure: the SAME app.js/index.html serves
+   real merchant embeds and the main platform (full name/phone registration,
+   no measurement limit) AND the public marketing-site demo widget on
+   pear-platform.vercel.app (no registration, one measurement per browser).
+
+   The two must never be conflated, so this is opt-in and explicit — a plain
+   `?pear_demo=1` in the fitting-room URL, which ONLY widget/pear-widget.js
+   ever adds, and ONLY when its own <script> tag carries
+   data-pear-demo="true" (set on the marketing site's embed alone; every other
+   embed — the main app, any real merchant — gets full registration by
+   default, exactly as if this feature didn't exist). Nothing below this line
+   changes when DEMO_MODE is false.
+   ============================================================================= */
+const DEMO_MODE = new URLSearchParams(location.search).get("pear_demo") === "1";
+
+/* =============================================================================
+   ONE-TIME PUBLIC DEMO LOCK — active ONLY when DEMO_MODE is true
    -----------------------------------------------------------------------------
    This public demo permits exactly one virtual measurement per browser. The
    FIRST completed try-on (a look actually saved to the gallery — see
@@ -3033,6 +3051,9 @@ function newUuid() {
    sets 'pear_demo_measured' in localStorage. Every entry point that can start
    a camera stream, recompute a size, or re-enter the fitting room checks it
    first (init(), goToFitting(), startCamera(), onRetake(), replayFitLive()).
+   isDemoLocked() short-circuits to false outside DEMO_MODE, so none of those
+   guards can ever fire for the main app / a real merchant — an authenticated
+   production user can always re-measure and update their profile.
 
    This iframe and the host page's "מדוד וירטואלית" trigger button
    (widget/pear-widget.js) run on DIFFERENT origins, so they each have their
@@ -3044,6 +3065,7 @@ const PEAR_DEMO_LOCK_KEY = "pear_demo_measured";
 let demoLocked = false;
 
 function isDemoLocked() {
+  if (!DEMO_MODE) return false;   // main app / real merchant embeds: never locked
   try { return localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch { return demoLocked; }
 }
 
@@ -3070,7 +3092,7 @@ function showDemoLockedScreen() {
    finished. The lock only blocks the NEXT attempt (reload, retake, edit
    measurements, …). */
 function lockDemoAfterFirstMeasurement() {
-  if (demoLocked) return;
+  if (!DEMO_MODE || demoLocked) return;
   demoLocked = true;
   try { localStorage.setItem(PEAR_DEMO_LOCK_KEY, "true"); } catch {}
   notifyParentDemoLocked();
@@ -5601,12 +5623,15 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-  // Public demo: skip the name/phone identity gate entirely and land the visitor
-  // directly on the (required) size form — registration isn't part of this demo's
-  // flow. (Production embeds that DO want the identity gate back can restore the
-  // line below; nothing else in this file changed.)
-  //   setupIdentityGate();
-  showSizeForm();
+  // Identity gate — ALWAYS Step 0 for the main app / a real merchant embed
+  // (routing to Case A/B/C happens after submit, see setupIdentityGate). The
+  // ONE exception: DEMO_MODE (the marketing-site widget demo, see the "DEMO
+  // MODE" block above) skips straight to the size form — no registration.
+  if (DEMO_MODE) {
+    showSizeForm();
+  } else {
+    setupIdentityGate();
+  }
 
   // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
   $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
