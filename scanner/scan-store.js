@@ -186,8 +186,6 @@ async function saveClassification(imageUrl, classification) {
 
 /* ── Gemini classification ───────────────────────────────────────────────── */
 
-let geminiCallCount = 0; // caps raw-response logging to the first 5 real Gemini calls
-
 async function fetchImageAsBase64(imageUrl) {
   const resp = await fetch(imageUrl);
   if (!resp.ok) throw new Error(`image fetch failed: HTTP ${resp.status}`);
@@ -222,15 +220,13 @@ async function classifyFrontBack(imageUrl) {
       ],
     }),
   });
+  console.log('Gemini status:', resp.status);
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
-  geminiCallCount++;
-  if (geminiCallCount <= 5) {
-    console.log('Gemini raw response:', JSON.stringify(data));
-  }
+  console.log('Gemini raw:', JSON.stringify(data));
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const answer = text.trim().toLowerCase();
   return answer.includes("back") ? "back" : "front";
