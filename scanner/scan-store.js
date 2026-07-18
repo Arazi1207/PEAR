@@ -59,8 +59,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-const GEMINI_CHUNK_SIZE = 5; // images classified in parallel per batch
-const GEMINI_CHUNK_DELAY_MS = 1200; // pause between batches
+const GEMINI_RATE_LIMIT_MS = 1100; // delay between sequential Gemini calls
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
@@ -187,6 +186,8 @@ async function saveClassification(imageUrl, classification) {
 
 /* ── Gemini classification ───────────────────────────────────────────────── */
 
+let geminiCallCount = 0; // caps raw-response logging to the first 5 real Gemini calls
+
 async function fetchImageAsBase64(imageUrl) {
   const resp = await fetch(imageUrl);
   if (!resp.ok) throw new Error(`image fetch failed: HTTP ${resp.status}`);
@@ -226,33 +227,31 @@ async function classifyFrontBack(imageUrl) {
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
-  console.log('Gemini raw response:', JSON.stringify(data, null, 2));
+  geminiCallCount++;
+  if (geminiCallCount <= 5) {
+    console.log('Gemini raw response:', JSON.stringify(data));
+  }
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const answer = text.trim().toLowerCase();
   return answer.includes("back") ? "back" : "front";
 }
 
-/* Gemini's free tier is 60 requests/minute — a burst of uncached images can
-   still trip a 429 despite the batch pacing below. Wait 30s and retry, up
-   to 3 attempts total; if every attempt is rate-limited (or fails for any
-   other reason), default to "front" rather than losing the image entirely.
-   rateLimitState, when passed, is flipped so the caller can shrink the
-   parallel batch size once a 429 is seen. */
-async function classifyWithRetry(imageUrl, retries = 3, rateLimitState = null) {
+/* Gemini's free tier is 60 requests/minute — even the 1100ms inter-request
+   delay below can trip a 429 occasionally. Wait 30s and retry, up to 3
+   attempts total; if every attempt is rate-limited (or fails for any other
+   reason), default to "front" rather than losing the image entirely. */
+async function classifyWithRetry(imageUrl, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       const result = await classifyFrontBack(imageUrl);
       return result;
     } catch (e) {
-      if (e.message.includes("429")) {
-        if (rateLimitState) rateLimitState.hit = true;
-        if (i < retries - 1) {
-          console.log("Rate limited — waiting 30s...");
-          await sleep(30000);
-          continue;
-        }
+      if (e.message.includes("429") && i < retries - 1) {
+        console.log("Rate limited — waiting 30s...");
+        await sleep(30000);
+      } else {
+        return "front";
       }
-      return "front";
     }
   }
   return "front";
@@ -298,14 +297,15 @@ async function scanShopify(baseUrl) {
 
 /* ── classification tally (shared by both crawl paths) ──────────────────── */
 
-async function classifyAndTally(imageUrl, index, counters, total, rateLimitState) {
+async function classifyAndTally(imageUrl, index, counters, total) {
   try {
     let classification = await getCachedClassification(imageUrl);
     let cached = !!classification;
 
     if (!classification) {
-      classification = await classifyWithRetry(imageUrl, 3, rateLimitState);
+      classification = await classifyWithRetry(imageUrl);
       await saveClassification(imageUrl, classification);
+      await sleep(GEMINI_RATE_LIMIT_MS);
     }
 
     counters.total++;
@@ -320,31 +320,6 @@ async function classifyAndTally(imageUrl, index, counters, total, rateLimitState
 
   if (counters.total % 10 === 0) {
     console.log(`Progress: ${counters.total}/${total} images classified`);
-  }
-}
-
-/* Classify images in parallel batches rather than one request at a time —
-   each chunk runs concurrently via Promise.all, with a pause between chunks
-   to stay clear of Gemini's per-minute rate limit. If any request in a chunk
-   comes back 429, the next chunk shrinks from 5 to 3 in flight. */
-async function classifyAllImages(images, counters) {
-  let chunkSize = GEMINI_CHUNK_SIZE;
-  for (let i = 0; i < images.length; i += chunkSize) {
-    const chunk = images.slice(i, i + chunkSize);
-    const rateLimitState = { hit: false };
-
-    await Promise.all(
-      chunk.map((imageUrl, j) => classifyAndTally(imageUrl, i + j, counters, images.length, rateLimitState))
-    );
-
-    if (rateLimitState.hit && chunkSize > 3) {
-      chunkSize = 3;
-      console.log("Rate limited — reducing to 3 parallel requests");
-    }
-
-    if (i + chunk.length < images.length) {
-      await sleep(GEMINI_CHUNK_DELAY_MS);
-    }
   }
 }
 
@@ -418,7 +393,9 @@ async function main() {
   }
 
   console.log("Classifying...");
-  await classifyAllImages(images, counters);
+  for (let j = 0; j < images.length; j++) {
+    await classifyAndTally(images[j], j, counters, images.length);
+  }
 
   console.log(
     `\nDone. Total: ${counters.total} images | ${counters.front} front | ${counters.back} back | ${counters.cached} cached`
