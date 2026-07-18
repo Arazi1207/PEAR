@@ -3203,7 +3203,21 @@ function writeProfileCache(height, weight, tsMs) {
               modal instead. "Update" reveals Screen 1 pre-filled for editing;
               "Dismiss" (or backdrop/Esc) proceeds into the fitting room with the
               existing (stale) data, exactly like Case B.
+
+   Cases B and C's auto-skip only fires on the main platform (see isMainSite()
+   below) — every other embed always lands on Screen 1, pre-filled, same as Case A.
    ============================================================================= */
+/* Case B/C below can skip Screen 1 entirely and drop a returning visitor straight
+   into the fitting room with zero clicks — a convenience that only makes sense on
+   the main platform, where the visitor is fully registered. Every other embed (a
+   real merchant's site, any other domain) must always show Screen 1 first, even
+   for a known returning visitor with fresh measurements, and wait for their own
+   explicit Continue click (goToFitting() itself is untouched — that path still
+   works identically everywhere). */
+function isMainSite() {
+  return window.location.hostname === "pear-platform.vercel.app";
+}
+
 function hideAllScreen1Forms() {
   const idForm = $("identityForm"), sizeForm = $("sizeForm");
   if (idForm)   { idForm.hidden = true;   idForm.style.display = "none"; }
@@ -3219,16 +3233,24 @@ function routeAfterIdentity(data) {
     return;
   }
 
-  // Known profile with real data — Screen 1 is never shown mid-decision; we either
-  // transition straight past it (B) or the modal covers it entirely (C).
-  hideAllScreen1Forms();
-
   const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
   setIf("height", m.height); setIf("weight", m.weight);
   setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
 
   const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
   writeProfileCache(m.height, m.weight, tsMs || Date.now());
+
+  // The Case B/C auto-skip past Screen 1 is a main-platform-only shortcut (see
+  // isMainSite() above) — every other embed shows Screen 1 pre-filled instead and
+  // waits for the visitor's own Continue click, exactly like a fresh Case A visit.
+  if (!isMainSite()) {
+    showSizeForm();
+    return;
+  }
+
+  // Known profile with real data — Screen 1 is never shown mid-decision; we either
+  // transition straight past it (B) or the modal covers it entirely (C).
+  hideAllScreen1Forms();
   try { calculateSize(); } catch {}
 
   const fresh = tsMs && (Date.now() - tsMs) < PROFILE_MAX_AGE_MS;
