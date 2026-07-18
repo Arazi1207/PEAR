@@ -44,6 +44,57 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
+/* ── Public demo-widget one-time gate (opt-in, isolated from the main app) ───
+   Config-driven via ?demo_gate=1, forwarded by widget/pear-widget.js only when
+   the embed sets data-pear-demo-gate — never a hostname/domain check, so this
+   can never misfire for a real store's own embed. When DEMO_GATE is false
+   (every normal visit — direct app use, or a widget embed without the demo
+   attribute) every branch below is skipped entirely and existing behavior is
+   unchanged. */
+const DEMO_GATE = new URLSearchParams(location.search).get("demo_gate") === "1";
+const DEMO_GATE_KEY = "pear_demo_gated_measured";
+
+function isDemoGateLocked() {
+  if (!DEMO_GATE) return false;
+  try { return localStorage.getItem(DEMO_GATE_KEY) === "true"; } catch { return false; }
+}
+
+/* Spends this browser's one free demo measurement, then tells the parent page
+   (widget/pear-widget.js) so it can lock its on-page button immediately. A
+   postMessage (not shared localStorage) is required here because the iframe
+   (PEAR_BASE) and the host marketing/store page are generally different
+   origins — the message carries no sensitive data, just a lock signal. */
+function lockDemoGate() {
+  if (!DEMO_GATE) return;
+  try { localStorage.setItem(DEMO_GATE_KEY, "true"); } catch {}
+  try { window.parent.postMessage({ type: "pear-demo-gate-locked" }, "*"); } catch {}
+}
+
+/* Friendly one-time-used screen for demo mode — injected on demand so shipping
+   this needs no index.html/style.css changes. Only ever reachable when
+   DEMO_GATE is true; the main app never calls this. */
+function showDemoGateLockedMessage() {
+  hideAllScreen1Forms();
+  $("screen-calculator")?.classList.add("active");
+  $("screen-fitting")?.classList.remove("active");
+
+  let el = document.getElementById("demoGateLocked");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "demoGateLocked";
+    el.setAttribute("role", "status");
+    el.style.cssText =
+      "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+      "text-align:center;gap:12px;padding:48px 24px;";
+    el.innerHTML =
+      '<div style="font-size:40px;">👗</div>' +
+      '<p style="font-size:16px;font-weight:600;margin:0;">כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!</p>';
+    const host = $("sizeForm")?.parentElement;
+    if (host) host.appendChild(el);
+  }
+  el.hidden = false;
+}
+
 /* ── Strict live-session lifecycle (credit spend lives here) ─────────────────
    Two windows, set EQUAL so the whole clip is genuine live motion:
      • LIVE_DURATION_MS — the BILLED Decart inference window. Credits accrue here.
@@ -797,8 +848,14 @@ function goToFitting(opts) {
   // Cache the two mandatory measurements locally (30-day TTL) so a returning
   // visitor's form is pre-filled next time. saveProfile() self-validates, so
   // out-of-range entries are silently skipped rather than cached. Skipped when
-  // reusing existing data unchanged (see skipProfileSave above).
-  if (!skipProfileSave) saveProfile($("height")?.value, $("weight")?.value);
+  // reusing existing data unchanged (see skipProfileSave above), and ALSO
+  // skipped in demo-gate mode — an anonymous demo try must never seed the
+  // main app's returning-visitor profile cache on a shared browser/device.
+  if (!skipProfileSave && !DEMO_GATE) saveProfile($("height")?.value, $("weight")?.value);
+
+  // Demo-gate mode: this is the visitor's one measurement — spend it now, right
+  // as they commit to entering the try-on room.
+  lockDemoGate();
 
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
@@ -5548,26 +5605,40 @@ function init() {
   // flow. (Production embeds that DO want the identity gate back can restore the
   // line below; nothing else in this file changed.)
   //   setupIdentityGate();
-  showSizeForm();
-
-  // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
-  $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
-  $("reminder-update-now")?.addEventListener("click", reminderUpdateNow);
-  $("reminder-dismiss")?.addEventListener("click", reminderDismiss);
-  // Backdrop click / Esc = the same "Dismiss" action (never traps the user — Case C
-  // dismissal must still route into the fitting room, not just close the modal).
-  $("updateReminderModal")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) reminderDismiss();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) reminderDismiss();
-  });
-  // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
-  // entirely, so it may never have been revealed; this brings it up pre-filled.
-  $("btn-edit-measurements")?.addEventListener("click", () => {
-    backToCalculator();
+  // Demo-gate visitors who already spent their one measurement on this browser
+  // get the "already used" screen instead of the form.
+  if (DEMO_GATE && isDemoGateLocked()) {
+    showDemoGateLockedMessage();
+  } else {
     showSizeForm();
-  });
+  }
+
+  // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal —
+  // main-app-only. A gated demo visitor gets exactly one measurement, so these
+  // secondary re-measure entry points stay unwired in that mode instead of
+  // offering a way around the one-time limit within a single widget open.
+  if (DEMO_GATE) {
+    const um = $("btn-update-measurements"); if (um) um.style.display = "none";
+    const em = $("btn-edit-measurements");   if (em) em.style.display = "none";
+  } else {
+    $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
+    $("reminder-update-now")?.addEventListener("click", reminderUpdateNow);
+    $("reminder-dismiss")?.addEventListener("click", reminderDismiss);
+    // Backdrop click / Esc = the same "Dismiss" action (never traps the user — Case C
+    // dismissal must still route into the fitting room, not just close the modal).
+    $("updateReminderModal")?.addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) reminderDismiss();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !$("updateReminderModal")?.hidden) reminderDismiss();
+    });
+    // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
+    // entirely, so it may never have been revealed; this brings it up pre-filled.
+    $("btn-edit-measurements")?.addEventListener("click", () => {
+      backToCalculator();
+      showSizeForm();
+    });
+  }
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
     i.addEventListener("input", calculateSize);

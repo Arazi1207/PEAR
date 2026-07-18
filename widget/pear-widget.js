@@ -88,6 +88,33 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
+  /* Opt-in strict one-time measurement gate for public demo embeds (e.g. the
+     marketing site): when data-pear-demo-gate is the EXACT string "true", the
+     fitting room skips its normal name/phone registration and allows exactly one
+     measurement per browser, then shows a friendly "already used" screen instead
+     of the camera. Config-driven ONLY — never a hostname/domain check — so a
+     normal store embed (no attribute) always gets the regular, unlimited,
+     server-backed flow untouched.
+     Strict-equality on purpose (not "present and not false"): a bare attribute
+     (data-pear-demo-gate with no value → getAttribute() returns ""), a stray
+     placeholder, or any other value must all evaluate to false — only the
+     literal "true" turns this on. */
+  var DEMO_GATE = !!script && script.getAttribute("data-pear-demo-gate") === "true";
+  var DEMO_GATE_KEY = "pear_demo_gated_measured";
+
+  /* This is the PARENT PAGE's own localStorage — a different origin from the
+     fitting-room iframe (PEAR_BASE) in the general case, so it can only reflect
+     a lock this same host page already learned about (either from a previous
+     load, persisted here, or via the "message" listener wired below once the
+     iframe reports a fresh lock). */
+  function isDemoGateLockedLocally() {
+    if (!DEMO_GATE) return false;
+    try { return w.localStorage.getItem(DEMO_GATE_KEY) === "true"; } catch (_) { return false; }
+  }
+  function persistDemoGateLock() {
+    try { w.localStorage.setItem(DEMO_GATE_KEY, "true"); } catch (_) {}
+  }
+
   /* Garment-category keyword map (scanned against product name + page title). */
   var CATEGORY_KEYWORDS = {
     shirt: ["חולצה", "טישרט", "גופייה", "shirt", "tee", "top",
@@ -375,6 +402,39 @@
     d.head.appendChild(style);
   }
 
+  /* ── demo-gate button state ───────────────────────────────────────────────
+     The fitting-room iframe (PEAR_BASE) reports "measurement spent" via
+     postMessage rather than shared localStorage, since the host page and
+     PEAR_BASE are generally different origins. Only wired at all when this
+     embed opted into data-pear-demo-gate. Every PEAR button on the page is
+     locked together — a multi-product page can have one per Add-to-Cart
+     button, but the gate is one measurement for the whole visit, not per
+     button. */
+  function applyLockedButtonState(btn) {
+    btn.disabled = true;
+    btn.title = isHebrewPage()
+      ? "כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!"
+      : "You've already used your one virtual fit in this demo. Thanks!";
+    btn.textContent = isHebrewPage() ? "👗 נוסה" : "👗 TRIED";
+  }
+
+  function lockAllButtons() {
+    var btns = d.querySelectorAll(".pear-widget-btn");
+    for (var i = 0; i < btns.length; i++) applyLockedButtonState(btns[i]);
+  }
+
+  if (DEMO_GATE) {
+    w.addEventListener("message", function (e) {
+      /* Trust only messages from PEAR_BASE (the fitting-room origin) carrying
+         our specific lock signal — never act on arbitrary postMessage traffic
+         from other embeds/frames sharing the host page. */
+      if (e.origin !== PEAR_BASE) return;
+      if (!e.data || e.data.type !== "pear-demo-gate-locked") return;
+      persistDemoGateLock();
+      lockAllButtons();
+    });
+  }
+
   /* ── front/back classification (Gemini, via the PEAR server) ──────────────────
      Called on every PEAR button click — even a single-image product — so every
      visit contributes to the Supabase cache (garment_cache), not just the ones
@@ -456,6 +516,7 @@
       (garment.images && garment.images.length > 1
         ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
+      (DEMO_GATE ? "&demo_gate=1" : "") +
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
     console.log("[PEAR widget] openModal() — iframe src:", src);
@@ -823,9 +884,23 @@
     btn.className = "pear-widget-btn";
     btn.type = "button";
     btn.textContent = getButtonText();
+
+    /* Demo-gate: render already-locked and skip wiring the click handler
+       entirely when this browser has already spent its one measurement —
+       covers a fresh page load after the lock was set on a previous visit. */
+    if (DEMO_GATE && isDemoGateLockedLocally()) {
+      applyLockedButtonState(btn);
+      return btn;
+    }
+
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
+      /* Logic safeguard: block re-entry even if this button instance somehow
+         still has a click listener attached after the gate locked mid-session
+         (e.g. the postMessage lock landed between two rapid clicks). Disabled
+         styling is UI; this is the actual gate. */
+      if (DEMO_GATE && isDemoGateLockedLocally()) return;
       if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
 
       /* Always classify the full gallery up front — even a single-image product —
