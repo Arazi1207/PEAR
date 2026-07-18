@@ -55,6 +55,30 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
+  /* Opt-in strict one-time measurement gate for public demo embeds (e.g. the
+     marketing site): when data-pear-demo-gate is present (and not "false"), the
+     fitting room skips its normal name/phone registration and allows exactly one
+     measurement per browser, then shows a friendly "already used" screen instead
+     of the camera. Config-driven ONLY — never a hostname/domain check — so a
+     normal store embed (no attribute) always gets the regular, unlimited,
+     server-backed flow untouched. */
+  var _demoGate = script ? script.getAttribute("data-pear-demo-gate") : null;
+  var DEMO_GATE = _demoGate !== null && _demoGate !== "false";
+  var DEMO_GATE_KEY = "pear_demo_gated_measured";
+
+  /* This is the PARENT PAGE's own localStorage — a different origin from the
+     fitting-room iframe (PEAR_BASE) in the general case, so it can only reflect
+     a lock this same host page already learned about (either from a previous
+     load, persisted here, or via the "message" listener wired below once the
+     iframe reports a fresh lock). */
+  function isDemoGateLockedLocally() {
+    if (!DEMO_GATE) return false;
+    try { return localStorage.getItem(DEMO_GATE_KEY) === "true"; } catch (_) { return false; }
+  }
+  function persistDemoGateLock() {
+    try { localStorage.setItem(DEMO_GATE_KEY, "true"); } catch (_) {}
+  }
+
   /* Garment-category keyword map (scanned against product name + page title). */
   var CATEGORY_KEYWORDS = {
     shirt: ["חולצה", "טישרט", "גופייה", "shirt", "tee", "top",
@@ -217,6 +241,8 @@
         "font-family:inherit;line-height:1.2;" +
       "}" +
       ".pear-widget-btn:hover{background:#00AA44;}" +
+      ".pear-widget-btn[disabled]{background:#888;cursor:not-allowed;}" +
+      ".pear-widget-btn[disabled]:hover{background:#888;}" +
       ".pear-widget-overlay{" +
         "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.88);" +
         "display:flex;align-items:center;justify-content:center;" +
@@ -236,6 +262,34 @@
     style.className = "pear-widget-styles";
     style.textContent = css;
     d.head.appendChild(style);
+  }
+
+  /* ── demo-gate button state ───────────────────────────────────────────────
+     The fitting-room iframe (PEAR_BASE) reports "measurement spent" via
+     postMessage rather than shared localStorage, since the host page and
+     PEAR_BASE are generally different origins. Only wired at all when this
+     embed opted into data-pear-demo-gate. */
+  function applyLockedButtonState(btn) {
+    btn.disabled = true;
+    btn.title = "כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!";
+    btn.textContent = "👗 נוסה";
+  }
+
+  function lockAllButtons() {
+    var btns = d.querySelectorAll(".pear-widget-btn");
+    for (var i = 0; i < btns.length; i++) applyLockedButtonState(btns[i]);
+  }
+
+  if (DEMO_GATE) {
+    w.addEventListener("message", function (e) {
+      /* Trust only messages from PEAR_BASE (the fitting-room origin) carrying
+         our specific lock signal — never act on arbitrary postMessage traffic
+         from other embeds/frames sharing the host page. */
+      if (e.origin !== PEAR_BASE) return;
+      if (!e.data || e.data.type !== "pear-demo-gate-locked") return;
+      persistDemoGateLock();
+      lockAllButtons();
+    });
   }
 
   /* ── STEP 3 — fullscreen modal with the fitting-room iframe ─────────────── */
@@ -262,6 +316,7 @@
       "&garment_name=" + encodeURIComponent(garment.name) +
       (garment.back ? "&garment_url_back=" + encodeURIComponent(garment.back) : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
+      (DEMO_GATE ? "&demo_gate=1" : "") +
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
 
@@ -312,11 +367,16 @@
     btn.className = "pear-widget-btn";
     btn.type = "button";
     btn.textContent = "👗 נסה עלי";
-    btn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      openModal({ url: entry.url, type: category, name: name, back: entry.back });
-    });
+
+    if (DEMO_GATE && isDemoGateLockedLocally()) {
+      applyLockedButtonState(btn);
+    } else {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openModal({ url: entry.url, type: category, name: name, back: entry.back });
+      });
+    }
     container.appendChild(btn);
   }
 
