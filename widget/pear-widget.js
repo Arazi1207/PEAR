@@ -71,6 +71,7 @@
   try {
     if (script && script.src) PEAR_BASE = new URL(script.src).origin;
   } catch (_) {}
+  console.log("[PEAR widget] resolved PEAR_BASE:", PEAR_BASE, script ? "(from script src: " + script.src + ")" : "(fallback — no script tag found)");
 
   var STORE_KEY = (script && script.getAttribute("data-pear-key")) || "";
 
@@ -362,14 +363,18 @@
      failure — network, timeout, missing Gemini key — the caller falls back to
      DOM order. */
   function classifyImages(urls) {
-    return fetch(PEAR_BASE + "/api/classify-images", {
+    var endpoint = PEAR_BASE + "/api/classify-images";
+    console.log("[PEAR widget] classifyImages() — POST", endpoint, "images:", urls);
+    return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ images: urls })
     }).then(function (r) {
+      console.log("[PEAR widget] classifyImages() — response", r.status, r.ok ? "OK" : "FAILED");
       if (!r.ok) throw new Error("classify-images HTTP " + r.status);
       return r.json();
     }).then(function (data) {
+      console.log("[PEAR widget] classifyImages() — results:", data && data.results);
       return (data && data.results) || [];
     });
   }
@@ -428,6 +433,7 @@
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
+    console.log("[PEAR widget] openModal() — iframe src:", src);
 
     var overlay = d.createElement("div");
     overlay.className = "pear-widget-overlay";
@@ -438,6 +444,15 @@
     iframe.title = "PEAR virtual fitting room";
     /* the fitting room needs webcam access inside the cross-origin iframe */
     iframe.setAttribute("allow", "camera; microphone; fullscreen");
+    /* Cross-origin iframes fire "load" even on a 404 response body (it's still a valid
+       HTML document), so this can't distinguish 200 from 404 — but it confirms the
+       browser at least reached PEAR_BASE and got SOME response back for `src`. */
+    iframe.addEventListener("load", function () {
+      console.log("[PEAR widget] fitting-room iframe fired 'load' for:", src);
+    });
+    iframe.addEventListener("error", function () {
+      console.error("[PEAR widget] fitting-room iframe fired 'error' for:", src);
+    });
 
     var close = d.createElement("button");
     close.className = "pear-widget-close";
