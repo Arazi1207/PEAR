@@ -765,6 +765,7 @@ function toItem(raw) {
  * instead, whose .skipProfileSave is undefined → falsy → the normal save path.
  */
 function goToFitting(opts) {
+  if (isDemoLocked()) { showDemoLockedScreen(); return; }
   const skipProfileSave = !!(opts && opts.skipProfileSave);
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
@@ -1262,6 +1263,11 @@ function buildVideoConstraints(facing) {
 }
 
 async function startCamera(facing = cameraFacing) {
+  if (isDemoLocked()) {
+    toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!");
+    showDemoLockedScreen();
+    return false;
+  }
   if (localStream) return true;
   if (cameraStartPromise) return cameraStartPromise;   // a request is already in flight
 
@@ -3035,6 +3041,80 @@ function newUuid() {
 }
 
 /* =============================================================================
+   DEMO MODE — scoped to ONE specific embed, never the general product
+   -----------------------------------------------------------------------------
+   The fitting room is shared infrastructure: the SAME app.js/index.html serves
+   real merchant embeds and the main platform (full name/phone registration,
+   no measurement limit) AND the public marketing-site demo widget on
+   pear-platform.vercel.app (no registration, one measurement per browser).
+
+   The two must never be conflated, so this is opt-in and explicit — a plain
+   `?pear_demo=1` in the fitting-room URL, which ONLY widget/pear-widget.js
+   ever adds, and ONLY when its own <script> tag carries
+   data-pear-demo="true" (set on the marketing site's embed alone; every other
+   embed — the main app, any real merchant — gets full registration by
+   default, exactly as if this feature didn't exist). Nothing below this line
+   changes when DEMO_MODE is false.
+   ============================================================================= */
+const DEMO_MODE = new URLSearchParams(location.search).get("pear_demo") === "1";
+
+/* =============================================================================
+   ONE-TIME PUBLIC DEMO LOCK — active ONLY when DEMO_MODE is true
+   -----------------------------------------------------------------------------
+   This public demo permits exactly one virtual measurement per browser. The
+   FIRST completed try-on (a look actually saved to the gallery — see
+   lockDemoAfterFirstMeasurement, called from stopLive()/beginFreezeHold())
+   sets 'pear_demo_measured' in localStorage. Every entry point that can start
+   a camera stream, recompute a size, or re-enter the fitting room checks it
+   first (init(), goToFitting(), startCamera(), onRetake(), replayFitLive()).
+   isDemoLocked() short-circuits to false outside DEMO_MODE, so none of those
+   guards can ever fire for the main app / a real merchant — an authenticated
+   production user can always re-measure and update their profile.
+
+   This iframe and the host page's "מדוד וירטואלית" trigger button
+   (widget/pear-widget.js) run on DIFFERENT origins, so they each have their
+   OWN localStorage — postMessage is the only channel between them. We notify
+   the parent the instant the lock is set so the outer button locks too,
+   without the host page needing a reload.
+   ============================================================================= */
+const PEAR_DEMO_LOCK_KEY = "pear_demo_measured";
+let demoLocked = false;
+
+function isDemoLocked() {
+  if (!DEMO_MODE) return false;   // main app / real merchant embeds: never locked
+  try { return localStorage.getItem(PEAR_DEMO_LOCK_KEY) === "true"; } catch { return demoLocked; }
+}
+
+function notifyParentDemoLocked() {
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ source: "pear-fitting-room", type: "pear-demo-measured" }, "*");
+    }
+  } catch {}
+}
+
+/* Full-screen takeover — replaces Screen 1/2 entirely. Used both on load for a
+   returning (already-locked) visitor and by every "tried to restart" guard. */
+function showDemoLockedScreen() {
+  $("screen-calculator")?.classList.remove("active");
+  $("screen-fitting")?.classList.remove("active");
+  $("screen-locked")?.classList.add("active");
+}
+
+/* Called once, right after the FIRST look is successfully saved to the
+   gallery. Persists the lock and flips in-memory state so every guard below
+   takes effect immediately — but does NOT navigate away from the result the
+   user is currently looking at; that would yank away the try-on they just
+   finished. The lock only blocks the NEXT attempt (reload, retake, edit
+   measurements, …). */
+function lockDemoAfterFirstMeasurement() {
+  if (!DEMO_MODE || demoLocked) return;
+  demoLocked = true;
+  try { localStorage.setItem(PEAR_DEMO_LOCK_KEY, "true"); } catch {}
+  notifyParentDemoLocked();
+}
+
+/* =============================================================================
    CACHED BODY PROFILE (height + weight)
    -----------------------------------------------------------------------------
    The name/phone identity gate above is skipped for returning visitors, but the
@@ -3123,7 +3203,21 @@ function writeProfileCache(height, weight, tsMs) {
               modal instead. "Update" reveals Screen 1 pre-filled for editing;
               "Dismiss" (or backdrop/Esc) proceeds into the fitting room with the
               existing (stale) data, exactly like Case B.
+
+   Cases B and C's auto-skip only fires on the main platform (see isMainSite()
+   below) — every other embed always lands on Screen 1, pre-filled, same as Case A.
    ============================================================================= */
+/* Case B/C below can skip Screen 1 entirely and drop a returning visitor straight
+   into the fitting room with zero clicks — a convenience that only makes sense on
+   the main platform, where the visitor is fully registered. Every other embed (a
+   real merchant's site, any other domain) must always show Screen 1 first, even
+   for a known returning visitor with fresh measurements, and wait for their own
+   explicit Continue click (goToFitting() itself is untouched — that path still
+   works identically everywhere). */
+function isMainSite() {
+  return window.location.hostname === "pear-platform.vercel.app";
+}
+
 function hideAllScreen1Forms() {
   const idForm = $("identityForm"), sizeForm = $("sizeForm");
   if (idForm)   { idForm.hidden = true;   idForm.style.display = "none"; }
@@ -3139,16 +3233,24 @@ function routeAfterIdentity(data) {
     return;
   }
 
-  // Known profile with real data — Screen 1 is never shown mid-decision; we either
-  // transition straight past it (B) or the modal covers it entirely (C).
-  hideAllScreen1Forms();
-
   const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
   setIf("height", m.height); setIf("weight", m.weight);
   setIf("chest",  m.chest);  setIf("waist",  m.waist);  setIf("legs", m.legs);
 
   const tsMs = data.measurementsUpdatedAt ? Date.parse(data.measurementsUpdatedAt) : 0;
   writeProfileCache(m.height, m.weight, tsMs || Date.now());
+
+  // The Case B/C auto-skip past Screen 1 is a main-platform-only shortcut (see
+  // isMainSite() above) — every other embed shows Screen 1 pre-filled instead and
+  // waits for the visitor's own Continue click, exactly like a fresh Case A visit.
+  if (!isMainSite()) {
+    showSizeForm();
+    return;
+  }
+
+  // Known profile with real data — Screen 1 is never shown mid-decision; we either
+  // transition straight past it (B) or the modal covers it entirely (C).
+  hideAllScreen1Forms();
   try { calculateSize(); } catch {}
 
   const fresh = tsMs && (Date.now() - tsMs) < PROFILE_MAX_AGE_MS;
@@ -3617,6 +3719,7 @@ function stopLive() {
       const size = activeTryOnSize || currentUserSize || "—";
       lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                    activeItem && activeItem.id);
+      if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
     }
   } catch (_) {}
 
@@ -3646,6 +3749,7 @@ function beginFreezeHold() {
     const size = activeTryOnSize || currentUserSize || "—";
     lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                  activeItem && activeItem.id);
+    if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
   } catch (_) {}
 
   // 3) Kill Decart billing immediately (tokens stop at LIVE_DURATION_MS) — but leave
@@ -5500,6 +5604,7 @@ function openFitLightbox(idx) {
 /* "Try again live" — restore the exact garment this fit was captured with (when
    still in the catalog) and open a fresh, optimized 5-second live session. */
 function replayFitLive(it) {
+  if (isDemoLocked()) { toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!"); return; }
   if (isLive()) { toast("עצור מדידה חיה כדי להתחיל מחדש"); return; }
   if (it && it.itemId != null) {
     const p = PEAR_CATALOG.find((x) => x.id === it.itemId);
@@ -5516,6 +5621,9 @@ function replayFitLive(it) {
 function onRetake() {
   if (isLive()) {
     stopLive();   // saves, then resets the button — see stopLive
+  } else if (isDemoLocked()) {
+    toast("כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!");
+    return;
   } else {
     resetToLive();
   }
@@ -5524,6 +5632,16 @@ function onRetake() {
 }
 
 function init() {
+  // One-time public demo — strict check BEFORE anything else runs: no camera
+  // wiring, no identity gate, no size-form listeners, nothing. A returning
+  // visitor who already completed their demo measurement sees only the
+  // locked screen. (No-op outside DEMO_MODE — see isDemoLocked().)
+  if (isDemoLocked()) {
+    demoLocked = true;
+    showDemoLockedScreen();
+    return;
+  }
+
   injectReplayStyles();
   updateProgress();
 
@@ -5543,12 +5661,15 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-  // Public demo: skip the name/phone identity gate entirely and land the visitor
-  // directly on the (required) size form — registration isn't part of this demo's
-  // flow. (Production embeds that DO want the identity gate back can restore the
-  // line below; nothing else in this file changed.)
-  //   setupIdentityGate();
-  showSizeForm();
+  // Identity gate — ALWAYS Step 0 for the main app / a real merchant embed
+  // (routing to Case A/B/C happens after submit, see setupIdentityGate). The
+  // ONE exception: DEMO_MODE (the marketing-site widget demo, see the "DEMO
+  // MODE" block above) skips straight to the size form — no registration.
+  if (DEMO_MODE) {
+    showSizeForm();
+  } else {
+    setupIdentityGate();
+  }
 
   // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
   $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
@@ -5565,6 +5686,7 @@ function init() {
   // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
   // entirely, so it may never have been revealed; this brings it up pre-filled.
   $("btn-edit-measurements")?.addEventListener("click", () => {
+    if (isDemoLocked()) { showDemoLockedScreen(); return; }
     backToCalculator();
     showSizeForm();
   });
