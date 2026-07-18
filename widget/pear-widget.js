@@ -29,8 +29,11 @@
         <h1> when the page has no cart button). A MutationObserver re-runs the
         injection as products load in (infinite scroll, tab/filter switches),
         and each cart button is stamped data-pear-injected so it's never doubled.
-     3. On click, opens a fullscreen modal with the PEAR fitting room in an
-        iframe, handing over the garment via URL params
+     3. On click, classifies the full gallery via the PEAR server first (so every
+        visit contributes to the server's front/back cache), then opens a
+        fullscreen modal with the PEAR fitting room in an iframe — straight away
+        for a single-image product, or via a front/back picker popup for a
+        multi-photo one — handing over the garment via URL params
         (garment_url / garment_type / garment_name), plus an OPTIONAL
         garment_url_back so the live Back view warps from a real rear photo
         instead of a prompt-steered guess off the front image, and an OPTIONAL
@@ -68,6 +71,7 @@
   try {
     if (script && script.src) PEAR_BASE = new URL(script.src).origin;
   } catch (_) {}
+  console.log("[PEAR widget] resolved PEAR_BASE:", PEAR_BASE, script ? "(from script src: " + script.src + ")" : "(fallback — no script tag found)");
 
   var STORE_KEY = (script && script.getAttribute("data-pear-key")) || "";
 
@@ -364,20 +368,27 @@
   }
 
   /* ── front/back classification (Gemini, via the PEAR server) ──────────────────
-     For a multi-photo gallery we ask the server which images are the garment's
-     front vs. back (POST /api/classify-images), instead of assuming images[0] is
-     the front and images[1] the back. Cache-backed server-side (garment_cache),
-     so repeat visits to the same product are instant. On any failure — network,
-     timeout, missing Gemini key — falls back to the first two images. */
+     Called on every PEAR button click — even a single-image product — so every
+     visit contributes to the Supabase cache (garment_cache), not just the ones
+     where the shopper reaches the multi-photo popup. Asks the server which
+     images are the garment's front vs. back (POST /api/classify-images) instead
+     of assuming images[0] is the front and images[1] the back. Cache-backed
+     server-side, so repeat visits to the same product are instant. On any
+     failure — network, timeout, missing Gemini key — the caller falls back to
+     DOM order. */
   function classifyImages(urls) {
-    return fetch(PEAR_BASE + "/api/classify-images", {
+    var endpoint = PEAR_BASE + "/api/classify-images";
+    console.log("[PEAR widget] classifyImages() — POST", endpoint, "images:", urls);
+    return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ images: urls })
     }).then(function (r) {
+      console.log("[PEAR widget] classifyImages() — response", r.status, r.ok ? "OK" : "FAILED");
       if (!r.ok) throw new Error("classify-images HTTP " + r.status);
       return r.json();
     }).then(function (data) {
+      console.log("[PEAR widget] classifyImages() — results:", data && data.results);
       return (data && data.results) || [];
     });
   }
@@ -389,6 +400,21 @@
       else if (results[i] === "back" && !back) back = urls[i];
     }
     return { front: front || urls[0], back: back || urls[1] || undefined };
+  }
+
+  /* Re-order the gallery so the popup's rows read front-first, back-second — the
+     positional imageLabel() below assumes index 0/1 are front/back, which only
+     holds once the classifier's results are folded in (raw DOM order is not
+     reliable). Anything the classifier didn't call front/back keeps its
+     relative order after those two. */
+  function sortByFrontBack(urls, results) {
+    var front = [], back = [], other = [];
+    for (var i = 0; i < urls.length; i++) {
+      if (results[i] === "front") front.push(urls[i]);
+      else if (results[i] === "back") back.push(urls[i]);
+      else other.push(urls[i]);
+    }
+    return front.concat(back, other);
   }
 
   /* ── STEP 3 — fullscreen modal with the fitting-room iframe ─────────────── */
@@ -425,6 +451,7 @@
          embed; every other embed (main app, real merchants) omits it entirely. */
       (DEMO_MODE ? "&pear_demo=1" : "");
     var src = PEAR_BASE + "/fitting-room/?" + params;
+    console.log("[PEAR widget] openModal() — iframe src:", src);
 
     var overlay = d.createElement("div");
     overlay.className = "pear-widget-overlay";
@@ -435,6 +462,15 @@
     iframe.title = "PEAR virtual fitting room";
     /* the fitting room needs webcam access inside the cross-origin iframe */
     iframe.setAttribute("allow", "camera; microphone; fullscreen");
+    /* Cross-origin iframes fire "load" even on a 404 response body (it's still a valid
+       HTML document), so this can't distinguish 200 from 404 — but it confirms the
+       browser at least reached PEAR_BASE and got SOME response back for `src`. */
+    iframe.addEventListener("load", function () {
+      console.log("[PEAR widget] fitting-room iframe fired 'load' for:", src);
+    });
+    iframe.addEventListener("error", function () {
+      console.error("[PEAR widget] fitting-room iframe fired 'error' for:", src);
+    });
 
     var close = d.createElement("button");
     close.className = "pear-widget-close";
@@ -480,7 +516,7 @@
     return i === 0 ? "חזית" : i === 1 ? "גב" : "תמונה " + (i + 1);
   }
 
-  function showImagePopup(pearBtn, garment) {
+  function showImagePopup(pearBtn, garment, images, picked) {
     closePopup();                            // never stack two popups
     injectStyles();
     pearBtn.style.position = "relative";     // become the popup's offset parent
@@ -493,7 +529,10 @@
     title.textContent = "בחר תמונה לניסיון";
     pop.appendChild(title);
 
-    var imgs = garment.images || [];
+    /* Already classified (front-sorted) by the caller — see the PEAR button's
+       click handler, which calls /api/classify-images before ever showing this
+       popup, so no classify call happens in here anymore. */
+    var imgs = images || garment.images || [];
     imgs.forEach(function (url, i) {
       var row = d.createElement("div");
       row.className = "pear-widget-popup__row";
@@ -522,9 +561,11 @@
       pop.appendChild(row);
     });
 
-    /* "Try front + back" — classify the gallery so the correct photos land as front/back,
-       then send the WHOLE gallery so the fitting room shows its switcher. */
+    /* "Try front + back" — front/back is already resolved (the caller classified
+       the whole gallery before this popup ever opened), so just hand the WHOLE
+       gallery to the fitting room's switcher with those two photos as the start. */
     if (imgs.length >= 2) {
+      var resolved = picked || resolveFrontBack(imgs, []);
       var both = d.createElement("div");
       both.className = "pear-widget-popup__both";
       both.setAttribute("role", "button");
@@ -534,17 +575,7 @@
         e.preventDefault();
         e.stopPropagation();
         closePopup();
-        var originalText = pearBtn.textContent;
-        pearBtn.textContent = "מזהה בגד...";
-        classifyImages(imgs).then(function (results) {
-          var picked = resolveFrontBack(imgs, results);
-          pearBtn.textContent = originalText;
-          openModal({ url: picked.front, type: garment.category, name: garment.name, back: picked.back, images: imgs });
-        }).catch(function (err) {
-          console.warn("[PEAR widget] classify-images failed, using first two images as front/back:", err && err.message);
-          pearBtn.textContent = originalText;
-          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs });
-        });
+        openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: imgs });
       });
       pop.appendChild(both);
     }
@@ -754,17 +785,34 @@
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        /* 2+ product photos → let the shopper pick which photo(s) to try on first;
-           a single photo skips the popup and opens the fitting room directly, as before. */
-        if (garment.images && garment.images.length > 1) {
-          if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
-          showImagePopup(btn, garment);
-        } else {
-          openModal({
-            url: garment.url, type: garment.category, name: garment.name,
-            back: garment.back, images: garment.images
-          });
-        }
+        if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
+
+        /* Always classify the full gallery up front — even a single-image product —
+           so every visit contributes to the Supabase cache, not just the ones where
+           the shopper happens to land on a page with 2+ photos and taps "try front +
+           back". The result then decides: one image → straight into the fitting
+           room; 2+ → front/back-sorted picker popup. */
+        var imgs = (garment.images && garment.images.length) ? garment.images : [garment.url];
+        var originalText = btn.textContent;
+        btn.textContent = "מזהה בגד...";
+        classifyImages(imgs).then(function (results) {
+          btn.textContent = originalText;
+          if (imgs.length <= 1) {
+            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+            return;
+          }
+          var sorted = sortByFrontBack(imgs, results);
+          var picked = resolveFrontBack(imgs, results);
+          showImagePopup(btn, garment, sorted, picked);
+        }).catch(function (err) {
+          console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
+          btn.textContent = originalText;
+          if (imgs.length <= 1) {
+            openModal({ url: imgs[0], type: garment.category, name: garment.name, back: garment.back, images: imgs });
+          } else {
+            showImagePopup(btn, garment, imgs, { front: imgs[0], back: imgs[1] });
+          }
+        });
       });
     }
     injectedButtons.push(btn);

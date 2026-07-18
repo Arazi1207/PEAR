@@ -1431,7 +1431,12 @@ function resetToLive() {
 async function loadSDK() {
   let lastErr;
   for (const url of SDK_URLS) {
-    try { return await import(/* @vite-ignore */ url); }
+    console.log("[PEAR] loadSDK() — importing", url);
+    try {
+      const mod = await import(/* @vite-ignore */ url);
+      console.log("[PEAR] loadSDK() — loaded OK from", url);
+      return mod;
+    }
     catch (e) { lastErr = e; console.warn("SDK load failed from", url, e?.message || e); }
   }
   throw new Error("SDK load failed: " + (lastErr?.message || lastErr));
@@ -1554,14 +1559,17 @@ async function mintEphemeralToken() {
  * @returns {Promise<boolean>} true if the server is reachable, false if offline/timed-out.
  */
 async function ensureOnline() {
-  if (!navigator.onLine) return false;          // browser already knows it's offline
+  if (!navigator.onLine) { console.log("[PEAR] ensureOnline() — navigator.onLine is false, skipping probe"); return false; }
+  console.log("[PEAR] ensureOnline() — GET", HEALTH_ENDPOINT);
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), HEALTH_PROBE_TIMEOUT_MS);
     const resp = await fetch(HEALTH_ENDPOINT, { method: "GET", cache: "no-store", signal: ctrl.signal });
     clearTimeout(timer);
+    console.log("[PEAR] ensureOnline() — response", resp.status, resp.ok ? "OK" : "FAILED");
     return resp.ok;
-  } catch (_) {
+  } catch (e) {
+    console.warn("[PEAR] ensureOnline() — probe failed:", e?.message || e);
     return false;                               // unreachable / timed out → treat as offline
   }
 }
@@ -1898,8 +1906,11 @@ function waitConnected(timeout) {
  */
 async function fetchGarmentBlob(imgUrl) {
   if (!imgUrl) return null;
+  const proxyUrl = `/api/img-proxy?url=${encodeURIComponent(imgUrl)}`;
+  console.log("[PEAR] fetchGarmentBlob() — GET", proxyUrl);
   try {
-    const resp = await fetch(`/api/img-proxy?url=${encodeURIComponent(imgUrl)}`);
+    const resp = await fetch(proxyUrl);
+    console.log("[PEAR] fetchGarmentBlob() — response", resp.status, resp.ok ? "OK" : "FAILED", "for", imgUrl);
     if (!resp.ok) {
       console.warn("[PEAR] img-proxy returned", resp.status, "for", imgUrl);
       return null;
@@ -2283,8 +2294,13 @@ function garmentImageRef(cdnUrl) {
   // URL) would corrupt it. Pass it straight through.
   if (/^(data:|blob:)/i.test(cdnUrl)) return cdnUrl;
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  if (isLocal) return cdnUrl;
-  return `${location.origin}/api/img-proxy?url=${encodeURIComponent(cdnUrl)}`;
+  if (isLocal) {
+    console.log("[PEAR] garmentImageRef() — localhost, using raw CDN URL:", cdnUrl);
+    return cdnUrl;
+  }
+  const ref = `${location.origin}/api/img-proxy?url=${encodeURIComponent(cdnUrl)}`;
+  console.log("[PEAR] garmentImageRef() — proxied ref:", ref, "for CDN URL:", cdnUrl);
+  return ref;
 }
 
 /** Console-safe image ref: abbreviate long/data URLs so a base64 crop can't flood DevTools. */

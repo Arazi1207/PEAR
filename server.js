@@ -297,6 +297,7 @@ async function mintTokenWaterfall() {
 
 /* ── Express handler ─────────────────────────────────────────────────────── */
 async function mintToken(req, res) {
+  console.log(`[realtime-token] ${req.method} ${req.originalUrl} — request received`);
   if (!API_KEY) {
     return res.status(503).json({
       error:   "decart_unconfigured",
@@ -819,10 +820,10 @@ const imgCache = new Map();
 const IMG_CACHE_MAX = 50;
 
 /* ── Image-proxy SSRF guard ────────────────────────────────────────────────────
-   The proxy fetches an arbitrary caller-supplied URL server-side.  We block
-   private/internal network ranges (where SSRF is dangerous) and non-HTTPS
-   schemes, but allow any public HTTPS host so widget garments from any store
-   load without manual allowlist additions.
+   The proxy fetches an arbitrary caller-supplied URL server-side. We block
+   private/internal network ranges (where SSRF is dangerous), but allow any
+   public http(s) host — including plain HTTP — so widget garments from any
+   store load without manual allowlist additions.
    Blocked ranges:
      • loopback:      127.0.0.0/8
      • private A:     10.0.0.0/8
@@ -856,8 +857,15 @@ function isPrivateHost(hostname) {
   return false;
 }
 
+/* BUG FIX: this used to hard-require HTTPS, silently 403-ing every plain-HTTP
+   product image (some storefronts, e.g. older Israeli retail sites, still serve
+   CDN images over http://) even though the request-validation above it already
+   advertises "http(s)" and accepts both. SSRF protection is about the
+   DESTINATION host (isPrivateHost, unchanged below), not the transport, so
+   allowing http: here doesn't weaken it — it just stops rejecting legitimate
+   public images that happen not to be TLS. */
 function isProxyHostAllowed(hostname, protocol) {
-  if (protocol !== "https:") return false;  // HTTPS only
+  if (protocol !== "https:" && protocol !== "http:") return false;
   return !isPrivateHost(hostname);
 }
 
@@ -871,6 +879,7 @@ function isProxyHostAllowed(hostname, protocol) {
    ─────────────────────────────────────────────────────────────────────────────── */
 app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
   const raw = req.query.url;
+  console.log(`[img-proxy] request for url=${raw ? String(raw).slice(0, 200) : "(missing)"}`);
   if (!raw) return res.status(400).json({ error: "missing_url", message: "?url= is required" });
 
   let parsed;
@@ -878,12 +887,13 @@ app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
     parsed = new URL(raw);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
   } catch {
+    console.warn(`[img-proxy] invalid url: "${raw}"`);
     return res.status(400).json({ error: "invalid_url", message: "url must be an absolute http(s) URL" });
   }
 
-  // SSRF guard — block private/internal hosts; require HTTPS.
+  // SSRF guard — block private/internal hosts; http(s) both allowed (see isProxyHostAllowed).
   if (!isProxyHostAllowed(parsed.hostname, parsed.protocol)) {
-    console.warn(`[img-proxy] blocked disallowed host: "${parsed.hostname}"`);
+    console.warn(`[img-proxy] blocked disallowed host: "${parsed.hostname}" (protocol: ${parsed.protocol})`);
     return res.status(403).json({ error: "host_not_allowed", message: "This image host is not permitted." });
   }
 
@@ -1021,6 +1031,9 @@ app.post("/api/classify-images", classifyLimiter, async (req, res) => {
 });
 
 app.all("/api/*", (req, res) => {
+  // Previously silent — a 404 here left zero trace in the server logs, making
+  // it impossible to tell an unmatched API route from a client-side failure.
+  console.warn(`[api] 404 — no route matched: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: "not_found", message: `No API route for ${req.method} ${req.path}` });
 });
 
@@ -1055,9 +1068,15 @@ app.use((req, res) => {
   ];
   for (const file of candidates) {
     try {
-      if (fs.statSync(file).isFile()) return res.sendFile(file);
+      if (fs.statSync(file).isFile()) {
+        console.log(`[page-router] ${req.method} ${req.path} → ${path.relative(uiRoot, file) || "index.html"}`);
+        return res.sendFile(file);
+      }
     } catch {}
   }
+  // Unreachable in practice — candidate 4 (root index.html) always exists, so this
+  // route never actually 404s; logged anyway in case that ever changes.
+  console.warn(`[page-router] 404 — no file resolved for ${req.method} ${req.path}`);
   res.status(404).json({ error: "not_found", path: req.path });
 });
 

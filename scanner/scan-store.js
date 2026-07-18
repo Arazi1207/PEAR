@@ -59,7 +59,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-const GEMINI_RATE_LIMIT_MS = 2000; // stay under 60 requests/minute
+const GEMINI_RATE_LIMIT_MS = 8000; // delay between sequential Gemini calls — free tier is 15 req/min
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
@@ -189,50 +189,55 @@ async function saveClassification(imageUrl, classification) {
 async function fetchImageAsBase64(imageUrl) {
   const resp = await fetch(imageUrl);
   if (!resp.ok) throw new Error(`image fetch failed: HTTP ${resp.status}`);
-  const contentType = resp.headers.get("content-type") || "image/jpeg";
   const buffer = Buffer.from(await resp.arrayBuffer());
-  return { base64: buffer.toString("base64"), mimeType: contentType };
+  return buffer.toString("base64");
 }
 
 async function classifyFrontBack(imageUrl) {
-  const { base64, mimeType } = await fetchImageAsBase64(imageUrl);
+  const base64 = await fetchImageAsBase64(imageUrl);
   const resp = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [
         {
+          role: "user",
           parts: [
-            { text: "Is this the front or the back of the garment? Answer with exactly one word: front or back" },
-            { inline_data: { mime_type: mimeType, data: base64 } },
+            { inline_data: { mime_type: "image/jpeg", data: base64 } },
+            {
+              text:
+                "Look at this clothing/garment image carefully. Ignore any model or person. Focus only on the garment itself. Is the GARMENT showing its front side or its back side? Answer with exactly one word: front or back",
+            },
           ],
         },
       ],
     }),
   });
+  console.log('Gemini status:', resp.status);
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
+  console.log('Gemini raw:', JSON.stringify(data));
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const answer = text.trim().toLowerCase();
   return answer.includes("back") ? "back" : "front";
 }
 
-/* Gemini's free tier is 60 requests/minute — a burst of uncached images can
-   still trip a 429 despite the inter-request delay. Wait 30s and retry, up
-   to 3 attempts total; if every attempt is rate-limited (or fails for any
-   other reason), default to "front" rather than losing the image entirely. */
-async function classifyWithRetry(imageUrl, retries = 3) {
+/* Gemini's free tier is 15 requests/minute — even the 5s inter-request delay
+   below can trip a 429 occasionally. On a 429, wait 60s and retry once; if
+   still rate-limited (or fails for any other reason), skip the image and
+   default to "front" rather than blocking the scan. */
+async function classifyWithRetry(imageUrl, retries = 2) {
   for (let i = 0; i < retries; i++) {
     try {
       const result = await classifyFrontBack(imageUrl);
       return result;
     } catch (e) {
       if (e.message.includes("429") && i < retries - 1) {
-        console.log("Rate limited — waiting 30s...");
-        await sleep(30000);
+        console.log("Rate limited — waiting 60s...");
+        await sleep(60000);
       } else {
         return "front";
       }
@@ -287,6 +292,7 @@ async function classifyAndTally(imageUrl, index, counters, total) {
     let cached = !!classification;
 
     if (!classification) {
+      console.log(`Classifying image ${index + 1}/${total}...`);
       classification = await classifyWithRetry(imageUrl);
       await saveClassification(imageUrl, classification);
       await sleep(GEMINI_RATE_LIMIT_MS);
