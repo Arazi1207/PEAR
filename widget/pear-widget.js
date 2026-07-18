@@ -348,6 +348,7 @@
   function classifyImages(urls) {
     var endpoint = PEAR_BASE + "/api/classify-images";
     console.log("[PEAR widget] classifyImages() — POST", endpoint, "images:", urls);
+    console.log('[PEAR] Classifying images:', urls);
     return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -358,7 +359,9 @@
       return r.json();
     }).then(function (data) {
       console.log("[PEAR widget] classifyImages() — results:", data && data.results);
-      return (data && data.results) || [];
+      var results = (data && data.results) || [];
+      console.log('[PEAR] Classification results:', results);
+      return results;
     });
   }
 
