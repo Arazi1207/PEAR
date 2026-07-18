@@ -186,7 +186,15 @@ async function saveClassification(imageUrl, classification) {
 
 /* ── Gemini classification ───────────────────────────────────────────────── */
 
+async function fetchImageAsBase64(imageUrl) {
+  const resp = await fetch(imageUrl);
+  if (!resp.ok) throw new Error(`image fetch failed: HTTP ${resp.status}`);
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  return buffer.toString("base64");
+}
+
 async function classifyFrontBack(imageUrl) {
+  const base64 = await fetchImageAsBase64(imageUrl);
   const resp = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -195,12 +203,7 @@ async function classifyFrontBack(imageUrl) {
         {
           role: "user",
           parts: [
-            {
-              fileData: {
-                mimeType: "image/jpeg",
-                fileUri: imageUrl,
-              },
-            },
+            { inline_data: { mime_type: "image/jpeg", data: base64 } },
             {
               text:
                 "Look at this clothing/garment image carefully. Ignore any model or person. Focus only on the garment itself. Is the GARMENT showing its front side or its back side? Answer with exactly one word: front or back",
