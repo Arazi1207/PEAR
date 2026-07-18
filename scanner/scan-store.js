@@ -59,7 +59,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-const GEMINI_RATE_LIMIT_MS = 1100; // delay between sequential Gemini calls
+const GEMINI_RATE_LIMIT_MS = 5000; // delay between sequential Gemini calls — free tier is 15 req/min
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
@@ -236,19 +236,19 @@ async function classifyFrontBack(imageUrl) {
   return answer.includes("back") ? "back" : "front";
 }
 
-/* Gemini's free tier is 60 requests/minute — even the 1100ms inter-request
-   delay below can trip a 429 occasionally. Wait 30s and retry, up to 3
-   attempts total; if every attempt is rate-limited (or fails for any other
-   reason), default to "front" rather than losing the image entirely. */
-async function classifyWithRetry(imageUrl, retries = 3) {
+/* Gemini's free tier is 15 requests/minute — even the 5s inter-request delay
+   below can trip a 429 occasionally. On a 429, wait 60s and retry once; if
+   still rate-limited (or fails for any other reason), skip the image and
+   default to "front" rather than blocking the scan. */
+async function classifyWithRetry(imageUrl, retries = 2) {
   for (let i = 0; i < retries; i++) {
     try {
       const result = await classifyFrontBack(imageUrl);
       return result;
     } catch (e) {
       if (e.message.includes("429") && i < retries - 1) {
-        console.log("Rate limited — waiting 30s...");
-        await sleep(30000);
+        console.log("Rate limited — waiting 60s...");
+        await sleep(60000);
       } else {
         return "front";
       }
@@ -303,6 +303,7 @@ async function classifyAndTally(imageUrl, index, counters, total) {
     let cached = !!classification;
 
     if (!classification) {
+      console.log(`Classifying image ${index + 1}/${total}...`);
       classification = await classifyWithRetry(imageUrl);
       await saveClassification(imageUrl, classification);
       await sleep(GEMINI_RATE_LIMIT_MS);
