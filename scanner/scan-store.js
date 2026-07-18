@@ -59,7 +59,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-const GEMINI_RATE_LIMIT_MS = 2000; // stay under 60 requests/minute
+const GEMINI_CHUNK_SIZE = 5; // images classified in parallel per batch
+const GEMINI_CHUNK_DELAY_MS = 1200; // pause between batches
 
 const PRODUCT_LINK_PATTERNS = ["/products/", "/product/", "/item/", "/p/", "/shop/"];
 const EXCLUDE_IMG_SRC = ["logo", "icon", "sprite", "placeholder", "banner", "avatar"];
@@ -203,7 +204,17 @@ async function classifyFrontBack(imageUrl) {
       contents: [
         {
           parts: [
-            { text: "Is this the front or the back of the garment? Answer with exactly one word: front or back" },
+            {
+              text:
+                "Look at this clothing/garment image carefully.\n" +
+                "Ignore any model or person. Focus only on the garment itself.\n" +
+                "Is the GARMENT showing its front side or its back side?\n" +
+                "The front typically shows: buttons, zipper in front,\n" +
+                "chest pocket, front collar, logo on chest.\n" +
+                "The back typically shows: back collar seam, back zipper,\n" +
+                "no buttons visible from front, upper back area.\n" +
+                "Answer with exactly one word: front or back",
+            },
             { inline_data: { mime_type: mimeType, data: base64 } },
           ],
         },
@@ -215,27 +226,33 @@ async function classifyFrontBack(imageUrl) {
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
+  console.log('Gemini raw response:', JSON.stringify(data, null, 2));
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const answer = text.trim().toLowerCase();
   return answer.includes("back") ? "back" : "front";
 }
 
 /* Gemini's free tier is 60 requests/minute — a burst of uncached images can
-   still trip a 429 despite the inter-request delay. Wait 30s and retry, up
+   still trip a 429 despite the batch pacing below. Wait 30s and retry, up
    to 3 attempts total; if every attempt is rate-limited (or fails for any
-   other reason), default to "front" rather than losing the image entirely. */
-async function classifyWithRetry(imageUrl, retries = 3) {
+   other reason), default to "front" rather than losing the image entirely.
+   rateLimitState, when passed, is flipped so the caller can shrink the
+   parallel batch size once a 429 is seen. */
+async function classifyWithRetry(imageUrl, retries = 3, rateLimitState = null) {
   for (let i = 0; i < retries; i++) {
     try {
       const result = await classifyFrontBack(imageUrl);
       return result;
     } catch (e) {
-      if (e.message.includes("429") && i < retries - 1) {
-        console.log("Rate limited — waiting 30s...");
-        await sleep(30000);
-      } else {
-        return "front";
+      if (e.message.includes("429")) {
+        if (rateLimitState) rateLimitState.hit = true;
+        if (i < retries - 1) {
+          console.log("Rate limited — waiting 30s...");
+          await sleep(30000);
+          continue;
+        }
       }
+      return "front";
     }
   }
   return "front";
@@ -281,15 +298,14 @@ async function scanShopify(baseUrl) {
 
 /* ── classification tally (shared by both crawl paths) ──────────────────── */
 
-async function classifyAndTally(imageUrl, index, counters, total) {
+async function classifyAndTally(imageUrl, index, counters, total, rateLimitState) {
   try {
     let classification = await getCachedClassification(imageUrl);
     let cached = !!classification;
 
     if (!classification) {
-      classification = await classifyWithRetry(imageUrl);
+      classification = await classifyWithRetry(imageUrl, 3, rateLimitState);
       await saveClassification(imageUrl, classification);
-      await sleep(GEMINI_RATE_LIMIT_MS);
     }
 
     counters.total++;
@@ -304,6 +320,31 @@ async function classifyAndTally(imageUrl, index, counters, total) {
 
   if (counters.total % 10 === 0) {
     console.log(`Progress: ${counters.total}/${total} images classified`);
+  }
+}
+
+/* Classify images in parallel batches rather than one request at a time —
+   each chunk runs concurrently via Promise.all, with a pause between chunks
+   to stay clear of Gemini's per-minute rate limit. If any request in a chunk
+   comes back 429, the next chunk shrinks from 5 to 3 in flight. */
+async function classifyAllImages(images, counters) {
+  let chunkSize = GEMINI_CHUNK_SIZE;
+  for (let i = 0; i < images.length; i += chunkSize) {
+    const chunk = images.slice(i, i + chunkSize);
+    const rateLimitState = { hit: false };
+
+    await Promise.all(
+      chunk.map((imageUrl, j) => classifyAndTally(imageUrl, i + j, counters, images.length, rateLimitState))
+    );
+
+    if (rateLimitState.hit && chunkSize > 3) {
+      chunkSize = 3;
+      console.log("Rate limited — reducing to 3 parallel requests");
+    }
+
+    if (i + chunk.length < images.length) {
+      await sleep(GEMINI_CHUNK_DELAY_MS);
+    }
   }
 }
 
@@ -377,9 +418,7 @@ async function main() {
   }
 
   console.log("Classifying...");
-  for (let j = 0; j < images.length; j++) {
-    await classifyAndTally(images[j], j, counters, images.length);
-  }
+  await classifyAllImages(images, counters);
 
   console.log(
     `\nDone. Total: ${counters.total} images | ${counters.front} front | ${counters.back} back | ${counters.cached} cached`
