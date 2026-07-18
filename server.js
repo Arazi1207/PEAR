@@ -1008,9 +1008,10 @@ async function getCachedClassification(imageUrl) {
 
 async function saveClassification(imageUrl, classification) {
   if (!supabase) return;
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("garment_cache")
     .upsert([{ image_url: imageUrl, classification }], { onConflict: "image_url" });
+  console.log('[classify] Supabase save result:', data, error);
   if (error) console.warn("[garment_cache] write failed:", error.message);
 }
 
@@ -1019,6 +1020,7 @@ async function saveClassification(imageUrl, classification) {
    Gemini and written back to garment_cache. A single image's classification failure
    falls back to "front" rather than failing the whole batch. */
 app.post("/api/classify-images", classifyLimiter, async (req, res) => {
+  console.log('[classify] Received images:', req.body.images);
   // Belt-and-suspenders alongside the PUBLIC_API_PATHS bypass in the shared /api
   // CORS middleware above (which already sets these for this path) — explicit
   // here too so this endpoint's cross-origin behavior doesn't silently depend on
