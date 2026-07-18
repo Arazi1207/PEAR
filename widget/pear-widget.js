@@ -123,6 +123,17 @@
     ".swiper-slide img"
   ].join(", ");
 
+  /* Known single-product gallery containers — checked BEFORE the ancestor
+     walk-up in findGarmentForButton() (see resolvePrimaryProductImage). These
+     are page-wide selectors, only reliable on a genuine single-product page. */
+  var PRODUCT_GALLERY_SELECTORS = [
+    ".product__media-list img",
+    ".product-images img",
+    ".product-single__photo",
+    "[data-product-single-media-wrapper] img",
+    ".product__media img"
+  ].join(", ");
+
   /* ── page metadata helpers ──────────────────────────────────────────────── */
   function getGarmentName() {
     var h1 = d.querySelector("h1");
@@ -161,6 +172,22 @@
   /* Normalise for comparison — CDNs vary query params, so match on the path only. */
   function samePhoto(a, b) {
     return (a || "").split("?")[0] === (b || "").split("?")[0];
+  }
+
+  /* Extract a "same product" identifier from a CDN image URL so gallery
+     collection can tell this product's photos apart from a sibling product's.
+     Shopify (fox.co.il included) — and most storefront CDNs — embed a long
+     numeric id somewhere in the path/filename (product id, variant id, or an
+     asset id scoped to the product); the longest run of 6+ digits is that id.
+     Returns "" when no such run is found (e.g. filenames are plain words) —
+     callers must treat that as "no signal" rather than "no match", so stores
+     without numeric ids in their CDN paths aren't over-filtered. */
+  function extractProductId(url) {
+    if (!url) return "";
+    var path = url.split("?")[0];
+    var matches = path.match(/\d{6,}/g);
+    if (!matches || !matches.length) return "";
+    return matches.reduce(function (longest, m) { return m.length > longest.length ? m : longest; });
   }
 
   function explicitAttr(img, name) {
@@ -251,14 +278,26 @@
   /* Collect every distinct product-gallery photo for the fitting-room thumbnail
      switcher. The primary (og:image / scraped front) is forced first so it stays the
      loaded-on-open garment; gallery thumbnails follow in DOM order. De-duped on the
-     path (CDNs vary query params), decorative images excluded. */
+     path (CDNs vary query params), decorative images excluded.
+
+     Also filtered to the SAME PRODUCT as primaryUrl (via extractProductId): `root`
+     scopes the THUMB_SELECTORS query, but a root that's climbed too high (a shared
+     grid/collection container — see findGarmentForButton's ancestor walk-up) or a
+     deliberately page-wide root can still surface a sibling product's thumbnails.
+     The id check is the second, independent line of defense against that. Only
+     enforced when BOTH images carry an extractable id and they disagree — a
+     mismatch is a different product; "no id on one side" is treated as no signal
+     so stores without numeric CDN ids aren't over-filtered. */
   function collectGalleryImages(primaryUrl, root) {
     var urls = [];
     var seenPaths = [];
+    var primaryId = extractProductId(primaryUrl);
     function add(u) {
       if (!u || isExcludedSrc(u)) return;
       var path = u.split("?")[0];
       if (seenPaths.indexOf(path) !== -1) return;
+      var candId = extractProductId(u);
+      if (primaryId && candId && candId !== primaryId) return;   // different product — skip
       seenPaths.push(path);
       urls.push(u);
     }
@@ -660,7 +699,47 @@
     return getGarmentName();
   }
 
+  /* Resolve the single most reliable product image on THIS page, tried in order:
+       1. og:image meta tag — the most reliable signal there is, but PAGE-WIDE
+          (it describes the page, not any one card), so it's only trustworthy
+          on a genuine single-product page.
+       2. Known single-product gallery containers (PRODUCT_GALLERY_SELECTORS) —
+          same page-wide caveat as above.
+     Returns "" when neither is present, so the caller falls back to the
+     per-button ancestor walk-up, which is the only signal actually scoped to
+     ONE product and so remains the resolver for collection/grid pages. */
+  function resolvePrimaryProductImage() {
+    var og = d.querySelector('meta[property="og:image"]');
+    var ogUrl = og && og.content ? og.content : "";
+    if (ogUrl && !isExcludedSrc(ogUrl)) return ogUrl;
+
+    var el = d.querySelector(PRODUCT_GALLERY_SELECTORS);
+    if (el) {
+      if (el.tagName !== "IMG") el = el.querySelector && el.querySelector("img");
+      if (el && el.tagName === "IMG") {
+        var src = el.currentSrc || el.src || "";
+        if (src && !isExcludedSrc(src)) return src;
+      }
+    }
+    return "";
+  }
+
   function findGarmentForButton(btn) {
+    // Priority 1/2 — og:image, then known product-gallery containers.
+    var primaryUrl = resolvePrimaryProductImage();
+    if (primaryUrl) {
+      var pgName = getGarmentName();
+      return {
+        url: primaryUrl,
+        back: findGalleryBack(primaryUrl, d),
+        images: collectGalleryImages(primaryUrl, d),
+        name: pgName,
+        category: detectCategory(pgName)
+      };
+    }
+
+    // Priority 3 — ancestor walk-up (see pickProductImageIn/collectGalleryImages
+    // header comments for how this is scoped and filtered).
     var node = btn.parentElement;
     for (var depth = 0; depth < 10 && node; depth++) {
       var img = pickProductImageIn(node);
