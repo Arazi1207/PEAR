@@ -3793,7 +3793,9 @@ async function goLive() {
     if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
 
     $("scanOverlay").hidden = false;
-    $("scanSub").textContent = "Lucy VTON · photorealistic render";
+    // CONTENT CLEANUP: dropped the "Lucy VTON ·" provider prefix (matches the
+    // #scanSub default in index.html, which this overwrites at go-live).
+    $("scanSub").textContent = "Photorealistic render";
 
     // 1) mint ek_ token + open the WebRTC session. NOTE: billing no longer starts here —
     //    the WebRTC session is open, but the billed 5s window is armed by the FIRST
@@ -5597,6 +5599,61 @@ function syncCompareUI() {
   if (bar) bar.hidden = compareSel.size !== 2;
 }
 
+/* ── Compare overlay: page-scroll lock ───────────────────────────────────────
+   .pear-compare-overlay is position:fixed, so without this a mobile swipe over the
+   comparison scrolls the catalog UNDERNEATH it — the split-screen appears to drift
+   off its own backdrop. Freeze the page while the modal owns the screen and restore
+   the caller's original value verbatim on close. Null = not currently locked, which
+   also makes a second openCompareOverlay() (the "Compare" pill re-opening an already
+   open overlay) a no-op instead of clobbering the saved value with "hidden". */
+let compareScrollLock = null;
+function lockPageScroll() {
+  if (compareScrollLock !== null) return;          // already locked — don't overwrite the saved value
+  compareScrollLock = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+}
+function unlockPageScroll() {
+  if (compareScrollLock === null) return;
+  document.body.style.overflow = compareScrollLock;
+  compareScrollLock = null;
+}
+
+/* ── Smooth-scroll the side-by-side comparison into view ─────────────────────
+   Called the moment a 2nd measurement is picked (via openCompareOverlay).
+
+   WHY NOT scrollIntoView() ON THE OVERLAY: #pearCompare is `position: fixed; inset: 0`
+   (style.css .pear-compare-overlay), so it is already viewport-anchored and contributes
+   nothing to document scroll — scrolling it "into view" is a guaranteed no-op. The one
+   element here that genuinely scrolls is .pcmp__panel (`max-height: 92vh; overflow-y:
+   auto`), so we align the side-by-side #compareSplit to the TOP of that scroller. That
+   is a real scroll on mobile, where the two cells stack tall and the second measurement
+   would otherwise sit below the fold; on desktop the panel usually fits and this
+   correctly resolves to a no-op.
+
+   RENDER CHECK (no arbitrary setTimeout): the cells are injected synchronously just
+   above, but their geometry isn't final until the browser has laid out and painted
+   them. Two chained rAFs land us immediately AFTER that first paint, which is
+   deterministic — a timeout would be a guess that's either too early or needlessly
+   laggy. #compareSplit's top edge doesn't depend on media intrinsic size, so we don't
+   need to wait on img/video load for `block: "start"` to be correct.
+
+   Honours prefers-reduced-motion (instant jump, same final position). */
+function scrollCompareIntoView() {
+  const split = $("compareSplit");
+  if (!split) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const behavior = reduce ? "auto" : "smooth";
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try {
+      // block:"start"  → comparison top-aligned in .pcmp__panel (the real scroll container)
+      // inline:"nearest" → never nudges horizontally, so the RTL layout is left untouched
+      split.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+    } catch (_) {
+      try { split.scrollIntoView(true); } catch (_) {}   // legacy Safari: no options object
+    }
+  }));
+}
+
 /* Build + reveal the side-by-side Compare overlay from the two selected fits. */
 function openCompareOverlay() {
   const data = readGallery();
@@ -5616,12 +5673,15 @@ function openCompareOverlay() {
   }).join("");
   ov.hidden = false;
   requestAnimationFrame(() => ov.classList.add("show"));
+  lockPageScroll();          // mobile: swipes now belong to the panel, not the page behind it
+  scrollCompareIntoView();   // smooth-scroll the side-by-side in once it has laid out
 }
 function closeCompare() {
   const ov = $("pearCompare");
   if (!ov || ov.hidden) return;
   ov.classList.remove("show");
   ov.hidden = true;
+  unlockPageScroll();                     // hand scrolling back to the page
   const split = $("compareSplit");
   if (split) split.innerHTML = "";        // stop the two playing clips
 }

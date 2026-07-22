@@ -569,6 +569,9 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .back-to-store {
   align-self: center;
   display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0;   /* LAYOUT FIX: let this pill itself shrink inside the nav zone —
+                     without this it refused to shrink below its label's natural
+                     width and spilled out of the nav box into the brand lockup. */
   padding: 7px 13px;
   border-radius: var(--pill);
   background: var(--glass-strong);
@@ -585,14 +588,22 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   border-color: rgba(141, 182, 0, .55);
   box-shadow: 0 8px 22px rgba(141, 182, 0, .2);
 }
-.back-to-store svg  { flex: none; }
-.back-to-store span { line-height: 1; }
+.back-to-store svg  { flex: none; }   /* icon is fixed-size — only the label may shrink */
+/* LAYOUT FIX: truncate the label with an ellipsis instead of letting it overflow
+   the pill (which is what was visually overlapping the pear logo). min-width:0
+   lets the flex-item span shrink at all; the rest is standard ellipsis truncation. */
+.back-to-store span {
+  line-height: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* Edit Measurements — same frosted pill language as Back to Store, but
    pear-green accented (an action, not a navigation link). */
 .btn-edit-measurements {
   align-self: center;
   display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0;   /* LAYOUT FIX: this is the button the logo was overlapping — same
+                     shrink-instead-of-spill fix as .back-to-store above. */
   padding: 7px 13px; margin: 0; border: 0;
   border-radius: var(--pill);
   background: var(--pear-tint);
@@ -609,19 +620,31 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   box-shadow: 0 8px 22px rgba(141, 182, 0, .2);
 }
 .btn-edit-measurements:active { transform: scale(.96); }
-.btn-edit-measurements svg  { flex: none; }
-.btn-edit-measurements span { line-height: 1; }
+.btn-edit-measurements svg  { flex: none; }   /* icon is fixed-size — only the label may shrink */
+/* LAYOUT FIX: same ellipsis-truncation fix as .back-to-store span — this label no
+   longer overflows the button into the neighbouring logo/title zone. */
+.btn-edit-measurements span {
+  line-height: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 @media (max-width: 480px) {
   .btn-edit-measurements span { display: none; }   /* icon-only on the smallest screens */
 }
 
+/* LAYOUT FIX: same shrink-and-ellipsize treatment as the nav pills above, so the
+   "PEAR" wordmark + subtitle truncate gracefully instead of overflowing the brand
+   zone into the actions zone (.app-header__titles already carries min-width:0). */
 .app-header__brand {
   font-family: "Urbanist"; font-weight: 900; font-size: 1.4rem; letter-spacing: .04em;
-  line-height: 1;
+  line-height: 1; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: linear-gradient(120deg, var(--pear-deep), var(--pear));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-.app-header__sub { color: var(--muted); font-size: .84rem; line-height: 1.2; }
+.app-header__sub {
+  color: var(--muted); font-size: .84rem; line-height: 1.2; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .app-header__engine { font-size: .7rem; color: var(--muted-2); transition: color .3s, text-shadow .3s; }
 .app-header__engine.live { color: var(--pear); text-shadow: 0 0 10px var(--pear-glow); }
 .app-header__engine.mock { color: var(--muted-2); }

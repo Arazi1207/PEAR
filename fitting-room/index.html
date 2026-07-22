@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PEAR">
-    <title>PEAR — חדר הלבשה וירטואלי · Lucy VTON</title>
+    <title>PEAR — חדר הלבשה וירטואלי</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,7 +35,8 @@
 <aside class="lux-rail lux-rail--right" aria-hidden="true">
   <div class="lux-rail__grid"></div>
   <span class="lux-rail__type">VIRTUAL TRY-ON // ALGORITHMIC FIT</span>
-  <span class="lux-rail__meta">LUCY VTON · REALTIME</span>
+  <!-- CONTENT CLEANUP: was "LUCY VTON · REALTIME" — generic capability label, no provider name -->
+  <span class="lux-rail__meta">VIRTUAL FIT · REALTIME</span>
 </aside>
 
 <!-- ░░ Bitten-Pear screen transition overlay (Screen 1 → Screen 2) ░░ -->
@@ -233,7 +234,8 @@
             <img class="brand-mark" src="/pear-logo.png" alt="PEAR Logo" decoding="async">
             <span class="app-header__titles">
                 <span class="app-header__brand">PEAR</span>
-                <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+                <!-- CONTENT CLEANUP: dropped the "· Lucy VTON" provider suffix -->
+                <span class="app-header__sub">חדר הלבשה וירטואלי</span>
             </span>
         </div>
 
@@ -315,7 +317,9 @@
                     <div class="pear-loader__shadow"></div>
                 </div>
                 <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
-                <div class="scan-overlay__sub" id="scanSub">Lucy VTON · photorealistic render</div>
+                <!-- CONTENT CLEANUP: dropped the "Lucy VTON ·" provider prefix (app.js also
+                     overwrites this textContent at go-live — updated there too, see goLive()) -->
+                <div class="scan-overlay__sub" id="scanSub">Photorealistic render</div>
             </div>
 
             <div class="camera-card__placeholder" id="camPlaceholder">
