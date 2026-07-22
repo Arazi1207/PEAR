@@ -609,8 +609,15 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   line-height: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-@media (max-width: 480px) {
-  .btn-edit-measurements span { display: none; }   /* icon-only on the smallest screens */
+/* OVERLAP FIX: nav now also carries the logo (moved in from the old brand-lockup),
+   so its realistic minimum footprint is wider than it used to be — and the
+   geometric max-width cap above means nav MUST fit inside a narrower box on small
+   screens. Drop both labels to icon-only a bit earlier (560px, was 480px, and
+   back-to-store's label wasn't covered at all before) so there's still room for
+   nav to satisfy that cap without clipping its own icons. */
+@media (max-width: 560px) {
+  .back-to-store span,
+  .btn-edit-measurements span { display: none; }
 }
 
 /* LAYOUT FIX: same shrink-and-ellipsize treatment as the nav pills above, so the
@@ -2503,21 +2510,41 @@ body.gd-open { overflow: hidden; }
 /* Header layout — nav zone (logo + back-to-store + edit-measurements, right in
    RTL) and actions zone (cart, left in RTL) sit on the row; the PEAR
    wordmark + subtitle are pulled OUT of flow and centred across the FULL
-   header width via position:absolute (see .app-header{position:relative}),
-   so they stay dead-centre regardless of how wide the side zones get —
-   unlike equal-flex centring, this can't be pushed off-centre/overlapped by
-   the nav zone growing (e.g. when edit-measurements' label is visible). */
+   header width via position:absolute (see .app-header{position:relative}).
+
+   OVERLAP FIX: z-index:1 below only decides WHICH element wins visually
+   WHEN nav/actions and the centred title geometrically collide — it never
+   stopped the collision itself, which is exactly what was reported (the
+   edit-measurements button rendering on top of, and hiding, the subtitle
+   text). Since .app-header__titles is out of flex flow, growing nav/actions
+   does NOT push it aside the way normal flex siblings would. The actual fix
+   is to hard-cap nav/actions so they are GEOMETRICALLY INCAPABLE of reaching
+   the title's reserved centre strip: each side gets at most half of whatever
+   width the title's own max-width (below) doesn't claim. This makes
+   overlap impossible by construction, not just lower-priority — nav/actions'
+   existing min-width:0 + ellipsis truncation (further below) then shrinks
+   their labels once the zone itself is capped tighter than its content.
+   MUST stay numerically in sync with .app-header__titles' max-width. */
 .app-header__nav,
 .app-header__actions {
   display: flex; align-items: center; gap: 8px; min-width: 0;
-  position: relative; z-index: 1;   /* stay above the absolutely-centred titles */
+  max-width: calc((100% - min(40vw, 260px)) / 2 - 8px);
+  /* Final backstop for the narrowest real phones (~320-360px), where even
+     icon-only nav content (logo + two pill icons) can still add up to more
+     than the calc() above allows. overflow:hidden means the worst case is a
+     hard clip at nav's OWN edge — never a spill into the title zone, which is
+     the one outcome that must be impossible. Hover glow (box-shadow) on the
+     pills can get clipped in that narrow case, but hover is largely moot on
+     touch/mobile anyway, and this only ever engages at widths where it would. */
+  overflow: hidden;
+  position: relative; z-index: 1;   /* belt-and-suspenders: nav/actions win if this is ever off by a hair */
 }
 .app-header__actions { justify-content: flex-end; }
 .app-header__actions .cart-btn { margin: 0; }   /* zone handles placement now */
 .app-header__titles {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 3px; min-width: 0; max-width: min(52vw, 320px);
+  gap: 3px; min-width: 0; max-width: min(40vw, 260px);   /* kept in sync with the calc() above */
   pointer-events: none;   /* decorative text only — never blocks the nav/actions above it */
 }
 /* Header mark is a raster <img>; height-driven so its portrait width stays
