@@ -144,6 +144,27 @@ const CREDITS_PER_SESSION = CREDITS_PER_SECOND * (LIVE_DURATION_MS / 1000);   //
    down, so it can never bill indefinitely. Generous — real warm-up is ~1s. */
 const FIRST_FRAME_TIMEOUT_MS = 15000;
 
+/* ── Black-screen / camera-off gate (credit saver) ───────────────────────────
+   Before we mint a token or open the billed Decart session, we sample the LOCAL
+   webcam and refuse to go live if it's a black screen (lens covered, camera off,
+   privacy shutter, or a stream that only ever produces black frames). Streaming a
+   black feed to Decart still burns the full CREDITS_PER_SESSION for zero usable
+   render, so this pays for itself the first time a user forgets to uncover the lens.
+
+   Two independent signals, sampled from a tiny downscaled canvas (cheap, runs in a
+   few ms). A frame is judged "black" if EITHER holds — both thresholds are extreme
+   enough that even a dim, poorly-lit but genuinely open camera clears them, so we
+   don't false-block a paying user:
+     • CAMERA_BLACK_AVG_LUMA   — mean Rec.601 luma (0-255) at/below this ⇒ effectively black.
+     • CAMERA_BLACK_PIXEL_FRAC — fraction of near-black pixels at/above this ⇒ covered/off.
+   We take the BRIGHTEST of a few spaced samples (auto-exposure warm-up can emit a
+   transient black frame right after play()), so only a persistently black feed blocks. */
+const CAMERA_BLACK_AVG_LUMA   = 12;     // mean luma ≤ 12/255 ⇒ black feed
+const CAMERA_BLACK_PIXEL_CUT  = 16;     // a pixel counts as "near-black" when its luma < this
+const CAMERA_BLACK_PIXEL_FRAC = 0.985;  // ≥ 98.5% near-black pixels ⇒ covered lens / camera off
+const CAMERA_BLACK_SAMPLES    = 5;      // frames to sample before judging (keep the brightest)
+const CAMERA_BLACK_SAMPLE_MS  = 60;     // gap between samples — spans ~300ms of exposure warm-up
+
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
    downscales the canvas to LIVE_W×LIVE_H before capture, so Decart receives this
@@ -1369,6 +1390,71 @@ async function startCamera(facing = cameraFacing) {
 
   try { return await cameraStartPromise; }
   finally { cameraStartPromise = null; }
+}
+
+/* Sample ONE frame of the live #webcam into a tiny downscaled canvas and measure
+   how dark it is. Returns { ready, avgLuma, blackFrac }:
+     • ready=false  → no decoded frame yet (videoWidth 0 / not paintable) — caller
+                      must NOT treat this as black, only as "can't judge yet".
+     • avgLuma      → mean Rec.601 luma across the frame (0-255).
+     • blackFrac    → fraction of pixels below CAMERA_BLACK_PIXEL_CUT (near-black).
+   Same-origin MediaStream pixels are not tainted, so getImageData never throws for
+   security; any unexpected error still fails OPEN (ready=false) so we never wrongly
+   block a paying user. 64×36 keeps this well under a millisecond. */
+function sampleWebcamLuma() {
+  const v = $("webcam");
+  if (!v || !v.videoWidth || !v.videoHeight) return { ready: false, avgLuma: 0, blackFrac: 1 };
+  try {
+    const cw = 64, ch = 36;                       // downscaled probe — cheap, enough for a luma verdict
+    const cnv = document.createElement("canvas");
+    cnv.width = cw; cnv.height = ch;
+    const ctx = cnv.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, cw, ch);
+    const data = ctx.getImageData(0, 0, cw, ch).data;
+    const total = cw * ch;
+    let sum = 0, black = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      // Rec.601 luma — matches how "brightness" reads to the human eye.
+      const luma = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+      sum += luma;
+      if (luma < CAMERA_BLACK_PIXEL_CUT) black++;
+    }
+    return { ready: true, avgLuma: sum / total, blackFrac: black / total };
+  } catch (_) {
+    return { ready: false, avgLuma: 0, blackFrac: 1 };   // fail open — never block on a probe error
+  }
+}
+
+/* Black-screen / camera-off verdict for the CREDIT-SAVING gate in goLive().
+   Sends nothing to any API — it only inspects local webcam pixels. Samples a few
+   frames (CAMERA_BLACK_SAMPLES) spaced by CAMERA_BLACK_SAMPLE_MS and keeps the
+   BRIGHTEST one, so a single transient black frame during auto-exposure warm-up
+   doesn't trip the gate — only a persistently black feed does.
+   Returns true ONLY when we have a real, paintable frame that is black; if we never
+   get a decodable frame we return false (fail open — let the normal connect path and
+   its FIRST_FRAME_TIMEOUT_MS safety net handle a truly dead camera). */
+async function cameraLooksBlack() {
+  let sawFrame = false;
+  let bestLuma = -1;          // brightest mean luma seen
+  let bestBlackFrac = 1;      // lowest near-black fraction seen (from the brightest frame)
+  for (let i = 0; i < CAMERA_BLACK_SAMPLES; i++) {
+    const s = sampleWebcamLuma();
+    if (s.ready) {
+      sawFrame = true;
+      if (s.avgLuma > bestLuma) { bestLuma = s.avgLuma; bestBlackFrac = s.blackFrac; }
+    }
+    if (i < CAMERA_BLACK_SAMPLES - 1) {
+      await new Promise((r) => setTimeout(r, CAMERA_BLACK_SAMPLE_MS));
+    }
+  }
+  if (!sawFrame) return false;   // couldn't judge → don't block here; connect path guards a dead camera
+  const isBlack = bestLuma <= CAMERA_BLACK_AVG_LUMA || bestBlackFrac >= CAMERA_BLACK_PIXEL_FRAC;
+  if (isBlack) {
+    console.warn("[PEAR] Black-screen gate tripped — skipping billed session " +
+      "(avgLuma=" + bestLuma.toFixed(1) + " ≤ " + CAMERA_BLACK_AVG_LUMA +
+      " or blackFrac=" + bestBlackFrac.toFixed(3) + " ≥ " + CAMERA_BLACK_PIXEL_FRAC + ")");
+  }
+  return isBlack;
 }
 
 /* Flip between the front ("user") and rear ("environment") camera. Stops ALL current
@@ -3687,6 +3773,21 @@ async function goLive() {
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
 
+    // ── Black-screen / camera-off gate (credit saver) ────────────────────────
+    // Runs AFTER the camera is live but BEFORE any token mint / WebRTC connect /
+    // billing. Streaming a black feed to Decart would burn the full
+    // CREDITS_PER_SESSION for a render nobody can use, so if the local webcam is a
+    // black screen (lens covered, camera off, privacy shutter) we bail out here —
+    // no /api/realtime-token, no connectRealtime(), no credits — and tell the user
+    // exactly what to fix. cameraLooksBlack() only inspects local pixels; it sends
+    // nothing to any API.
+    if (await cameraLooksBlack()) {
+      showCamError("זוהה מסך שחור. הפעל את המצלמה או הסר חסימה מהעדשה כדי להמשיך. " +
+        "(Black screen detected. Please turn on your camera or remove any obstacles to proceed.)");
+      toast("📷 מסך שחור — המדידה לא הופעלה כדי לחסוך קרדיטים");
+      return;   // finally{} resets busy + the capture button; no billed session opened
+    }
+
     // AI Auto: warm the front+back Blob cache NOW so both assets download in parallel
     // with the WebRTC handshake — the first orientation flip then costs zero fetches.
     if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
@@ -5718,7 +5819,6 @@ function init() {
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> — מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
-<<<<<<< HEAD
   // Public demo: skip the name/phone identity gate entirely and land the visitor
   // directly on the (required) size form — registration isn't part of this demo's
   // flow. (Production embeds that DO want the identity gate back can restore the
@@ -5729,35 +5829,6 @@ function init() {
   if (DEMO_GATE && isDemoGateLocked()) {
     showDemoGateLockedMessage();
   } else {
-=======
-  // Identity gate — ALWAYS Step 0 for the main app / a real merchant embed
-  // (routing to Case A/B/C happens after submit, see setupIdentityGate). The
-  // ONE exception: DEMO_MODE (the marketing-site widget demo, see the "DEMO
-  // MODE" block above) skips straight to the size form — no registration.
-  if (DEMO_MODE) {
-    showSizeForm();
-  } else {
-    setupIdentityGate();
-  }
-
-  // Permanent "Update Measurements" CTA + the 30-day re-measure reminder modal.
-  $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
-  $("reminder-update-now")?.addEventListener("click", reminderUpdateNow);
-  $("reminder-dismiss")?.addEventListener("click", reminderDismiss);
-  // Backdrop click / Esc = the same "Dismiss" action (never traps the user — Case C
-  // dismissal must still route into the fitting room, not just close the modal).
-  $("updateReminderModal")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) reminderDismiss();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("updateReminderModal")?.hidden) reminderDismiss();
-  });
-  // "Edit Measurements" — always-visible Screen 2 CTA. Case B/C skip Screen 1
-  // entirely, so it may never have been revealed; this brings it up pre-filled.
-  $("btn-edit-measurements")?.addEventListener("click", () => {
-    if (isDemoLocked()) { showDemoLockedScreen(); return; }
-    backToCalculator();
->>>>>>> f0181012301ca432339ec6f0db361df7ae89b264
     showSizeForm();
   }
 
