@@ -122,6 +122,7 @@ const trackLimiter    = rateLimit({ windowMs: 60_000, max: 60 });   // analytics
 const proxyLimiter    = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
 const authLimiter     = rateLimit({ windowMs: 60_000, max: 10 });   // admin login — brake password guessing
 const classifyLimiter = rateLimit({ windowMs: 60_000, max: 20 });   // garment front/back classification — calls Gemini
+const storeCatalogLimiter = rateLimit({ windowMs: 60_000, max: 30 }); // "Complete the Look" store-scoped catalog reads
 
 /* ── CORS enforcement ────────────────────────────────────────────────────────
    The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
@@ -500,16 +501,16 @@ async function clearSessionLogs() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   USER IDENTITY — first-time visitors enter name + phone once; the browser is
+   USER IDENTITY — first-time visitors enter name + email once; the browser is
    then remembered via a client-generated device_id (localStorage 'pear_device_id').
    On return visits the client looks the user up by device_id and skips the form,
    so new measurements just attach to the existing profile via sessions.user_id.
    ══════════════════════════════════════════════════════════════════════════ */
 /* device_id is NOT unique (a shared/QA browser can legitimately attach to several
-   different phone-identified profiles over its lifetime — see V3 migration), so
+   different email-identified profiles over its lifetime — see V3 migration), so
    this can no longer assume a single row. Used only by the admin-adjacent
    GET /api/users/:deviceId debug lookup — never by createUser's identification
-   logic, which must go by phone alone. Returns the most recently touched row. */
+   logic, which must go by email alone. Returns the most recently touched row. */
 async function findUserByDeviceId(deviceId) {
   const { data, error } = await supabase
     .from("users")
@@ -522,28 +523,28 @@ async function findUserByDeviceId(deviceId) {
   return data || null;
 }
 
-/* Phone is the human-facing UNIQUE identity (a person keeps their number across
+/* Email is the human-facing UNIQUE identity (a person keeps their address across
    browsers/devices) — enforced both here in application logic AND by a UNIQUE
-   index in the database (see supabase_setup_v3.sql). We store and compare it
-   normalized to digits only so "050-1234567", "0501234567" and "050 123 4567"
-   all resolve to the same user. */
-function normalizePhone(phone) {
-  return String(phone || "").replace(/\D/g, "");
+   index in the database (see supabase_setup_v6.sql). We store and compare it
+   normalized to trimmed lowercase so "Dana@Example.com" and "dana@example.com "
+   both resolve to the same user. */
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
 }
 
-async function findUserByPhone(phone) {
-  const norm = normalizePhone(phone);
+async function findUserByEmail(email) {
+  const norm = normalizeEmail(email);
   if (!norm) return null;
   // .limit(1) BEFORE reading a single row: if pre-existing legacy rows (from
-  // before phone became the identity key) normalize to the same digits, a bare
+  // before email became the identity key) normalize to the same address, a bare
   // .maybeSingle() throws "multiple rows returned" and every lookup for that
-  // phone 500s — masquerading as "the whole feature doesn't work." Taking the
+  // email 500s — masquerading as "the whole feature doesn't work." Taking the
   // most recent of any duplicates keeps this working even before that legacy
   // data is cleaned up.
   const { data, error } = await supabase
     .from("users")
     .select("*")
-    .eq("phone", norm)
+    .eq("email", norm)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -576,7 +577,7 @@ async function latestMeasurementsForUser(userId) {
 }
 
 /* Strip a user row down to the non-PII fields the PUBLIC client actually needs
-   (returning-visitor recognition uses id + name only). The phone number is PII and
+   (returning-visitor recognition uses id + name only). The email address is PII and
    must NEVER be returned by an unauthenticated endpoint — only the admin API, which
    is auth-gated, may see it. */
 function publicUser(u) {
@@ -584,14 +585,14 @@ function publicUser(u) {
   return { id: u.id, name: u.name, created_at: u.created_at };
 }
 
-/* POST /api/users — identify (or create) a user by PHONE. Phone is the ONLY
+/* POST /api/users — identify (or create) a user by EMAIL. Email is the ONLY
    lookup key here — device_id is never consulted for identification, it is
    purely an audit field written/refreshed on the matched row. This is
    deliberate: an earlier version checked device_id FIRST ("known browser →
-   return its profile"), which meant typing a different name/phone into the
+   return its profile"), which meant typing a different name/email into the
    identity form on a browser that had registered before silently returned the
    PREVIOUS visitor's real saved profile instead of respecting what was typed.
-   See supabase_setup_v3.sql for the matching schema change (phone UNIQUE,
+   See supabase_setup_v6.sql for the matching schema change (email UNIQUE,
    device_id no longer unique). Returns { ok, user, ...measurements }. */
 async function createUser(req, res) {
   if (storageUnavailable(res)) return;
@@ -599,12 +600,12 @@ async function createUser(req, res) {
   const str = (v, max = 80) => (v == null ? "" : String(v).trim().slice(0, max));
   const deviceId = str(b.deviceId, 64);
   const name     = str(b.name, 80);
-  const phone    = normalizePhone(str(b.phone, 40));
+  const email    = normalizeEmail(str(b.email, 254));
 
-  if (!deviceId || !name || !phone) {
+  if (!deviceId || !name || !email) {
     return res.status(400).json({
       error: "missing_fields",
-      message: "deviceId, name and phone are all required.",
+      message: "deviceId, name and email are all required.",
     });
   }
 
@@ -613,51 +614,51 @@ async function createUser(req, res) {
 
   // Same person, matching name → re-link this device to their profile (an audit
   // update only — never used for lookup) and hand back their saved measurements.
-  // Different name on the same phone → BLOCK; that phone is taken. Shared by both
+  // Different name on the same email → BLOCK; that email is taken. Shared by both
   // the normal path and the insert-race fallback below.
-  const respondForExistingPhone = async (row) => {
+  const respondForExistingEmail = async (row) => {
     if (sameName(row.name, name)) {
       await supabase.from("users").update({ device_id: deviceId }).eq("id", row.id);
-      console.log(`[users] name+phone match → auto-login user ${row.id}, relinked device "${deviceId}"`);
+      console.log(`[users] name+email match → auto-login user ${row.id}, relinked device "${deviceId}"`);
       const m = await latestMeasurementsForUser(row.id).catch(() => null);
       return {
         status: 200,
-        body: { ok: true, user: publicUser({ ...row, device_id: deviceId }), existed: true, matched: "phone", ...(m || {}) },
+        body: { ok: true, user: publicUser({ ...row, device_id: deviceId }), existed: true, matched: "email", ...(m || {}) },
       };
     }
-    console.warn(`[users] phone already registered to a different name → blocked`);
+    console.warn(`[users] email already registered to a different name → blocked`);
     return {
       status: 409,
-      body: { ok: false, error: "phone_taken", message: "This phone number is already registered to another user." },
+      body: { ok: false, error: "email_taken", message: "This email address is already registered to another user." },
     };
   };
 
   try {
-    const byPhone = await findUserByPhone(phone);
-    if (byPhone) {
-      const { status, body } = await respondForExistingPhone(byPhone);
+    const byEmail = await findUserByEmail(email);
+    if (byEmail) {
+      const { status, body } = await respondForExistingEmail(byEmail);
       return res.status(status).json(body);
     }
 
     const { data, error } = await supabase
       .from("users")
-      .insert([{ device_id: deviceId, name, phone }])
+      .insert([{ device_id: deviceId, name, email }])
       .select()
       .single();
 
     if (error) {
-      // Race: another request registered the SAME PHONE between our check and this
-      // insert (phone now has a UNIQUE index — see supabase_setup_v3.sql). Re-run
-      // the same phone-match/block decision against the row that won the race.
-      const raced = await findUserByPhone(phone);
+      // Race: another request registered the SAME EMAIL between our check and this
+      // insert (email now has a UNIQUE index — see supabase_setup_v6.sql). Re-run
+      // the same email-match/block decision against the row that won the race.
+      const raced = await findUserByEmail(email);
       if (raced) {
-        const { status, body } = await respondForExistingPhone(raced);
+        const { status, body } = await respondForExistingEmail(raced);
         return res.status(status).json(body);
       }
       throw new Error(error.message);
     }
 
-    console.log(`[users] created user ${data.id} (phone-unique, device "${deviceId}")`);
+    console.log(`[users] created user ${data.id} (email-unique, device "${deviceId}")`);
     res.json({ ok: true, user: publicUser(data), existed: false });
   } catch (err) {
     console.error("[users] create failed:", err?.message);
@@ -676,7 +677,7 @@ async function getUserByDevice(req, res) {
     if (!user) return res.status(404).json({ ok: false, error: "not_found" });
     // Include the user's latest saved measurements (own data, keyed by their own
     // device) so the client can prefill the form and run the 30-day re-measure
-    // check. Still no phone/PII in the payload.
+    // check. Still no email/PII in the payload.
     const m = await latestMeasurementsForUser(user.id).catch(() => null);
     res.json({ ok: true, user: publicUser(user), ...(m || {}) });
   } catch (err) {
@@ -1055,6 +1056,37 @@ app.post("/api/classify-images", classifyLimiter, async (req, res) => {
     }
   }
   res.json({ results });
+});
+
+/* POST /api/store-catalog — { domain, type } → { items: [{ image_url, classification }] }
+   Backs "Complete the Look" for a widget/store session (see fetchStoreLookItems in
+   fitting-room/app.js): recommends garments already cached for the SAME store domain
+   instead of the hardcoded demo PEAR_CATALOG — a real shopper should never be shown
+   stock photos of unrelated merchandise. `type` is accepted but NOT filtered on here:
+   garment_cache's `classification` column is front|back (see classifyFrontBack above),
+   not a garment category, so the client filters these same rows by category itself
+   via guessTypeFromUrl(). No cached rows yet for a domain → an empty list, which the
+   client treats as "hide the section" rather than falling back to the demo catalog. */
+app.post("/api/store-catalog", storeCatalogLimiter, async (req, res) => {
+  const domain = typeof req.body?.domain === "string" ? req.body.domain.trim() : "";
+  if (!domain) {
+    return res.status(400).json({ error: "missing_domain", message: "domain is required." });
+  }
+  if (!supabase) {
+    return res.json({ items: [] });   // DB not configured — empty result, not an error the caller must handle
+  }
+  try {
+    const { data, error } = await supabase
+      .from("garment_cache")
+      .select("image_url, classification")
+      .ilike("image_url", `%${domain}%`)
+      .limit(8);
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error("[store-catalog] query failed:", err?.message || err);
+    res.status(500).json({ error: "query_failed", message: err?.message || String(err) });
+  }
 });
 
 app.all("/api/*", (req, res) => {

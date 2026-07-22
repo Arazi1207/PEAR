@@ -87,7 +87,6 @@
   var _reqBoth = script ? script.getAttribute("data-pear-require-both-views") : null;
   var REQUIRE_BOTH_VIEWS = _reqBoth !== null && _reqBoth !== "false";
 
-<<<<<<< HEAD
   /* Opt-in strict one-time measurement gate for public demo embeds (e.g. the
      marketing site): when data-pear-demo-gate is the EXACT string "true", the
      fitting room skips its normal name/phone registration and allows exactly one
@@ -113,14 +112,14 @@
   }
   function persistDemoGateLock() {
     try { w.localStorage.setItem(DEMO_GATE_KEY, "true"); } catch (_) {}
-=======
+  }
+
   /* ── demo mode — opt-in, explicit, OFF by default ─────────────────────────
-     This SAME script embeds on the main platform and on real merchant stores
-     (full registration, no measurement limit — the default, untouched
-     behavior) AND on the marketing site's own public demo widget (no
-     registration, one measurement per browser). The two must never be
-     conflated, so demo behavior only activates when the embedding page's own
-     <script> tag explicitly opts in:
+     A SEPARATE, older one-time-lock mechanism that coexists with DEMO_GATE above
+     (fitting-room/app.js reads both `demo_gate=1` and `pear_demo=1` as distinct,
+     parallel triggers — see openModal()'s query-string builder below). Demo
+     behavior only activates when the embedding page's own <script> tag
+     explicitly opts in:
        <script src="…/pear-widget.js" data-pear-key="…" data-pear-demo="true">
      Absent (every normal embed) → DEMO_MODE is false and nothing below in
      this file behaves any differently than before demo mode existed. */
@@ -148,9 +147,11 @@
     btn.setAttribute("aria-disabled", "true");
     btn.textContent = isHebrewPage() ? "כבר ביצעת מדידה" : "Already Measured";
   }
-  function lockAllButtons() {
+  // Named distinctly from DEMO_GATE's lockAllButtons() below (two coexisting
+  // mechanisms with two different button-tracking approaches — this one walks
+  // the injectedButtons array; DEMO_GATE's queries .pear-widget-btn directly).
+  function lockAllDemoModeButtons() {
     for (var i = 0; i < injectedButtons.length; i++) lockButton(injectedButtons[i]);
->>>>>>> f0181012301ca432339ec6f0db361df7ae89b264
   }
 
   /* Garment-category keyword map (scanned against product name + page title). */
@@ -269,6 +270,17 @@
 
   function explicitAttr(img, name) {
     return readAttr(img, name) || readAttr(img.parentElement, name);
+  }
+
+  /* Shopify (and Shopify-alike) variant id — read off the store's own Add-to-Cart
+     form so the fitting room's "הוסף לסל" button can hand it back for a real
+     /cart/add.js call. Prefer the id scoped to THIS button's own form (multi-
+     product pages); fall back to a page-wide lookup for bare PDPs. */
+  function extractVariantId(atcBtn) {
+    var form = atcBtn && atcBtn.closest ? atcBtn.closest("form") : null;
+    var input = (form && form.querySelector('input[name="id"], select[name="id"]')) ||
+                d.querySelector('input[name="id"], select[name="id"]');
+    return input ? input.value : "";
   }
 
   /* Fall back to the next distinct product-gallery image as an approximate rear
@@ -423,7 +435,14 @@
         "font-size:20px;border:none;cursor:pointer;line-height:40px;" +
         "padding:0;text-align:center;" +
       "}" +
-      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}";
+      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}" +
+      ".pear-widget-toast{" +
+        "position:fixed;top:24px;left:50%;transform:translate(-50%,-12px);z-index:1000000;" +
+        "background:#111;color:#fff;padding:12px 22px;border-radius:999px;" +
+        "font-size:14px;font-weight:600;font-family:inherit;white-space:nowrap;" +
+        "opacity:0;pointer-events:none;transition:opacity 0.25s,transform 0.25s;" +
+      "}" +
+      ".pear-widget-toast.show{opacity:1;transform:translate(-50%,0);}";
     var style = d.createElement("style");
     style.className = "pear-widget-styles";
     style.textContent = css;
@@ -461,6 +480,27 @@
       persistDemoGateLock();
       lockAllButtons();
     });
+  }
+
+  /* ── toast (Add-to-Cart confirmation/error) ───────────────────────────────
+     Own z-index sits ABOVE the fitting-room overlay (999999) so it's visible
+     while the modal is still open — the click that triggers it happens inside
+     the iframe, before the shopper closes the modal. */
+  var toastEl = null, toastTimer = 0;
+  function showToast(msg) {
+    injectStyles();
+    if (!toastEl) {
+      toastEl = d.createElement("div");
+      toastEl.className = "pear-widget-toast";
+      toastEl.setAttribute("role", "status");
+      d.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    toastEl.classList.remove("show");
+    void toastEl.offsetWidth;
+    toastEl.classList.add("show");
+    w.clearTimeout(toastTimer);
+    toastTimer = w.setTimeout(function () { toastEl.classList.remove("show"); }, 2600);
   }
 
   /* ── front/back classification (Gemini, via the PEAR server) ──────────────────
@@ -543,17 +583,15 @@
          switcher. Sent only when there's more than one distinct image. */
       (garment.images && garment.images.length > 1
         ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
+      (garment.variantId ? "&garment_variant_id=" + encodeURIComponent(garment.variantId) : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
-<<<<<<< HEAD
       (DEMO_GATE ? "&demo_gate=1" : "") +
-      (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "");
-=======
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "") +
       /* Tells the fitting room to skip registration + apply the one-time lock —
          see the "demo mode" block above. Only ever set for the marketing-site
-         embed; every other embed (main app, real merchants) omits it entirely. */
+         embed; every other embed (main app, real merchants) omits it entirely.
+         Independent of DEMO_GATE above — the two are separate, coexisting triggers. */
       (DEMO_MODE ? "&pear_demo=1" : "");
->>>>>>> f0181012301ca432339ec6f0db361df7ae89b264
     var src = PEAR_BASE + "/fitting-room/?" + params;
     console.log("[PEAR widget] openModal() — iframe src:", src);
 
@@ -734,7 +772,8 @@
         back: findGalleryBack(primaryUrl, d),
         images: pgImages,
         name: pgName,
-        category: detectCategory(pgName)
+        category: detectCategory(pgName),
+        variantId: extractVariantId(btn)
       };
     }
 
@@ -754,7 +793,8 @@
             back: explicitAttr(img, "data-pear-back") || findGalleryBack(url, node),
             images: cardImages,
             name: name,
-            category: detectCategory(name)
+            category: detectCategory(name),
+            variantId: extractVariantId(btn)
           };
         }
       }
@@ -769,7 +809,8 @@
       return {
         url: primary.url, back: primary.back,
         images: fallbackImages,
-        name: pname, category: detectCategory(pname)
+        name: pname, category: detectCategory(pname),
+        variantId: extractVariantId(btn)
       };
     }
     return null;
@@ -827,7 +868,6 @@
     btn.className = "pear-widget-btn";
     btn.type = "button";
     btn.textContent = getButtonText();
-<<<<<<< HEAD
 
     /* Demo-gate: render already-locked and skip wiring the click handler
        entirely when this browser has already spent its one measurement —
@@ -837,16 +877,8 @@
       return btn;
     }
 
-    btn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      /* Logic safeguard: block re-entry even if this button instance somehow
-         still has a click listener attached after the gate locked mid-session
-         (e.g. the postMessage lock landed between two rapid clicks). Disabled
-         styling is UI; this is the actual gate. */
-      if (DEMO_GATE && isDemoGateLockedLocally()) return;
-      if (activePopup) { closePopup(); return; }   // second click on the button toggles it closed
-=======
+    // Demo-mode's separate one-time lock (coexists with demo-gate above — see the
+    // "demo mode" block near the top of this file).
     if (isDemoLocked()) {
       /* Locked from a previous visit on this browser+origin — render disabled from
          the start; a genuinely disabled <button> never dispatches click events, so
@@ -856,7 +888,11 @@
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
->>>>>>> f0181012301ca432339ec6f0db361df7ae89b264
+        /* Logic safeguard: block re-entry even if this button instance somehow
+           still has a click listener attached after the demo-gate lock landed
+           mid-session (e.g. the postMessage lock arrived between two rapid
+           clicks). Disabled styling is UI; this is the actual gate. */
+        if (DEMO_GATE && isDemoGateLockedLocally()) return;
 
         /* Classify the full gallery, sort front-first/back-second, then open the
            fitting room immediately with everything — no picker popup. */
@@ -868,11 +904,11 @@
           btn.textContent = originalText;
           var sorted = sortByFrontBack(imgs, results);
           var resolved = resolveFrontBack(imgs, results);
-          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted });
+          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted, variantId: garment.variantId });
         }).catch(function (err) {
           console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
           btn.textContent = originalText;
-          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs });
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs, variantId: garment.variantId });
         });
       });
     }
@@ -911,7 +947,8 @@
     var btn = makePearButton({
       url: primary.url, back: primary.back,
       images: collectGalleryImages(primary.url, d),
-      name: name, category: detectCategory(name)
+      name: name, category: detectCategory(name),
+      variantId: extractVariantId(null)
     });
     var h1 = d.querySelector("h1");
     if (h1 && h1.parentNode) h1.parentNode.insertBefore(btn, h1.nextSibling);
@@ -947,7 +984,36 @@
     if (e.origin !== PEAR_BASE) return;
     if (!e.data || e.data.source !== "pear-fitting-room" || e.data.type !== "pear-demo-measured") return;
     setDemoLocked();
-    lockAllButtons();
+    lockAllDemoModeButtons();
+  });
+
+  /* Fitting room's "הוסף לסל" button posts this on click (see lux-interactions.js
+     in fitting-room/) so the actual cart mutation happens on the HOST page, where
+     the store's own cart endpoint lives. Tries Shopify's /cart/add.js first; on
+     any failure (non-Shopify store, no variant id resolved, network error) falls
+     back to telling the shopper to add it manually rather than guessing a URL. */
+  w.addEventListener("message", function (e) {
+    if (e.origin !== PEAR_BASE) return;
+    if (!e.data || e.data.type !== "PEAR_ADD_TO_CART") return;
+
+    var variantId = e.data.variantId;
+    if (!variantId) {
+      showToast(isHebrewPage() ? "לא נמצאה גרסת מוצר להוספה לסל" : "Couldn't find a product variant to add");
+      return;
+    }
+    fetch("/cart/add.js", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: variantId, quantity: 1 })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("cart/add.js HTTP " + r.status);
+      return r.json();
+    }).then(function () {
+      showToast(isHebrewPage() ? "הפריט נוסף לסל!" : "Added to cart!");
+    }).catch(function (err) {
+      console.warn("[PEAR widget] /cart/add.js failed:", err && err.message);
+      showToast(isHebrewPage() ? "לא הצלחנו להוסיף לסל אוטומטית — נסה/י ידנית" : "Couldn't add to cart automatically — please add it manually");
+    });
   });
 
   /* ── boot ───────────────────────────────────────────────────────────────── */

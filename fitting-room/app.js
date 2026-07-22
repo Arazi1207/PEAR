@@ -560,6 +560,7 @@ let billingStarted = false;      // guards startBillingWindow() so it arms the b
 let dressedFrameReady = false;   // true once #aiVideo has shown a VERIFIED non-black AI-rendered frame this
                                   // session — the single "model ready" signal shared by billing/countdown
                                   // (armFirstFrameBilling/startBillingWindow) AND the recorder (startRecording)
+let isGarmentApplied = false;    // true once rtClient.set() has resolved — gates billing/recording to the first DRESSED frame, not raw passthrough
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -754,6 +755,13 @@ function parseHandoff() {
   // a catalog color/subType we don't have.
   const widgetUrl = q.get("garment_url");
   if (widgetUrl) {
+    // Real-store session marker: "Complete the Look" must never recommend the
+    // hardcoded demo PEAR_CATALOG when the fitting room is embedded on an actual
+    // store (see fetchStoreLookItems). The garment's own CDN host IS the store's
+    // domain, so stash it globally the moment we know we're in a widget embed.
+    try { window.__pearStoreDomain = new URL(widgetUrl).hostname; }
+    catch (e) { console.warn("[PEAR] parseHandoff() — could not derive store domain from garment_url:", e?.message || e); }
+
     const wType   = (q.get("garment_type") || "tops").toLowerCase();
     const isPants = wType === "pants" || wType === "bottoms";
     // Multi-image gallery: the widget forwards ALL product photos as a comma-joined
@@ -783,6 +791,10 @@ function parseHandoff() {
       // sets data-pear-require-both-views. Hard-blocks go-live unless a real back
       // image arrived (custom garments are otherwise ungated — see liveBlockReason).
       requireBothViews: q.get("require_both_views") === "1",
+      // Shopify variant id (widget reads it off the store's own Add-to-Cart form) —
+      // carried through so the "הוסף לסל" button here can hand it back to the
+      // storefront's own /cart/add.js call (see pear-widget.js's PEAR_ADD_TO_CART listener).
+      variantId: q.get("garment_variant_id") || undefined,
       angle: readAngle(),
     };
     console.log("[PEAR] parseHandoff() — widget embed garment:", result);
@@ -1043,6 +1055,14 @@ function setActiveItem(item, opts = {}) {
     if (isLive()) applyActive().catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
 }
+
+// Exposed for lux-interactions.js (a plain, non-module script that can't import
+// app.js's module-scoped `activeItem`) so the "הוסף לסל" click handler knows which
+// garment/variant to send to the host store's cart.
+window.pearGetActiveGarment = function () {
+  if (!activeItem) return null;
+  return { url: activeItem.img, name: activeItem.name, variantId: activeItem.variantId };
+};
 
 /* =============================================================================
    Multi-Image Product Gallery Sync — colour swatches + perspective rail
@@ -1552,6 +1572,32 @@ function scrollToCamera() {
   window.scrollTo({ top: Math.max(0, Math.min(target, maxScroll)), behavior: "smooth" });
 }
 
+/* ── Loading-state elapsed timer (#scanOverlay / #scanSub) ───────────────────
+   LOADING (w/ timer) → Model Ready → Start 5s capture. Ticks a live mm:ss counter
+   for as long as the loading overlay is up (goLive() start → startBillingWindow()'s
+   Model Ready reveal, or an earlier failure/timeout — see those call sites for
+   start/stop wiring). Copy is deliberately generic: never names the underlying AI
+   vendor/model, just what the user is waiting for. */
+let scanTimerInterval = null;
+let scanTimerStartMs = 0;
+function startScanTimer() {
+  stopScanTimer();                 // clear any stale interval before arming a fresh one
+  scanTimerStartMs = Date.now();
+  updateScanTimer();
+  scanTimerInterval = setInterval(updateScanTimer, 1000);
+}
+function updateScanTimer() {
+  const el = $("scanSub");
+  if (!el) return;
+  const elapsedSec = Math.floor((Date.now() - scanTimerStartMs) / 1000);
+  const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+  const ss = String(elapsedSec % 60).padStart(2, "0");
+  el.textContent = `Preparing Virtual Fitting Room · ${mm}:${ss}`;
+}
+function stopScanTimer() {
+  if (scanTimerInterval) { clearInterval(scanTimerInterval); scanTimerInterval = null; }
+}
+
 function showCamError(msg) {
   const el = $("camError");
   el.textContent = msg;
@@ -1562,6 +1608,7 @@ function resetToLive() {
   if (!isLive()) clearRecording();   // revoke replay URL + hide post-session buttons when no active API session
   exitClipReplay();                  // drop any history-clip playing in #aiVideo
   card().classList.remove("show-result");
+  stopScanTimer();                   // defensive — never leave the loading counter ticking in the background
   $("scanOverlay").hidden = true;
   // #retakeBtn now lives in the .pear-interaction-pod; its visibility is governed
   // by the pod (shown once history exists), so it's no longer toggled here.
@@ -1745,6 +1792,22 @@ async function ensureOnline() {
    Returns { stream, dispose }. dispose() MUST run in teardown() — it clears the
    paint timer, stops the canvas track, and stops the cloned source track it owns.
    ============================================================================= */
+/* ── Resource/token-usage optimization ────────────────────────────────────────
+   This is the ONE place raw camera frames become the payload Decart bills on, so
+   it's where "minimal frame/token usage" is actually enforced, not a place that
+   needed new code — it already does exactly that:
+     • fps capped to LIVE_INFERENCE_FPS (10) — the camera can capture faster (LIVE_FPS
+       =15 for a smooth local preview), but only 10 frames/sec ever leave the browser.
+     • resolution capped to LIVE_W×LIVE_H (512×288) — every frame is downscaled before
+       it's sent, regardless of the camera's native resolution.
+     • captureStream(0) + a single requestFrame() per tick — the output track emits
+       EXACTLY fps frames/sec, never more; there is no separate/duplicate capture path
+       sending additional raw frames anywhere.
+   NOTE on "keypoints/pose data instead of frames": this app streams live video to
+   Decart's Lucy VTON realtime diffusion model over WebRTC — there is no pose/landmark
+   API in this pipeline to swap frames for (that would be a different, MediaPipe-style
+   architecture; see project history). The real lever here is exactly what's already
+   enforced above: fewer frames/sec, smaller frames, no redundant capture. */
 function createThrottledInputStream(srcStream, { fps = LIVE_INFERENCE_FPS, width = LIVE_W, height = LIVE_H } = {}) {
   const srcTrack = srcStream.getVideoTracks()[0];
   // No video track (camera failed) — hand the stream back untouched; nothing to throttle.
@@ -1862,6 +1925,7 @@ async function connectRealtime() {
   // first rendered frame (see startBillingWindow / armFirstFrameBilling).
   billingStarted = false;
   dressedFrameReady = false;
+  isGarmentApplied = false;
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
   console.log("[PEAR] connectRealtime() — stage 1/4: loading SDK from CDN…");
@@ -1923,13 +1987,14 @@ async function connectRealtime() {
         aiVideo.style.willChange = "transform";
         aiVideo.style.transform = "translateZ(0)";
         aiVideo.play().catch(() => {});
-        // BILLING START: the 5s / 10-credit window begins at the FIRST frame Decart
-        // actually renders to #aiVideo here — NOT at connect and NOT at set() — so the
-        // handshake + server warm-up (~1s) is never billed. Idempotent + sessionGen-
-        // guarded inside startBillingWindow, so a stale/duplicate stream can't re-arm it.
+        // BILLING START: the 5s / 10-credit window begins at the FIRST DRESSED frame
+        // Decart actually renders to #aiVideo here — NOT at connect and NOT merely at
+        // set() being called, but once it has resolved AND a frame reflecting it has
+        // decoded — so the handshake + server warm-up + styling round-trip is never
+        // billed. Idempotent + sessionGen-guarded inside startBillingWindow, so a
+        // stale/duplicate stream can't re-arm it. Recording (Feature 2) is armed from
+        // the same call, inside startBillingWindow, so both cover the identical span.
         armFirstFrameBilling(aiVideo, gen);
-        // NOTE: recording is NOT started here — it is armed in goLive() at the exact
-        // go-live instant so its duration matches the strict 5s window (see Feature 2).
       },
       onConnectionChange: (state) => {
         if (gen !== sessionGen) return;    // stale callback from a torn-down session
@@ -2429,6 +2494,93 @@ function stitchReferenceBlob(frontUrl, backUrl) {
   return job;
 }
 
+/* ── Full-Look compositor — "TOP + BOTTOM Stitched Reference" ─────────────────
+   Same rigid-geometry technique as stitchReferenceBlob (front|back), but stacked
+   VERTICALLY: the TOP garment (shirt) boxed into the upper half, the BOTTOM garment
+   (trousers) boxed into the lower half, separated by the same wide black no-man's-land
+   bar + gutter. WHY THIS EXISTS: Decart's realtime set() only forwards ONE image
+   ({prompt, enhance, image} — setInputSchema strips anything else), so a text-only
+   description of the second garment (no visual reference) is weakly obeyed by the
+   diffusion model and visually reads as "replaced" rather than "layered". Giving BOTH
+   garments an actual pixel reference — even split across one image — is what makes
+   the second garment actually render. Returns ONE JPEG Blob for rtClient.set({ image }).
+   Memoized per top+bottom URL pair; falls back to null (caller falls back to the
+   top-only reference) on any decode/composite failure. */
+const LOOK_W   = 1024, LOOK_H = 2048, LOOK_SEP = 200;
+const LOOK_PAD = 44;                                // black gutter framing each half (isolated panel)
+const LOOK_BOX = (LOOK_H - LOOK_SEP) / 2;           // 924px per half
+const _lookStitchCache = new Map();   // `${topUrl} ${bottomUrl}` → Promise<Blob|null>
+
+/**
+ * Stitch a TOP + BOTTOM garment asset into ONE fixed 1024×2048 reference Blob: TOP boxed
+ * into the upper half (inset by a 44px black gutter) + "TOP" white marker, a WIDE 200px
+ * opaque black separator bar, BOTTOM boxed into the lower half (same gutter) + "BOTTOM"
+ * white marker. Same rigid geometry + wide bar + gutter that keeps the front/back stitch
+ * from bleeding — here it keeps the shirt and pants from bleeding into each other.
+ * @param {string} topUrl     upper-body garment image URL (http(s)/data:/blob:)
+ * @param {string} bottomUrl  lower-body garment image URL
+ * @returns {Promise<Blob|null>}  JPEG Blob, or null on any failure (caller falls back
+ *   to the plain top-only reference so a full look is never left without ANY reference).
+ */
+function stitchLookBlob(topUrl, bottomUrl) {
+  if (!topUrl || !bottomUrl) return Promise.resolve(null);
+  const key = `${topUrl} ${bottomUrl}`;
+  if (_lookStitchCache.has(key)) return _lookStitchCache.get(key);
+
+  const job = (async () => {
+    try {
+      const [top, bottom] = await Promise.all([loadGarmentBitmap(topUrl), loadGarmentBitmap(bottomUrl)]);
+
+      const boxH = LOOK_BOX, W = LOOK_W;
+      const bottomY = boxH + LOOK_SEP;   // start of the BOTTOM box (after the bar)
+
+      const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(LOOK_W, LOOK_H) : null;
+      const canvas = off || Object.assign(document.createElement("canvas"), { width: LOOK_W, height: LOOK_H });
+      const ctx    = canvas.getContext("2d");
+
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, LOOK_W, LOOK_H);
+
+      const pad = LOOK_PAD;
+      const innerW = W - pad * 2, innerH = boxH - pad * 2;
+
+      // Upper half = TOP, clipped to its box so a wide packshot can't bleed toward the bar.
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, W, boxH); ctx.clip();
+      drawImageCover(ctx, top, pad, pad, innerW, innerH);
+      ctx.restore();
+
+      // Lower half = BOTTOM, clipped to its box (starts after the bar).
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, bottomY, W, boxH); ctx.clip();
+      drawImageCover(ctx, bottom, pad, bottomY + pad, innerW, innerH);
+      ctx.restore();
+
+      // High-contrast 200px SOLID BLACK separator bar — the diffusion "no-man's-land".
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, boxH, W, LOOK_SEP);
+
+      // Hard architectural markers: "TOP" in the upper half, "BOTTOM" in the lower half.
+      const fontPx = Math.round(W * 0.09);
+      const inset  = Math.round(W * 0.04);
+      drawSectionLabel(ctx, "TOP",    inset, inset, fontPx, "left");
+      drawSectionLabel(ctx, "BOTTOM", inset, bottomY + inset, fontPx, "left");
+      top.close?.(); bottom.close?.();             // release decoded bitmaps
+
+      return off
+        ? await off.convertToBlob({ type: "image/jpeg", quality: 0.95 })
+        : await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.95));
+    } catch (e) {
+      console.warn("[PEAR] stitchLookBlob failed:", e?.message || e);
+      _lookStitchCache.delete(key);   // never cache a failure — allow a later retry
+      return null;
+    }
+  })();
+
+  _lookStitchCache.set(key, job);
+  return job;
+}
+
 /**
  * Return an absolute URL that the Decart server can reliably fetch.
  * Raw CDN URLs (suitsupply, magnific, etc.) can take 20-25 s for Decart's
@@ -2632,6 +2784,18 @@ const ANGLE_CLAUSE = {
     " Reproduce the selected panel's garment with 100% fidelity to its graphics and layout." +
     " The 'FRONT' and 'BACK' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.",
 };
+
+/* Full-Look composite clause — the counterpart of ANGLE_CLAUSE.combined for
+   stitchLookBlob(). The reference image is now TWO stacked, isolated garment photos
+   (TOP over BOTTOM) rather than one image + a text-only description of the second
+   garment, so the model has an actual pixel reference for BOTH the shirt and the
+   pants and can render them together instead of favoring only the visually-referenced
+   one. */
+const LOOK_CLAUSE =
+  " This image is two completely separate garment photographs stacked vertically, each isolated inside its own black-framed panel and divided by a WIDE solid-black separator band that is a strict no-man's-land." +
+  " The two panels are distinct, mutually exclusive garment views. The panel marked 'TOP' is the ONLY valid source for the upper-body garment. The panel marked 'BOTTOM' is the ONLY valid source for the lower-body garment. Treat the black band and black frames as an impassable wall: you are strictly forbidden from sampling, blending, copying or bleeding ANY pixel from one panel into the other." +
+  " Reproduce EACH panel's garment with 100% fidelity to its color, fabric and graphics — rendering the 'TOP' panel's garment on the person's upper body AND the 'BOTTOM' panel's garment on the person's lower body AT THE SAME TIME, in a single photorealistic pass. Neither garment replaces the other; both must be visible simultaneously." +
+  " The 'TOP' and 'BOTTOM' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.";
 
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
    generic backInferred. Product-approved wording: a clean, plain rear (front graphics
@@ -2891,8 +3055,9 @@ function buildCustomPrompt(item) {
  */
 async function applyActive() {
   const look = resolveLook();        // non-null only when activeOutfit has top AND bottom
-  if (look) return applyLook(look.top, look.bottom);
-  return applyGarment(activeItem);
+  if (look) await applyLook(look.top, look.bottom);
+  else await applyGarment(activeItem);
+  isGarmentApplied = true;           // rtClient.set() resolved — the NEXT rendered frame is dressed
 }
 
 /**
@@ -2903,30 +3068,48 @@ async function applyActive() {
  *
  * SDK reality (verified against @decartai/sdk@0.1.5 `setInputSchema`): realtime
  * set() accepts exactly { prompt, enhance, image } and STRIPS unknown keys, so only
- * ONE reference image reaches the model today. We send the top as that reference and
- * bundle BOTH image URLs + their categories alongside it (images / garments) so they
- * are forward-compatible the day the model accepts multi-garment input — and both
- * garments already render now via the combined prompt. The try/catch falls back to
- * the minimal documented shape so a full look can never break the live session.
+ * ONE reference image reaches the model today — a text-only description of a garment
+ * with no pixel reference renders weakly (or not at all), which is what made "Add to
+ * Look" look like it REPLACED the current garment instead of layering it. So the ONE
+ * image we send is a stitchLookBlob() composite of BOTH garments (TOP over BOTTOM),
+ * giving each an actual visual reference. We still bundle both image URLs + their
+ * categories alongside it (images / garments) so they are forward-compatible the day
+ * the model accepts true multi-garment input. The try/catch falls back to the minimal
+ * documented shape so a full look can never break the live session.
  * @returns {Promise<void>}
  */
 async function applyLook(top, bottom) {
   if (!rtClient) throw new Error("not connected");
 
-  // Gallery sync: resolve each half against the active angle, then append the shared
-  // angle clause once so the whole look renders from the same perspective.
+  // Gallery sync: resolve each half against the active angle first.
   const topImg = activeImageOf(top), bottomImg = activeImageOf(bottom);
-  const prompt = buildLookPrompt(top, bottom) + angleClause();
-  // Combined view stitches the TOP's front+back (the single reference the SDK forwards);
-  // otherwise the proxied top URL — either way one fast, Decart-fetchable reference.
-  const primaryImage = (await referenceImageFor(top, topImg)) ?? null;
+
+  // The SDK forwards exactly ONE image ({prompt, enhance, image} — extra keys are
+  // stripped), so a text-only description of the second garment gets a real pixel
+  // reference for the top but none for the bottom, and the model renders only the
+  // top — visually indistinguishable from "replace". stitchLookBlob() gives BOTH
+  // garments an actual reference by compositing them (TOP over BOTTOM) into the
+  // single image the SDK does forward. Skip it for the AI Combined/Auto angle
+  // modes, which already need that one image slot for their own front/back stitch.
+  const canStitchLook = currentAngle !== COMBINED_ANGLE && currentAngle !== AUTO_ANGLE;
+  let primaryImage = canStitchLook ? await stitchLookBlob(topImg, bottomImg) : null;
+  const prompt = primaryImage
+    ? buildLookPrompt(top, bottom) + LOOK_CLAUSE
+    : buildLookPrompt(top, bottom) + angleClause();
+
+  if (!primaryImage) {
+    // Stitch unavailable (combined/auto angle) or failed to decode — fall back to the
+    // single top reference so the live session is never left without ANY image.
+    if (canStitchLook) console.warn("[PEAR] look stitch failed; falling back to top-only reference");
+    primaryImage = (await referenceImageFor(top, topImg)) ?? null;
+  }
   const images = [topImg, bottomImg].filter(Boolean).map(garmentImageRef).filter(Boolean);
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
     enhance: true,
-    image: primaryImage,              // SDK single-image reference (the top, as URL)
+    image: primaryImage,               // SDK single-image slot: TOP+BOTTOM stitched composite (or top-only fallback)
     images,                           // both verified proxy URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
       { category: "top",    type: top.garmentType,    image: topImg,    color: top.color,    subType: top.subType,    name: top.name,    angle: currentAngle },
@@ -3173,7 +3356,7 @@ const PEAR_SESSION_ID = (() => {
 /* =============================================================================
    RETURNING-USER IDENTITY
    -----------------------------------------------------------------------------
-   First-time visitors enter name + phone ONCE. We generate a persistent device
+   First-time visitors enter name + email ONCE. We generate a persistent device
    id (localStorage 'pear_device_id') and create a user server-side. On every
    later visit we find that device id, load the profile, and skip the form — new
    measurements just attach to the existing user via sessions.user_id.
@@ -3196,7 +3379,7 @@ function newUuid() {
    DEMO MODE — scoped to ONE specific embed, never the general product
    -----------------------------------------------------------------------------
    The fitting room is shared infrastructure: the SAME app.js/index.html serves
-   real merchant embeds and the main platform (full name/phone registration,
+   real merchant embeds and the main platform (full name/email registration,
    no measurement limit) AND the public marketing-site demo widget on
    pear-platform.vercel.app (no registration, one measurement per browser).
 
@@ -3269,7 +3452,7 @@ function lockDemoAfterFirstMeasurement() {
 /* =============================================================================
    CACHED BODY PROFILE (height + weight)
    -----------------------------------------------------------------------------
-   The name/phone identity gate above is skipped for returning visitors, but the
+   The name/email identity gate above is skipped for returning visitors, but the
    measurement form was still blank on every visit — the user re-typed their
    height + weight each time. This caches those two mandatory values in
    localStorage so a returning user's form is pre-filled and the size result
@@ -3344,7 +3527,7 @@ function writeProfileCache(height, weight, tsMs) {
    -----------------------------------------------------------------------------
    The SINGLE decision point for what happens right after a visitor is identified
    (whether via a known device on page load, or via submitIdentity() registering /
-   auto-logging-in by phone). Called with the raw /api/users response.
+   auto-logging-in by email). Called with the raw /api/users response.
 
      Case A — no saved measurements at all → reveal Screen 1's measurement form
               (first-time visitor, or a known profile that never finished sizing).
@@ -3522,7 +3705,7 @@ function updateMeasurementsNow() {
   toast("✓ המדידות שלך עודכנו");
 }
 
-/* Show the name/phone gate and wire its controls (idempotent — safe to call
+/* Show the name/email gate and wire its controls (idempotent — safe to call
    more than once). Hides the measurement form until the visitor registers. */
 function showIdentityGate() {
   const idForm   = $("identityForm");
@@ -3538,7 +3721,7 @@ function showIdentityGate() {
     btn.addEventListener("click", () => submitIdentity());
   }
   // Enter inside the identity fields submits the gate.
-  ["userName", "userPhone"].forEach((id) => {
+  ["userName", "userEmail"].forEach((id) => {
     const el = $(id);
     if (el && !el.dataset.wired) {
       el.dataset.wired = "1";
@@ -3550,32 +3733,59 @@ function showIdentityGate() {
   if (errEl) errEl.hidden = true;
 }
 
-/* Step 0 for EVERY visit — the name/phone gate is ALWAYS the first thing shown,
-   never silently skipped for a "remembered" browser. Routing (Case A/B/C) only
-   happens AFTER the visitor submits the form, keyed by the PHONE NUMBER they type
-   (submitIdentity → POST /api/users → routeAfterIdentity), not by a cached device
-   id. The device id is still sent along on submit purely so the same browser
-   re-attaches to the same server profile server-side — it no longer bypasses this
-   screen (that was the bug: a previously-registered device silently skipped
-   straight to an empty measurement form instead of asking for name/phone again). */
-function setupIdentityGate() {
+/* Step 0 for EVERY visit. NOTE: this re-adds a device-id auto-skip that an
+   earlier version deliberately removed (see git history / server.js comments
+   on findUserByDeviceId) — a shared/QA browser typing a DIFFERENT name+email
+   into the gate after another visitor already registered on it will silently
+   land in the fitting room under the wrong identity instead of being asked to
+   confirm. Accepted as a known tradeoff per explicit product decision; if that
+   changes, drop the lookup below and always call showIdentityGate(). */
+async function setupIdentityGate() {
+  const deviceId = getDeviceId();
+  console.log("[PEAR] device_id found:", deviceId || "(none)");
+
+  if (!deviceId) {
+    showIdentityGate();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`);
+    console.log("[PEAR] user lookup result:", res.status);
+
+    if (res.status === 200) {
+      const data = await res.json().catch(() => null);
+      if (data && data.ok && data.user) {
+        console.log("[PEAR] known device → auto-login user:", data.user.name, "→", data.user.id);
+        PEAR_USER_ID = data.user.id;
+        routeAfterIdentity(data);   // Case A/B/C routing, gate never shown
+        return;
+      }
+      console.log("[PEAR] lookup returned 200 but no usable user payload → showing gate");
+    } else {
+      console.log("[PEAR] no known user for this device (404 or error) → showing gate");
+    }
+  } catch (err) {
+    console.log("[PEAR] user lookup failed:", err?.message, "→ showing gate");
+  }
+
   showIdentityGate();
 }
 
 /* Validate, create the user, persist the device id, then reveal measurements. */
 async function submitIdentity() {
   const nameEl  = $("userName");
-  const phoneEl = $("userPhone");
+  const emailEl = $("userEmail");
   const btn     = $("btn-identity-continue");
   const errEl   = $("identityError");
 
   const name  = (nameEl  && nameEl.value  || "").trim();
-  const phone = (phoneEl && phoneEl.value || "").trim();
+  const email = (emailEl && emailEl.value || "").trim();
 
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
 
   if (name.length < 2)  return showErr("נא להזין שם מלא.");
-  if (phone.replace(/\D/g, "").length < 7) return showErr("נא להזין מספר טלפון תקין.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr("נא להזין כתובת אימייל תקינה.");
   if (errEl) errEl.hidden = true;
 
   // Reuse the existing device id when re-registering (404 recovery); otherwise mint one.
@@ -3586,17 +3796,17 @@ async function submitIdentity() {
     const res = await fetch("/api/users", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ deviceId, name, phone }),
+      body:    JSON.stringify({ deviceId, name, email }),
     });
     const data = await res.json().catch(() => null);
 
-    // Saved, auto-logged-in (name+phone match), or this device was already known →
+    // Saved, auto-logged-in (name+email match), or this device was already known →
     // link the session, load any saved measurements, and continue.
     if (res.ok && data?.ok) {
       setDeviceId(deviceId);                 // remember this browser from now on
       PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
       console.log(
-        "[identity] " + (data.matched === "phone" ? "auto-login (name+phone)" : "registered") +
+        "[identity] " + (data.matched === "email" ? "auto-login (name+email)" : "registered") +
         " user:", data.user?.name, "→", PEAR_USER_ID
       );
       routeAfterIdentity(data);              // Case A/B/C routing
@@ -3605,12 +3815,12 @@ async function submitIdentity() {
 
     // Fixable INPUT problem → the visitor can correct it, so surface a message and
     // let them retry. This is the only case that stays on the gate:
-    //   • 409 phone_taken — phone already registered to a DIFFERENT name
+    //   • 409 email_taken — email already registered to a DIFFERENT name
     //   • 400/422         — missing/invalid fields
     if (res.status === 409 || res.status === 400 || res.status === 422) {
       if (btn) btn.disabled = false;
-      const msg = data?.error === "phone_taken"
-        ? "מספר טלפון זה כבר רשום למשתמש אחר."
+      const msg = data?.error === "email_taken"
+        ? "כתובת אימייל זו כבר רשומה למשתמש אחר."
         : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
       return showErr(msg);
     }
@@ -3685,6 +3895,11 @@ function startBillingWindow(gen) {
   if (gen !== sessionGen) return;        // stale first-frame from a torn-down session
   billingStarted = true;
 
+  // Start recording from the SAME event that starts billing (the first DRESSED frame)
+  // so the encoded clip and the billed window cover exactly the same span — no gap
+  // for applyActive()'s rtClient.set() round-trip to eat into the recorded duration.
+  startRecording();
+
   // First real frame arrived → cancel the no-first-frame safety teardown.
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
@@ -3696,6 +3911,11 @@ function startBillingWindow(gen) {
   stopScanTimer();
   $("scanOverlay").hidden = true;
   card().classList.add("show-live");
+  // Feature 2 — start recording HERE, on the exact frame that arms billing, so the
+  // encoded clip always matches the billed 5s window (no black warm-up frames at the
+  // front — see the BLACK-FRAME FIX note in startRecording, and the isDressedFrame
+  // check above that now guarantees this frame really is dressed content).
+  startRecording();
 
   console.log("[PEAR] First verified AI frame — billing + 5s capture started (" +
     (LIVE_DURATION_MS / 1000) + "s / " + CREDITS_PER_SESSION + " credits)");
@@ -3758,18 +3978,38 @@ function armFirstFrameBilling(video, gen) {
     dressedFrameReady = true;            // model-ready signal shared with the recorder (startRecording)
     startBillingWindow(gen);
   };
+  // TWO independent gates, both required before firing — each closes a gap the other
+  // doesn't cover:
+  //  (1) isGarmentApplied — rtClient.set() has resolved, so this can't be a stray
+  //      raw/undressed passthrough frame that arrived before the apply request even
+  //      went out.
+  //  (2) isDressedFrame() — the frame is verified non-black, so it can't be the ~1s of
+  //      blank/black placeholder Decart's server can still emit for a beat AFTER the
+  //      apply was acknowledged (see the BLACK-FRAME FIX note in startRecording).
+  // Re-checked on every subsequent decoded frame (rVFC, or the rAF poll below where
+  // rVFC is unavailable) until both hold, THEN fire — so billing, the countdown, and
+  // recording (started together in startBillingWindow) all begin on the first frame
+  // that is genuinely ready, never before.
+  const frameReady = () => {
+    if (done || gen !== sessionGen) return;
+    if (!isGarmentApplied || !isDressedFrame()) {
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback(frameReady);
+      } else {
+        requestAnimationFrame(frameReady);
+      }
+      return;
+    }
+    fire();
+  };
   if (typeof video.requestVideoFrameCallback === "function") {
-    const onFrame = () => {
-      if (done || gen !== sessionGen) return;
-      if (isDressedFrame()) return fire();
-      video.requestVideoFrameCallback(onFrame);   // still warming up — check the next presented frame
-    };
-    video.requestVideoFrameCallback(onFrame);
+    video.requestVideoFrameCallback(frameReady);
   } else {
-    // Fallback: poll until a real, verified-non-black decoded frame exists.
+    // Fallback: poll until a real decoded frame exists, then hand off to frameReady's
+    // own isGarmentApplied + isDressedFrame checks.
     (function poll() {
       if (done || gen !== sessionGen) return;
-      if (video.videoWidth > 0 && video.currentTime > 0 && isDressedFrame()) return fire();
+      if (video.videoWidth > 0 && video.currentTime > 0) return frameReady();
       requestAnimationFrame(poll);
     })();
   }
@@ -3869,7 +4109,8 @@ async function goLive() {
     //    before there's real AI content behind it.
     setLiveControls(true);
     syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
-    startRecording();                  // Feature 2 — record while the session is live (arms once Model Ready)
+    // Feature 2 — recording is now started in startBillingWindow(), on the same first
+    // DRESSED frame that arms billing, so the encoded clip always matches the billed window.
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
     // The BILLED window (countdown + hard disconnect at LIVE_DURATION_MS) is NOT armed
@@ -3906,7 +4147,11 @@ async function goLive() {
       setConn("error");
     }
   } finally {
-    $("scanOverlay").hidden = true;
+    // Only force-hide the loading overlay here on a FAILURE path (never got to a live
+    // session — isLive() false). On success the session is already connected and we're
+    // just waiting on the model's first verified frame, so leave the overlay + ticking
+    // timer showing — startBillingWindow() (Model Ready) is what closes them, not this.
+    if (!isLive()) { stopScanTimer(); $("scanOverlay").hidden = true; }
     busy = false;
     if (!isLive()) $("captureBtn").disabled = !localStream;
   }
@@ -4580,11 +4825,80 @@ function recommendFor(item) {
     .map((r) => r.x);
 }
 
-function renderCompleteTheLook(item) {
-  const recs = recommendFor(item);
-  // Conditional render (requirement 3): when the catalog has NO real complementary
-  // product, hide the whole section — never an empty shell, placeholder, or the wrong
-  // category. This function owns #completeLook's visibility (see enterRoom).
+/* Keyword-guess a scanned garment_cache image's category from its URL. garment_cache
+   only stores { image_url, classification } and `classification` there means
+   front|back (see classifyFrontBack in server.js) — it carries no garment-category
+   signal, so this is the only classifier we have for store items. Returns "shirt" |
+   "pants" (the SAME vocabulary as PEAR_CATALOG.type) so a store item can flow through
+   toItem()/slotOf()/recommendFor's card rendering exactly like a catalog item. */
+function guessTypeFromUrl(url) {
+  const u = (url || "").toLowerCase();
+  if (/pants|jeans|trouser/.test(u)) return "pants";
+  if (/shirt|top|blouse/.test(u)) return "shirt";
+  return "shirt";
+}
+
+/* Real-store "Complete the Look" source. A widget embed on an actual store
+   (window.__pearStoreDomain set by parseHandoff() the moment a garment_url handoff
+   arrives) must recommend items from THAT store — never the hardcoded demo
+   PEAR_CATALOG, which is stock/placeholder imagery unrelated to any real retailer.
+   Demo/catalog sessions (no storeDomain) keep the existing recommendFor() behavior
+   unchanged. A store session that has no cached items yet (or the fetch fails)
+   returns [] rather than ever falling back to the demo catalog — renderCompleteTheLook
+   hides the section entirely in that case (see Step 5 requirement). */
+async function fetchStoreLookItems(currentItem) {
+  const domain = window.__pearStoreDomain;
+  if (!domain) return recommendFor(currentItem);   // demo/catalog mode — existing behavior
+
+  const wantType = currentItem.garmentType === "lower_body" ? "shirt" : "pants";
+  try {
+    const resp = await fetch("/api/store-catalog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, type: wantType }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { items } = await resp.json();
+    return (Array.isArray(items) ? items : [])
+      .filter((it) => it && it.image_url)
+      .map((it) => ({
+        id: it.image_url,
+        img: it.image_url,
+        type: guessTypeFromUrl(it.image_url),
+        name: "פריט מהחנות",
+        custom: true,
+      }))
+      .filter((it) => it.type === wantType)
+      .slice(0, 4);
+  } catch (e) {
+    console.warn("[PEAR] fetchStoreLookItems failed — hiding Complete the Look:", e?.message || e);
+    return [];
+  }
+}
+
+/* data-look is now an INDEX into this array, not a PEAR_CATALOG id — a store item's
+   "id" is its image_url (a string, and one we'd rather not stuff into an HTML
+   attribute verbatim), so both catalog and store recs are looked up the same safe
+   way. Rebuilt on every render; stale after the section next re-renders. */
+let _lookCards = [];
+
+/* Guards against a slow store-catalog fetch resolving AFTER a newer garment has
+   already been activated (rapid re-clicks) — the stale response is discarded rather
+   than clobbering the section with recommendations for the wrong item. */
+let _lookRenderToken = 0;
+
+async function renderCompleteTheLook(item) {
+  const myToken = ++_lookRenderToken;
+  const recs = window.__pearStoreDomain ? await fetchStoreLookItems(item) : recommendFor(item);
+  if (myToken !== _lookRenderToken) return;   // a newer item took over while this was in flight
+
+  _lookCards = recs;
+  // Conditional render (requirement 3): when there's NO real complementary product
+  // (demo catalog has none, or the store's garment_cache has nothing cached yet for
+  // this domain), hide the whole section — never an empty shell, placeholder, or the
+  // wrong category, and never a demo-catalog fallback during a real store session.
+  // .complete-look[hidden] { display: none; } in style.css makes this an actual
+  // display:none, not just an ARIA-hidden section.
   const section = $("completeLook");
   if (!recs.length) {
     $("clTrack").innerHTML = "";
@@ -4598,11 +4912,11 @@ function renderCompleteTheLook(item) {
     <article class="cl-card" style="--i:${i}">
       <div class="cl-card__media">${garmentThumb(r)}</div>
       <div class="cl-card__body">
-        <span class="cl-card__cat">${r.type === "pants" ? "Pants" : "Shirt"} · ${SUBTYPE_LABEL_HE[r.subType] || ""}</span>
+        <span class="cl-card__cat">${r.type === "pants" ? "Pants" : "Shirt"}${SUBTYPE_LABEL_HE[r.subType] ? " · " + SUBTYPE_LABEL_HE[r.subType] : ""}</span>
         <div class="cl-card__name">${r.name}</div>
-        <span class="cl-card__price">$${r.price}</span>
+        ${r.price != null ? `<span class="cl-card__price">$${r.price}</span>` : ""}
       </div>
-      <button class="cl-card__look" data-look="${r.id}">הוסף ללוק · Add to Look</button>
+      <button class="cl-card__look" data-look="${i}">הוסף ללוק · Add to Look</button>
     </article>`).join("");
 }
 
@@ -6102,11 +6416,13 @@ function init() {
 
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the
     // active garment (additive; keeps the opposite category). toItem() rebuilds the
-    // full record from the catalog so image URL, metadata AND category (garmentType →
-    // top|bottom) are always extracted, regardless of where on the card the user tapped.
+    // full record so image URL, metadata AND category (garmentType → top|bottom) are
+    // always extracted, regardless of where on the card the user tapped. data-look is
+    // an index into _lookCards (not a PEAR_CATALOG id) so this works identically for
+    // both demo-catalog recs and real-store recs (see renderCompleteTheLook).
     const lk = e.target.closest("[data-look]");
     if (lk) {
-      const p = PEAR_CATALOG.find((x) => x.id === Number(lk.dataset.look));
+      const p = _lookCards[Number(lk.dataset.look)];
       if (p) addToLook(toItem(p));
       return;
     }
