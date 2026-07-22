@@ -5621,29 +5621,45 @@ function unlockPageScroll() {
 /* ── Smooth-scroll the side-by-side comparison into view ─────────────────────
    Called the moment a 2nd measurement is picked (via openCompareOverlay).
 
-   WHY NOT scrollIntoView() ON THE OVERLAY: #pearCompare is `position: fixed; inset: 0`
-   (style.css .pear-compare-overlay), so it is already viewport-anchored and contributes
-   nothing to document scroll — scrolling it "into view" is a guaranteed no-op. The one
-   element here that genuinely scrolls is .pcmp__panel (`max-height: 92vh; overflow-y:
-   auto`), so we align the side-by-side #compareSplit to the TOP of that scroller. That
-   is a real scroll on mobile, where the two cells stack tall and the second measurement
-   would otherwise sit below the fold; on desktop the panel usually fits and this
-   correctly resolves to a no-op.
+   CONTAINER RESOLUTION: #pearCompare is `position: fixed; inset: 0` (style.css
+   .pear-compare-overlay), so it is already viewport-anchored and contributes
+   nothing to document scroll — window.scrollTo()/scrollIntoView() on it (or on
+   document/body) would be a guaranteed no-op, which is exactly why a plain
+   window-scroll approach can't work here. The element that genuinely scrolls is
+   .pcmp__panel (`max-height: 92vh; overflow-y: auto`), so instead of manually
+   walking up to find it, we call scrollIntoView() on #compareSplit — the native
+   API already walks the ancestor chain and scrolls whichever real container
+   (panel, or the window, on a layout where nothing overflows) needs it. That is
+   a real scroll on mobile, where the two cells stack tall and the second
+   measurement would otherwise sit below the fold; on desktop the panel usually
+   fits and this correctly resolves to a no-op.
 
-   RENDER CHECK (no arbitrary setTimeout): the cells are injected synchronously just
-   above, but their geometry isn't final until the browser has laid out and painted
-   them. Two chained rAFs land us immediately AFTER that first paint, which is
-   deterministic — a timeout would be a guess that's either too early or needlessly
-   laggy. #compareSplit's top edge doesn't depend on media intrinsic size, so we don't
-   need to wait on img/video load for `block: "start"` to be correct.
+   THE ACTUAL BUG (deployed build): .pcmp__panel plays its own CSS entrance
+   animation on open (galleryItemIn .45s: translateY(14px) scale(.96) → none).
+   The previous fix used two nested requestAnimationFrame calls (~2 frames,
+   ~32ms) as its "DOM is laid out" check — but that only proves a layout/paint
+   has happened, NOT that the panel's transform animation has settled. Calling
+   scrollIntoView() while an ANCESTOR is still mid CSS-transform computes the
+   scroll target from that transient (shrunk/shifted) geometry, not the final
+   one — so on the one case that matters (mobile, panel taller than 92vh, an
+   internal scroll is actually required) it was landing on the wrong offset,
+   which read as "the auto-scroll does nothing." Fix: wait for the entrance
+   animation to actually finish (animationend), with a timeout fallback in case
+   the event is ever missed (reduced motion skips it entirely; some engines can
+   drop `animation: … both` events), THEN measure + scroll.
 
-   Honours prefers-reduced-motion (instant jump, same final position). */
+   Honours prefers-reduced-motion (instant jump, same final position; also
+   short-circuits straight to a single rAF since there's no entrance transform
+   to race against). Guards scrollIntoView's existence for any environment
+   where it might not be implemented. */
+const PANEL_ENTRANCE_MS = 520;   // .pcmp__panel's galleryItemIn is .45s — padded well past that
 function scrollCompareIntoView() {
   const split = $("compareSplit");
-  if (!split) return;
+  if (!split || typeof split.scrollIntoView !== "function") return;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const behavior = reduce ? "auto" : "smooth";
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+
+  const doScroll = () => {
     try {
       // block:"start"  → comparison top-aligned in .pcmp__panel (the real scroll container)
       // inline:"nearest" → never nudges horizontally, so the RTL layout is left untouched
@@ -5651,7 +5667,19 @@ function scrollCompareIntoView() {
     } catch (_) {
       try { split.scrollIntoView(true); } catch (_) {}   // legacy Safari: no options object
     }
-  }));
+  };
+
+  const panel = $("pearCompare")?.querySelector(".pcmp__panel");
+  if (reduce || !panel) {
+    // No entrance transform to race (motion reduced, or markup changed) —
+    // one rAF is enough to guarantee the just-injected DOM has laid out.
+    requestAnimationFrame(doScroll);
+    return;
+  }
+  let done = false;
+  const fire = () => { if (done) return; done = true; doScroll(); };
+  panel.addEventListener("animationend", fire, { once: true });
+  setTimeout(fire, PANEL_ENTRANCE_MS);   // safety net if animationend never fires
 }
 
 /* Build + reveal the side-by-side Compare overlay from the two selected fits. */
