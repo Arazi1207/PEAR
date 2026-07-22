@@ -2580,6 +2580,18 @@ const ANGLE_CLAUSE = {
     " The 'FRONT' and 'BACK' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.",
 };
 
+/* Full-Look composite clause — the counterpart of ANGLE_CLAUSE.combined for
+   stitchLookBlob(). The reference image is now TWO stacked, isolated garment photos
+   (TOP over BOTTOM) rather than one image + a text-only description of the second
+   garment, so the model has an actual pixel reference for BOTH the shirt and the
+   pants and can render them together instead of favoring only the visually-referenced
+   one. */
+const LOOK_CLAUSE =
+  " This image is two completely separate garment photographs stacked vertically, each isolated inside its own black-framed panel and divided by a WIDE solid-black separator band that is a strict no-man's-land." +
+  " The two panels are distinct, mutually exclusive garment views. The panel marked 'TOP' is the ONLY valid source for the upper-body garment. The panel marked 'BOTTOM' is the ONLY valid source for the lower-body garment. Treat the black band and black frames as an impassable wall: you are strictly forbidden from sampling, blending, copying or bleeding ANY pixel from one panel into the other." +
+  " Reproduce EACH panel's garment with 100% fidelity to its color, fabric and graphics — rendering the 'TOP' panel's garment on the person's upper body AND the 'BOTTOM' panel's garment on the person's lower body AT THE SAME TIME, in a single photorealistic pass. Neither garment replaces the other; both must be visible simultaneously." +
+  " The 'TOP' and 'BOTTOM' text markers and the black frames/band are architectural guides only — never render that text, the frames or the band onto the clothing or the person.";
+
 /* Custom upload, BACK angle, NO back photo supplied → a stronger inferred-rear than the
    generic backInferred. Product-approved wording: a clean, plain rear (front graphics
    stripped) that keeps the front's fabric/colour/seams/drape. The "negative prompt" is
@@ -2850,30 +2862,48 @@ async function applyActive() {
  *
  * SDK reality (verified against @decartai/sdk@0.1.5 `setInputSchema`): realtime
  * set() accepts exactly { prompt, enhance, image } and STRIPS unknown keys, so only
- * ONE reference image reaches the model today. We send the top as that reference and
- * bundle BOTH image URLs + their categories alongside it (images / garments) so they
- * are forward-compatible the day the model accepts multi-garment input — and both
- * garments already render now via the combined prompt. The try/catch falls back to
- * the minimal documented shape so a full look can never break the live session.
+ * ONE reference image reaches the model today — a text-only description of a garment
+ * with no pixel reference renders weakly (or not at all), which is what made "Add to
+ * Look" look like it REPLACED the current garment instead of layering it. So the ONE
+ * image we send is a stitchLookBlob() composite of BOTH garments (TOP over BOTTOM),
+ * giving each an actual visual reference. We still bundle both image URLs + their
+ * categories alongside it (images / garments) so they are forward-compatible the day
+ * the model accepts true multi-garment input. The try/catch falls back to the minimal
+ * documented shape so a full look can never break the live session.
  * @returns {Promise<void>}
  */
 async function applyLook(top, bottom) {
   if (!rtClient) throw new Error("not connected");
 
-  // Gallery sync: resolve each half against the active angle, then append the shared
-  // angle clause once so the whole look renders from the same perspective.
+  // Gallery sync: resolve each half against the active angle first.
   const topImg = activeImageOf(top), bottomImg = activeImageOf(bottom);
-  const prompt = buildLookPrompt(top, bottom) + angleClause();
-  // Combined view stitches the TOP's front+back (the single reference the SDK forwards);
-  // otherwise the proxied top URL — either way one fast, Decart-fetchable reference.
-  const primaryImage = (await referenceImageFor(top, topImg)) ?? null;
+
+  // The SDK forwards exactly ONE image ({prompt, enhance, image} — extra keys are
+  // stripped), so a text-only description of the second garment gets a real pixel
+  // reference for the top but none for the bottom, and the model renders only the
+  // top — visually indistinguishable from "replace". stitchLookBlob() gives BOTH
+  // garments an actual reference by compositing them (TOP over BOTTOM) into the
+  // single image the SDK does forward. Skip it for the AI Combined/Auto angle
+  // modes, which already need that one image slot for their own front/back stitch.
+  const canStitchLook = currentAngle !== COMBINED_ANGLE && currentAngle !== AUTO_ANGLE;
+  let primaryImage = canStitchLook ? await stitchLookBlob(topImg, bottomImg) : null;
+  const prompt = primaryImage
+    ? buildLookPrompt(top, bottom) + LOOK_CLAUSE
+    : buildLookPrompt(top, bottom) + angleClause();
+
+  if (!primaryImage) {
+    // Stitch unavailable (combined/auto angle) or failed to decode — fall back to the
+    // single top reference so the live session is never left without ANY image.
+    if (canStitchLook) console.warn("[PEAR] look stitch failed; falling back to top-only reference");
+    primaryImage = (await referenceImageFor(top, topImg)) ?? null;
+  }
   const images = [topImg, bottomImg].filter(Boolean).map(garmentImageRef).filter(Boolean);
 
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
     enhance: true,
-    image: primaryImage,              // SDK single-image reference (the top, as URL)
+    image: primaryImage,               // SDK single-image slot: TOP+BOTTOM stitched composite (or top-only fallback)
     images,                           // both verified proxy URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
       { category: "top",    type: top.garmentType,    image: topImg,    color: top.color,    subType: top.subType,    name: top.name,    angle: currentAngle },
