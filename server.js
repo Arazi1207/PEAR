@@ -508,9 +508,11 @@ async function clearSessionLogs() {
    ══════════════════════════════════════════════════════════════════════════ */
 /* device_id is NOT unique (a shared/QA browser can legitimately attach to several
    different email-identified profiles over its lifetime — see V3 migration), so
-   this can no longer assume a single row. Used only by the admin-adjacent
-   GET /api/users/:deviceId debug lookup — never by createUser's identification
-   logic, which must go by email alone. Returns the most recently touched row. */
+   this can no longer assume a single row. Used by GET/PATCH /api/users/:deviceId
+   for returning-device auto-login and the measurements refresh — never by
+   createUser's identification logic, which must go by email alone. Returns the
+   most recently touched row, an accepted tradeoff for the auto-login convenience
+   (see fitting-room/app.js setupIdentityGate comment). */
 async function findUserByDeviceId(deviceId) {
   const { data, error } = await supabase
     .from("users")
@@ -552,37 +554,21 @@ async function findUserByEmail(email) {
   return data || null;
 }
 
-/* The user's most recently saved body measurements (each save is a timestamped
-   `sessions` row). Powers auto-login prefill + the 30-day "time to re-measure"
-   reminder. Returns null when the user has never saved measurements. */
-async function latestMeasurementsForUser(userId) {
-  if (!userId) return null;
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("height, weight, chest, waist, legs, size, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) return null;
-  return {
-    measurements: {
-      height: data.height, weight: data.weight,
-      chest: data.chest, waist: data.waist, legs: data.legs,
-    },
-    size: data.size || "",
-    measurementsUpdatedAt: data.created_at || null,
-  };
-}
-
-/* Strip a user row down to the non-PII fields the PUBLIC client actually needs
-   (returning-visitor recognition uses id + name only). The email address is PII and
-   must NEVER be returned by an unauthenticated endpoint — only the admin API, which
-   is auth-gated, may see it. */
+/* Shape a user row for the client. NOTE: this used to strip email as PII (an
+   unauthenticated endpoint never returned it). The returning-user profile panel
+   now needs to display email, so it's included — device_id is an unguessable
+   client-generated UUID that already proves "this is the browser that
+   registered", a comparable trust level to what already gates the account.
+   height/weight live directly on `users` now (see supabase_setup_v7.sql) —
+   the single source of truth for "this person's current measurements";
+   `sessions` stays the append-only try-on log. */
 function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, name: u.name, created_at: u.created_at };
+  return {
+    id: u.id, name: u.name, email: u.email,
+    height: u.height, weight: u.weight,
+    created_at: u.created_at,
+  };
 }
 
 /* POST /api/users — identify (or create) a user by EMAIL. Email is the ONLY
@@ -620,10 +606,9 @@ async function createUser(req, res) {
     if (sameName(row.name, name)) {
       await supabase.from("users").update({ device_id: deviceId }).eq("id", row.id);
       console.log(`[users] name+email match → auto-login user ${row.id}, relinked device "${deviceId}"`);
-      const m = await latestMeasurementsForUser(row.id).catch(() => null);
       return {
         status: 200,
-        body: { ok: true, user: publicUser({ ...row, device_id: deviceId }), existed: true, matched: "email", ...(m || {}) },
+        body: { ok: true, user: publicUser({ ...row, device_id: deviceId }), existed: true, matched: "email" },
       };
     }
     console.warn(`[users] email already registered to a different name → blocked`);
@@ -675,13 +660,44 @@ async function getUserByDevice(req, res) {
   try {
     const user = await findUserByDeviceId(deviceId);
     if (!user) return res.status(404).json({ ok: false, error: "not_found" });
-    // Include the user's latest saved measurements (own data, keyed by their own
-    // device) so the client can prefill the form and run the 30-day re-measure
-    // check. Still no email/PII in the payload.
-    const m = await latestMeasurementsForUser(user.id).catch(() => null);
-    res.json({ ok: true, user: publicUser(user), ...(m || {}) });
+    res.json({ ok: true, user: publicUser(user) });
   } catch (err) {
     console.error("[users] lookup failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+}
+
+/* PATCH /api/users/:deviceId — update this device's user row with a fresh
+   height/weight (the monthly returning-user measurements refresh). Same
+   sane-range bounds as the client's isSaneProfile()/calculateSize() gate, so
+   the server never persists a value the form itself would reject. */
+async function updateUserMeasurements(req, res) {
+  if (storageUnavailable(res)) return;
+  const deviceId = String(req.params.deviceId || "").trim();
+  if (!deviceId) return res.status(400).json({ error: "missing_device_id" });
+
+  const height = Number(req.body?.height);
+  const weight = Number(req.body?.weight);
+  const sane = Number.isFinite(height) && Number.isFinite(weight) &&
+    height >= 130 && height <= 240 && weight >= 35 && weight <= 220;
+  if (!sane) {
+    return res.status(400).json({ ok: false, error: "invalid_measurements" });
+  }
+
+  try {
+    const user = await findUserByDeviceId(deviceId);
+    if (!user) return res.status(404).json({ ok: false, error: "not_found" });
+
+    const { error } = await supabase
+      .from("users")
+      .update({ height, weight })
+      .eq("id", user.id);
+    if (error) throw new Error(error.message);
+
+    console.log(`[users] measurements updated for user ${user.id} (device "${deviceId}")`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[users] measurements update failed:", err?.message);
     res.status(500).json({ ok: false, error: err?.message });
   }
 }
@@ -798,6 +814,7 @@ app.delete("/api/admin/sessions", requireAdminAuth, clearSessions);
    public GET returns non-PII fields only; the admin list is auth-gated. */
 app.post("/api/users",            userLimiter, createUser);
 app.get("/api/users/:deviceId",   getUserByDevice);
+app.patch("/api/users/:deviceId", userLimiter, updateUserMeasurements);
 app.get("/api/admin/users",       requireAdminAuth, getUsersWithCounts);
 
 /* Pre-login allowlist check: the admin login page calls this before requesting a

@@ -126,6 +126,10 @@
         </form>
 
         <form id="sizeForm" autocomplete="off" hidden style="display:none">
+            <!-- Monthly measurements-refresh nudge — shown only when a known,
+                 30+ day-stale profile forces this form open (see routeUser/
+                 showSizeForm in app.js). Hidden the rest of the time. -->
+            <p id="measurementsRefreshNotice" class="measurements-refresh-notice" hidden>עדכן את המידות שלך - עבר חודש מהפעם האחרונה</p>
             <!-- ░░ Mandatory inputs — always visible (idle state) ░░ -->
             <div class="form-group">
                 <label for="height"><span class="required">*</span>גובה (בס"מ):</label>
@@ -189,6 +193,31 @@
      SCREEN 2 — Isolated Try-On Room (Lucy VTON realtime snapshot flow)
      ════════════════════════════════════════════════════════════════════ -->
 <div id="screen-fitting" class="screen">
+
+    <!-- ░░ Profile button (Feature 3) — top-right corner, always visible while in
+         the fitting room, not just on the identity gate. Hidden via [hidden] until
+         a user is known (updateProfileButton() in app.js). Fixed position so it
+         stays put regardless of scroll/camera state; z-index sits above the camera
+         stage but below any modal/overlay. ░░ -->
+    <button class="profile-btn" id="profileBtn" type="button" hidden
+            aria-label="פרופיל משתמש · User profile" aria-haspopup="true">
+        <span class="profile-btn__initial" id="profileInitial">?</span>
+    </button>
+    <div class="profile-dropdown" id="profileDropdown" role="menu" hidden>
+        <div class="profile-dropdown__row">
+            <span class="profile-dropdown__label">שם:</span>
+            <span class="profile-dropdown__value" id="profileName"></span>
+        </div>
+        <div class="profile-dropdown__row">
+            <span class="profile-dropdown__label">אימייל:</span>
+            <span class="profile-dropdown__value" id="profileEmail"></span>
+        </div>
+        <div class="profile-dropdown__row">
+            <span class="profile-dropdown__label">מידות:</span>
+            <span class="profile-dropdown__value" id="profileMeasurements"></span>
+        </div>
+        <button class="profile-dropdown__logout" id="profileLogoutBtn" type="button">התנתקות</button>
+    </div>
 
     <!-- Pear-green product-isolation status bar (focus mode only) -->
     <div class="focus-bar" id="focusBar" hidden>
@@ -510,28 +539,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<!-- ░░ 30-day re-measure reminder — custom modal (never a native confirm). Shown on
-     login when the saved measurements are a month or more old. ░░ -->
-<div class="update-reminder" id="updateReminderModal" role="dialog" aria-modal="true"
-     aria-labelledby="reminderTitle" aria-describedby="reminderBody" hidden>
-    <div class="update-reminder__card" role="document">
-        <div class="update-reminder__badge" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M12 7v5l3 2"/>
-            </svg>
-        </div>
-        <h3 id="reminderTitle">עבר יותר מחודש מאז העדכון האחרון!</h3>
-        <p id="reminderBody">הגוף משתנה — כדאי לרענן את המדידות כדי לשמור על התאמת מידה מדויקת. לעדכן עכשיו?</p>
-        <div class="update-reminder__actions">
-            <button id="reminder-update-now" type="button" class="btn-primary">עדכן עכשיו</button>
-            <button id="reminder-dismiss" type="button" class="btn-ghost">אחר כך</button>
-        </div>
-    </div>
-</div>
-
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=6"></script>
 <!-- Additive touch-interaction layer: scroll-reveal, tap ripple, haptics, sticky
      header shrink. Pure enhancement — touches no app.js logic or state. -->
 <script src="mobile-ux.js" defer></script>

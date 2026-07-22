@@ -334,30 +334,10 @@ h1, h2, h3, h4 {
 .btn-update-measure:active { transform: scale(.96); }
 .btn-update-measure:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--pear-ring), var(--shadow-soft); }
 
-/* ── 30-day re-measure reminder modal — custom (no native confirm). Black scrim +
-   glass card, pear-green accent, honours prefers-reduced-motion. ── */
-.update-reminder {
-  position: fixed; inset: 0; z-index: 9000;
-  display: flex; align-items: center; justify-content: center; padding: 24px;
-  background: rgba(8, 8, 10, .58);
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  opacity: 0; transition: opacity .26s var(--ease);
-}
-.update-reminder[hidden] { display: none; }
-.update-reminder.show { opacity: 1; }
-
-.update-reminder__card {
-  width: min(420px, 100%);
-  padding: 30px 28px 26px; text-align: center;
-  border: 1px solid var(--glass-border); border-radius: var(--radius);
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);
-  box-shadow: var(--shadow-lift);
-  transform: translateY(14px) scale(.96);
-  transition: transform .32s var(--ease);
-}
-.update-reminder.show .update-reminder__card { transform: translateY(0) scale(1); }
-
+/* ── shared circular icon badge — used by the "demo already used" screen (see
+   #screen-locked in index.html); originally introduced for the 30-day
+   re-measure reminder modal, which was replaced by the mandatory monthly
+   measurements-refresh form (see PROFILE / MEASUREMENTS section in app.js). ── */
 .update-reminder__badge {
   width: 58px; height: 58px; margin: 0 auto 16px;
   display: flex; align-items: center; justify-content: center;
@@ -366,23 +346,15 @@ h1, h2, h3, h4 {
   background: var(--pear-tint); border: 1px solid rgba(141, 182, 0, .35);
   box-shadow: var(--shadow-pear);
 }
-.update-reminder__card h3 {
-  margin: 0 0 8px; font-family: "Urbanist"; font-weight: 800;
-  font-size: 1.24rem; color: var(--ink); letter-spacing: -.01em;
-}
-.update-reminder__card p {
-  margin: 0 0 22px; color: var(--muted); font-size: .96rem; line-height: 1.55;
-}
-.update-reminder__actions {
-  display: flex; flex-direction: column; gap: 10px; align-items: stretch;
-}
-.update-reminder__actions .btn-primary { margin-top: 0; }
-.update-reminder__actions .btn-ghost { width: 100%; }
 
-@media (prefers-reduced-motion: reduce) {
-  .update-reminder, .update-reminder__card { transition: none; }
-  .update-reminder__card { transform: none; }
+/* ── monthly measurements-refresh nudge (Screen 1, forced form) ─────────── */
+.measurements-refresh-notice {
+  margin: 0 0 16px; padding: 10px 14px;
+  border: 1px solid rgba(141, 182, 0, .35); border-radius: 12px;
+  background: var(--pear-tint); color: var(--pear-deep);
+  font-family: "Inter", sans-serif; font-size: .88rem; font-weight: 600; text-align: center;
 }
+.measurements-refresh-notice[hidden] { display: none; }
 
 /* ── conditional optional fields — fluid "Liquid Glass" expandable panel ───
    No display:none toggle. The panel is always in the DOM and opens organically
@@ -1817,6 +1789,54 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   transition: transform .5s var(--spring), opacity .35s var(--ease);
 }
 .cart-btn__count.is-empty { transform: scale(0); opacity: 0; }
+
+/* ── Profile button (Feature 3) — fixed top-right corner, always visible in the
+   fitting room once a user is known. Same frosted-circle language as .cart-btn,
+   pear-green accented. z-index sits above the camera stage (highest in-camera
+   z-index is 9, see .camera-card__* rules) but below any modal/overlay
+   (garment-detect / lightbox / compare start at 200+). ── */
+.profile-btn {
+  position: fixed; top: calc(14px + var(--safe-t, 0px)); right: 14px; z-index: 100;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 50%; padding: 0;
+  border: 1px solid rgba(141, 182, 0, .35);
+  background: var(--pear-tint);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--pear-deep); cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.6);
+  transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
+}
+.profile-btn:hover  { transform: translateY(-2px); background: rgba(141, 182, 0, .24); box-shadow: var(--shadow); }
+.profile-btn:active { transform: scale(.92); }
+.profile-btn[hidden] { display: none; }
+.profile-btn__initial {
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .92rem; line-height: 1;
+}
+
+.profile-dropdown {
+  position: fixed; top: calc(58px + var(--safe-t, 0px)); right: 14px; z-index: 100;
+  width: min(240px, calc(100vw - 28px)); padding: 14px 16px;
+  border: 1px solid var(--glass-border); border-radius: 16px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);
+  box-shadow: var(--shadow-lift);
+}
+.profile-dropdown[hidden] { display: none; }
+.profile-dropdown__row {
+  display: flex; align-items: baseline; gap: 6px; padding: 4px 0;
+  font-family: "Inter", sans-serif; font-size: .82rem;
+}
+.profile-dropdown__label { color: var(--muted); flex: none; }
+.profile-dropdown__value {
+  color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profile-dropdown__logout {
+  width: 100%; margin-top: 10px; padding: 9px 12px; border: 0; border-radius: var(--pill);
+  background: rgba(220, 60, 60, .12); color: #b23a3a;
+  font-family: "Inter", sans-serif; font-size: .84rem; font-weight: 700; cursor: pointer;
+  transition: background .25s var(--ease);
+}
+.profile-dropdown__logout:hover { background: rgba(220, 60, 60, .2); }
 
 /* ── 1 · "Add to Cart" morphing button ─────────────────────────────────── */
 .add-cart-row { max-width: 470px; margin: 14px auto 0; }
