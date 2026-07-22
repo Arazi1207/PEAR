@@ -1989,6 +1989,7 @@ function teardown() {
   // session starts clean (the billed window re-arms only on its own first rendered frame).
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
   billingStarted = false;
+  dressedFrameReady = false;
 
   // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
   // client we're about to disconnect become no-ops (see connectRealtime).
@@ -3687,7 +3688,16 @@ function startBillingWindow(gen) {
   // First real frame arrived → cancel the no-first-frame safety teardown.
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
-  console.log("[PEAR] First frame received — billing started (" +
+  // STATE TRANSITION: Loading (w/ timer) → Model Ready → Start 5s capture. Everything
+  // above this line only runs once armFirstFrameBilling has VERIFIED a real, non-black
+  // AI-rendered frame — so this is the exact instant the model is "fully initialized."
+  // Reveal the live stage + retire the loading overlay HERE (not earlier in goLive())
+  // so the user never sees a "ready" UI before there's real content behind it.
+  stopScanTimer();
+  $("scanOverlay").hidden = true;
+  card().classList.add("show-live");
+
+  console.log("[PEAR] First verified AI frame — billing + 5s capture started (" +
     (LIVE_DURATION_MS / 1000) + "s / " + CREDITS_PER_SESSION + " credits)");
 
   // Visual countdown over the full VIDEO_LENGTH_MS experience. Drift-tolerant: the hard
@@ -3714,27 +3724,52 @@ function startBillingWindow(gen) {
   }, LIVE_DURATION_MS);
 }
 
-/* Fire the billed window ONCE, at the first frame #aiVideo actually presents (renders)
-   from Decart. Prefers requestVideoFrameCallback (fires precisely on frame presentation,
-   the same frame the recording paint loop draws to its canvas that tick); falls back to
-   a rAF poll on videoWidth/currentTime where rVFC is unavailable. sessionGen-guarded so a
+/* Fire the billed window ONCE — at the first frame #aiVideo presents that is VERIFIED
+   to be real AI-rendered output, not just "a frame decoded". Model ready == fully
+   initialized here means "the remote track is actually producing dressed content", so
+   we reuse sampleVideoLuma()'s black-frame test (same thresholds as the local-camera
+   credit-saving gate above) on the REMOTE feed.
+
+   PRECISION-TIMING FIX: the remote WebRTC track can start delivering frames (and
+   requestVideoFrameCallback/videoWidth can go non-zero) up to ~1s BEFORE Decart's model
+   finishes warming up server-side — that gap was previously a black/blank placeholder
+   frame (see the BLACK-FRAME FIX note in startRecording). The old code fired billing on
+   THAT first decoded frame regardless of content, so the 5s countdown — and the
+   recorder, gated on the same signal below — could start while the model hadn't
+   actually produced anything yet, shaving real seconds off the useful captured window.
+   Now we keep checking subsequent frames (via the same rVFC/rAF mechanism) until one
+   verifiably isn't black, and ONLY that frame arms billing.
+
+   Prefers requestVideoFrameCallback (fires precisely on frame presentation, the same
+   frame the recording paint loop draws to its canvas that tick); falls back to a rAF
+   poll on videoWidth/currentTime where rVFC is unavailable. sessionGen-guarded so a
    stale session's late frame can never start the new one's billing. */
 function armFirstFrameBilling(video, gen) {
   if (!video || billingStarted || gen !== sessionGen) return;
   let done = false;
+  const isDressedFrame = () => {
+    const s = sampleVideoLuma(video);
+    return s.ready && s.avgLuma > CAMERA_BLACK_AVG_LUMA && s.blackFrac < CAMERA_BLACK_PIXEL_FRAC;
+  };
   const fire = () => {
     if (done) return;
     done = true;
     if (gen !== sessionGen) return;      // session was torn down before the first frame
+    dressedFrameReady = true;            // model-ready signal shared with the recorder (startRecording)
     startBillingWindow(gen);
   };
   if (typeof video.requestVideoFrameCallback === "function") {
-    video.requestVideoFrameCallback(() => fire());
+    const onFrame = () => {
+      if (done || gen !== sessionGen) return;
+      if (isDressedFrame()) return fire();
+      video.requestVideoFrameCallback(onFrame);   // still warming up — check the next presented frame
+    };
+    video.requestVideoFrameCallback(onFrame);
   } else {
-    // Fallback: poll until a real decoded frame exists (dimensions set + playback advanced).
+    // Fallback: poll until a real, verified-non-black decoded frame exists.
     (function poll() {
       if (done || gen !== sessionGen) return;
-      if (video.videoWidth > 0 && video.currentTime > 0) return fire();
+      if (video.videoWidth > 0 && video.currentTime > 0 && isDressedFrame()) return fire();
       requestAnimationFrame(poll);
     })();
   }
@@ -3800,10 +3835,11 @@ async function goLive() {
     // with the WebRTC handshake — the first orientation flip then costs zero fetches.
     if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
 
+    // LOADING state: overlay + a live elapsed-time counter (generic copy, no model/
+    // vendor names — see startScanTimer). Runs until startBillingWindow() confirms
+    // Model Ready and hides it — see the state-transition comment there.
     $("scanOverlay").hidden = false;
-    // CONTENT CLEANUP: dropped the "Lucy VTON ·" provider prefix (matches the
-    // #scanSub default in index.html, which this overwrites at go-live).
-    $("scanSub").textContent = "Photorealistic render";
+    startScanTimer();
 
     // 1) mint ek_ token + open the WebRTC session. NOTE: billing no longer starts here —
     //    the WebRTC session is open, but the billed 5s window is armed by the FIRST
