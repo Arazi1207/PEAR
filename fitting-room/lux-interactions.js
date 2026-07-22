@@ -36,7 +36,6 @@
 
   function init() {
     initCart();
-    initRails();
     initLiquidMesh();
     initFloatingLabels();
     initSkeletons();
@@ -179,31 +178,6 @@
     cartToastEl.classList.add("show");
     clearTimeout(cartToastTimer);
     cartToastTimer = setTimeout(() => cartToastEl.classList.remove("show"), 2600);
-  }
-
-  /* ──────────────────────────────────────────────────────────────────────────
-     3 · AMBIENT SIDE RAILS — parallax to scroll (vertical) + pointer (lateral)
-     ────────────────────────────────────────────────────────────────────────── */
-  function initRails() {
-    const L = document.querySelector(".lux-rail--left");
-    const R = document.querySelector(".lux-rail--right");
-    if (!L && !R) return;
-
-    let scrollY = 0, mx = 0, raf = 0;
-    const apply = () => {
-      raf = 0;
-      if (L) L.style.transform = `translate3d(${-mx}px, ${-scrollY * 0.10}px, 0)`;
-      if (R) R.style.transform = `translate3d(${ mx}px, ${ scrollY * 0.10}px, 0)`;
-    };
-    const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
-
-    window.addEventListener("scroll", () => { scrollY = window.scrollY || window.pageYOffset || 0; schedule(); }, { passive: true });
-    if (fine && !reduce) {
-      window.addEventListener("mousemove", (e) => {
-        mx = (e.clientX / window.innerWidth - 0.5) * 16;   // gentle inertia toward the cursor
-        schedule();
-      }, { passive: true });
-    }
   }
 
   /* ──────────────────────────────────────────────────────────────────────────

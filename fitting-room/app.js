@@ -3299,7 +3299,18 @@ function hideAllScreen1Forms() {
    (a known profile whose 30-day window lapsed; never shown to a brand-new
    visitor who has no profile yet). Recomputes so a prefilled visitor sees
    their size immediately. */
+/* Lift the pre-paint force-hide (see the inline script + html.pear-returning-
+ * check rule in style.css) the instant we're about to reveal #screen-calculator
+ * for real — whether that's the identity gate (unknown/404 device) or the
+ * measurement form (no/stale profile). The fast path (known device, fresh
+ * profile) never calls this: it goes straight to goToFitting() and
+ * #screen-calculator is simply never shown. */
+function clearReturningCheckGate() {
+  document.documentElement.classList.remove("pear-returning-check");
+}
+
 function showSizeForm(opts) {
+  clearReturningCheckGate();
   const idForm = $("identityForm");
   const sizeForm = $("sizeForm");
   const notice = $("measurementsRefreshNotice");
@@ -3463,6 +3474,7 @@ function setupProfileButton() {
 /* Show the name/email gate and wire its controls (idempotent — safe to call
    more than once). Hides the measurement form until the visitor registers. */
 function showIdentityGate() {
+  clearReturningCheckGate();
   const idForm   = $("identityForm");
   const sizeForm = $("sizeForm");
   // Inline display overrides #sizeForm's CSS `display:grid` (see showSizeForm).

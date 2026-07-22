@@ -118,6 +118,15 @@ h1, h2, h3, h4 {
 /* ── screens ───────────────────────────────────────────────────────────── */
 .screen { display: none; min-height: 100vh; min-height: 100dvh; position: relative; z-index: 1; }
 .screen.active { display: block; animation: fade .5s var(--ease) both; }
+
+/* Returning-device pre-paint gate (Feature 5 fix) — set synchronously by the
+   inline script at the top of <body>, BEFORE #screen-calculator's default
+   .active state ever paints, whenever this browser has a remembered
+   pear_device_id. Force-hides the gate/measurement screen while app.js
+   confirms the device server-side; app.js removes the class the instant it
+   knows the outcome (see showIdentityGate()/showSizeForm() in app.js). The
+   !important beats .screen.active's display:block unconditionally. */
+html.pear-returning-check #screen-calculator { display: none !important; }
 @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 .container {
@@ -533,6 +542,7 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .focus-bar__badge:empty { display: none; }
 
 .app-header {
+  position: relative;   /* containing block for .app-header__titles' absolute centering */
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 24px clamp(16px,5vw,36px) 0;
   max-width: 760px; margin: 0 auto;
@@ -2024,43 +2034,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   100% { transform: translate3d(0,0,0) scale(3.5); opacity: 0; }
 }
 
-/* ── 3 · Ambient editorial side rails ──────────────────────────────────── */
-.lux-rail {
-  position: fixed; top: 0; bottom: 0; z-index: 0;   /* strictly BEHIND content (.screen = z-index 1) */
-  width: clamp(40px, 4vw, 64px);
-  display: none;                              /* shown only on wide viewports with real margin */
-  flex-direction: column; align-items: center; justify-content: space-between;
-  padding: 48px 0; pointer-events: none; user-select: none;
-  will-change: transform;
-}
-.lux-rail--left  { inset-inline-start: 0; }
-.lux-rail--right { inset-inline-end: 0; }
-.lux-rail__grid {
-  position: absolute; inset: 0;
-  background-image: linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px);
-  background-size: 14px 100%;
-  -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
-          mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
-  opacity: .6;
-}
-.lux-rail--left .lux-rail__grid  { border-inline-end: 1px solid rgba(0,0,0,.07); }
-.lux-rail--right .lux-rail__grid { border-inline-start: 1px solid rgba(0,0,0,.07); }
-.lux-rail__type, .lux-rail__meta {
-  position: relative; writing-mode: vertical-rl;
-  font-family: "Inter", sans-serif; text-transform: uppercase;
-  white-space: nowrap; line-height: 1;
-}
-.lux-rail__type {
-  font-size: .68rem; font-weight: 700; letter-spacing: .42em; color: rgba(10,10,11,.34);
-}
-.lux-rail__meta {
-  font-size: .58rem; font-weight: 600; letter-spacing: .3em; color: var(--pear-deep); opacity: .55;
-}
-.lux-rail--left .lux-rail__type, .lux-rail--left .lux-rail__meta { transform: rotate(180deg); }
-/* only surface once there is genuine margin beyond the 1180px content shell, so
-   the rails stay ambient and never crowd the interactive layout */
-@media (min-width: 1340px) { .lux-rail { display: flex; } }
-
 /* ── 4 · Floating-label fields ─── base only; the magnetic micro-inertia
    behaviour (label glides toward the cursor) is defined in the palette section
    below so it can use the --lblx/--lbly custom properties set by JS. ───────── */
@@ -2086,7 +2059,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 @media (prefers-reduced-motion: reduce) {
   .pear-transition { display: none !important; }
   .cart-btn.is-bounce, .btn-add-cart.is-done .bac__check, .lux-skeleton::after { animation: none; }
-  .lux-rail { transform: none !important; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2496,37 +2468,37 @@ body.gd-open { overflow: hidden; }
    ✦ PEAR BRAND PASS — Didot wordmark · raster logo · camera stage · guide
    ════════════════════════════════════════════════════════════════════════ */
 
-/* Didot serif on literal PEAR/pear brand text ONLY (never MERIDIAN). These
-   selectors are all PEAR-branded lockups; the left side-rail carries the PEAR
-   string while the right rail (non-PEAR) intentionally stays in Inter. */
+/* Didot serif on literal PEAR/pear brand text ONLY (never MERIDIAN). */
 .pear-wordmark,
 .app-header__brand,
 .kicker,
 .calc-editorial__kicker,
-.gd-eyebrow,
-.lux-rail--left .lux-rail__type {
+.gd-eyebrow {
   font-family: var(--pear-wordmark);
 }
 
-/* Header brand lockup — three tidy, vertically-centred zones: nav · brand · actions.
-   The logo + PEAR wordmark + subtitle read as one unit; the wordmark stacks over
-   the subtitle so the portrait logo has a clean two-line height to align to. */
+/* Header layout — nav zone (logo + back-to-store + edit-measurements, right in
+   RTL) and actions zone (cart, left in RTL) sit on the row; the PEAR
+   wordmark + subtitle are pulled OUT of flow and centred across the FULL
+   header width via position:absolute (see .app-header{position:relative}),
+   so they stay dead-centre regardless of how wide the side zones get —
+   unlike equal-flex centring, this can't be pushed off-centre/overlapped by
+   the nav zone growing (e.g. when edit-measurements' label is visible). */
 .app-header__nav,
 .app-header__actions {
   display: flex; align-items: center; gap: 8px; min-width: 0;
-  flex: 1 1 0;                 /* equal side zones → the brand lockup truly centres */
+  position: relative; z-index: 1;   /* stay above the absolutely-centred titles */
 }
 .app-header__actions { justify-content: flex-end; }
 .app-header__actions .cart-btn { margin: 0; }   /* zone handles placement now */
-.app-header__brand-lockup {
-  display: flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0;
-}
 .app-header__titles {
-  display: flex; flex-direction: column; align-items: flex-start;
-  gap: 3px; min-width: 0;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 3px; min-width: 0; max-width: min(52vw, 320px);
+  pointer-events: none;   /* decorative text only — never blocks the nav/actions above it */
 }
 /* Header mark is a raster <img>; height-driven so its portrait width stays
-   proportional, sized to the two-line title block beside it. */
+   proportional. */
 .brand-mark {
   width: auto; height: 38px; object-fit: contain; margin: 0; align-self: center; flex: none;
 }
@@ -2537,13 +2509,10 @@ body.gd-open { overflow: hidden; }
   .camera-card { max-width: 600px; aspect-ratio: 4 / 3; }
 }
 
-/* Phone: keep the logo proportional to the compacting sticky header, and let the
-   side zones size to content (natural widths) so nothing overflows a narrow row. */
+/* Phone: keep the logo proportional to the compacting sticky header. */
 @media (max-width: 768px) {
   .brand-mark { height: 32px; }
   .app-header.is-scrolled .brand-mark { height: 28px; }
-  .app-header__nav,
-  .app-header__actions { flex: 0 1 auto; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════

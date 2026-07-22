@@ -19,24 +19,28 @@
 </head>
 <body>
 
+<!-- ░░ Returning-device pre-paint gate (Feature 5 fix) — synchronous, blocking,
+     runs before the browser paints ANY of #screen-calculator below. If this
+     browser has a remembered pear_device_id, force-hide the identity gate /
+     measurement form (see the html.pear-returning-check rule in style.css)
+     so there is zero flash of those screens while app.js's setupIdentityGate()
+     confirms the device server-side. app.js removes the class the moment it
+     knows the outcome — either routing straight to the camera (200 + fresh
+     profile) or revealing the gate itself (404 / no device / infra error). ░░ -->
+<script>
+(function () {
+  try {
+    if (localStorage.getItem("pear_device_id")) {
+      document.documentElement.classList.add("pear-returning-check");
+    }
+  } catch (e) {}
+})();
+</script>
+
 <!-- ░░ Liquid-glass dynamic background — a soft mesh of blurred light that drifts
      microscopically with the pointer / device tilt (lux-interactions.js applies an
      inertial translate3d). Fixed, behind all content, pointer-events:none. ░░ -->
 <div class="liquid-mesh" aria-hidden="true"></div>
-
-<!-- ░░ Ambient editorial side rails — fill desktop/tablet margins; parallax to
-     scroll + pointer (lux-interactions.js). Decorative, pointer-events:none,
-     hidden on smaller viewports. ░░ -->
-<aside class="lux-rail lux-rail--left" aria-hidden="true">
-  <div class="lux-rail__grid"></div>
-  <span class="lux-rail__type">PEAR PREMIUM FIT ROOM // EST. 2026</span>
-  <span class="lux-rail__meta">№ 01 — MONOCHROME CAPSULE</span>
-</aside>
-<aside class="lux-rail lux-rail--right" aria-hidden="true">
-  <div class="lux-rail__grid"></div>
-  <span class="lux-rail__type">VIRTUAL TRY-ON // ALGORITHMIC FIT</span>
-  <span class="lux-rail__meta">LUCY VTON · REALTIME</span>
-</aside>
 
 <!-- ░░ Bitten-Pear screen transition overlay (Screen 1 → Screen 2) ░░ -->
 <!-- ░░ "Liquid Brand Aperture" transition (Screen 1 → Screen 2) ░░
@@ -227,8 +231,11 @@
     </div>
 
     <div class="app-header">
-        <!-- Nav zone (start / right in RTL): storefront + edit-measurements -->
+        <!-- Nav zone (start / right in RTL): logo + storefront + edit-measurements.
+             Logo comes FIRST in source order so it renders at the outer/right edge
+             in RTL — i.e. to the right of "חזרה לחנות", both on the same line. -->
         <div class="app-header__nav">
+        <img class="brand-mark" src="/pear-logo.png" alt="PEAR Logo" decoding="async">
         <!-- Back to Store — breaks out of any iframe (target="_top") and returns
              to the storefront homepage. -->
         <a class="back-to-store" href="/" target="_top" aria-label="חזרה לחנות · Back to store">
@@ -241,30 +248,26 @@
             <span>חזרה לחנות</span>
         </a>
         <!-- Edit Measurements — always visible in the fitting room so a returning
-             visitor whose cached height/weight were applied automatically (see
-             routeAfterIdentity in app.js) can jump back and correct them without
-             hunting for it. -->
+             visitor whose profile was applied automatically (see routeUser in
+             app.js) can jump back and correct it without hunting for it. -->
         <button class="btn-edit-measurements" id="btn-edit-measurements" type="button"
-                aria-label="עריכת מדידות · Edit measurements">
+                aria-label="עריכת מידות · Edit measurements">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
                  stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 20h9"/>
                 <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
             </svg>
-            <span>עריכת מדידות</span>
+            <span>עריכת מידות</span>
         </button>
         </div><!-- /.app-header__nav -->
 
-        <!-- Brand lockup (centre): official raster logo + PEAR wordmark stacked
-             over the subtitle. Black-on-transparent art on the light cream theme,
-             so it renders crisp with no filter. -->
-        <div class="app-header__brand-lockup">
-            <img class="brand-mark" src="/pear-logo.png" alt="PEAR Logo" decoding="async">
-            <span class="app-header__titles">
-                <span class="app-header__brand">PEAR</span>
-                <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
-            </span>
-        </div>
+        <!-- PEAR wordmark + subtitle — centred across the FULL header width via
+             position:absolute (see .app-header__titles in style.css), independent
+             of how wide the nav/actions zones are. -->
+        <span class="app-header__titles">
+            <span class="app-header__brand">PEAR</span>
+            <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+        </span>
 
         <!-- Actions zone (end / left in RTL): cart + engine status dot -->
         <div class="app-header__actions">
