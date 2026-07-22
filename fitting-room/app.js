@@ -3534,15 +3534,42 @@ function showIdentityGate() {
   if (errEl) errEl.hidden = true;
 }
 
-/* Step 0 for EVERY visit — the name/email gate is ALWAYS the first thing shown,
-   never silently skipped for a "remembered" browser. Routing (Case A/B/C) only
-   happens AFTER the visitor submits the form, keyed by the EMAIL ADDRESS they type
-   (submitIdentity → POST /api/users → routeAfterIdentity), not by a cached device
-   id. The device id is still sent along on submit purely so the same browser
-   re-attaches to the same server profile server-side — it no longer bypasses this
-   screen (that was the bug: a previously-registered device silently skipped
-   straight to an empty measurement form instead of asking for name/email again). */
-function setupIdentityGate() {
+/* Step 0 for EVERY visit. NOTE: this re-adds a device-id auto-skip that an
+   earlier version deliberately removed (see git history / server.js comments
+   on findUserByDeviceId) — a shared/QA browser typing a DIFFERENT name+email
+   into the gate after another visitor already registered on it will silently
+   land in the fitting room under the wrong identity instead of being asked to
+   confirm. Accepted as a known tradeoff per explicit product decision; if that
+   changes, drop the lookup below and always call showIdentityGate(). */
+async function setupIdentityGate() {
+  const deviceId = getDeviceId();
+  console.log("[PEAR] device_id found:", deviceId || "(none)");
+
+  if (!deviceId) {
+    showIdentityGate();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(deviceId)}`);
+    console.log("[PEAR] user lookup result:", res.status);
+
+    if (res.status === 200) {
+      const data = await res.json().catch(() => null);
+      if (data && data.ok && data.user) {
+        console.log("[PEAR] known device → auto-login user:", data.user.name, "→", data.user.id);
+        PEAR_USER_ID = data.user.id;
+        routeAfterIdentity(data);   // Case A/B/C routing, gate never shown
+        return;
+      }
+      console.log("[PEAR] lookup returned 200 but no usable user payload → showing gate");
+    } else {
+      console.log("[PEAR] no known user for this device (404 or error) → showing gate");
+    }
+  } catch (err) {
+    console.log("[PEAR] user lookup failed:", err?.message, "→ showing gate");
+  }
+
   showIdentityGate();
 }
 
