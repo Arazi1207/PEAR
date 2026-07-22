@@ -164,6 +164,9 @@ const CAMERA_BLACK_PIXEL_CUT  = 16;     // a pixel counts as "near-black" when i
 const CAMERA_BLACK_PIXEL_FRAC = 0.985;  // ≥ 98.5% near-black pixels ⇒ covered lens / camera off
 const CAMERA_BLACK_SAMPLES    = 5;      // frames to sample before judging (keep the brightest)
 const CAMERA_BLACK_SAMPLE_MS  = 60;     // gap between samples — spans ~300ms of exposure warm-up
+// NOTE: the four thresholds above are also reused by armFirstFrameBilling() below to
+// verify the FIRST REMOTE (AI-rendered) frame isn't a black warm-up placeholder — same
+// "is this frame black" test, just pointed at a different <video> element.
 
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
@@ -554,6 +557,9 @@ let recordHold = false;        // true once billing stopped & the recorder is ho
 let recordHoldSrc = null;      // off-DOM canvas holding the frozen final dressed frame the recorder repaints during the hold
 let firstFrameGuardTimer = null; // safety timeout — tears the session down if Decart's first frame never arrives (no billing cap otherwise)
 let billingStarted = false;      // guards startBillingWindow() so it arms the billed window ONCE per session, on the first rendered frame
+let dressedFrameReady = false;   // true once #aiVideo has shown a VERIFIED non-black AI-rendered frame this
+                                  // session — the single "model ready" signal shared by billing/countdown
+                                  // (armFirstFrameBilling/startBillingWindow) AND the recorder (startRecording)
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -1392,7 +1398,7 @@ async function startCamera(facing = cameraFacing) {
   finally { cameraStartPromise = null; }
 }
 
-/* Sample ONE frame of the live #webcam into a tiny downscaled canvas and measure
+/* Sample ONE frame of ANY <video> element into a tiny downscaled canvas and measure
    how dark it is. Returns { ready, avgLuma, blackFrac }:
      • ready=false  → no decoded frame yet (videoWidth 0 / not paintable) — caller
                       must NOT treat this as black, only as "can't judge yet".
@@ -1400,9 +1406,10 @@ async function startCamera(facing = cameraFacing) {
      • blackFrac    → fraction of pixels below CAMERA_BLACK_PIXEL_CUT (near-black).
    Same-origin MediaStream pixels are not tainted, so getImageData never throws for
    security; any unexpected error still fails OPEN (ready=false) so we never wrongly
-   block a paying user. 64×36 keeps this well under a millisecond. */
-function sampleWebcamLuma() {
-  const v = $("webcam");
+   block a paying user. 64×36 keeps this well under a millisecond.
+   Shared by two callers: cameraLooksBlack() (local #webcam, the credit-saving gate)
+   and armFirstFrameBilling() (remote #aiVideo, verifying the first real AI frame). */
+function sampleVideoLuma(v) {
   if (!v || !v.videoWidth || !v.videoHeight) return { ready: false, avgLuma: 0, blackFrac: 1 };
   try {
     const cw = 64, ch = 36;                       // downscaled probe — cheap, enough for a luma verdict
@@ -1438,7 +1445,7 @@ async function cameraLooksBlack() {
   let bestLuma = -1;          // brightest mean luma seen
   let bestBlackFrac = 1;      // lowest near-black fraction seen (from the brightest frame)
   for (let i = 0; i < CAMERA_BLACK_SAMPLES; i++) {
-    const s = sampleWebcamLuma();
+    const s = sampleVideoLuma($("webcam"));
     if (s.ready) {
       sawFrame = true;
       if (s.avgLuma > bestLuma) { bestLuma = s.avgLuma; bestBlackFrac = s.blackFrac; }
@@ -1854,6 +1861,7 @@ async function connectRealtime() {
   // no-first-frame safety timer, so the billed window re-arms cleanly on THIS session's
   // first rendered frame (see startBillingWindow / armFirstFrameBilling).
   billingStarted = false;
+  dressedFrameReady = false;
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
   console.log("[PEAR] connectRealtime() — stage 1/4: loading SDK from CDN…");
