@@ -2289,6 +2289,93 @@ function stitchReferenceBlob(frontUrl, backUrl) {
   return job;
 }
 
+/* ── Full-Look compositor — "TOP + BOTTOM Stitched Reference" ─────────────────
+   Same rigid-geometry technique as stitchReferenceBlob (front|back), but stacked
+   VERTICALLY: the TOP garment (shirt) boxed into the upper half, the BOTTOM garment
+   (trousers) boxed into the lower half, separated by the same wide black no-man's-land
+   bar + gutter. WHY THIS EXISTS: Decart's realtime set() only forwards ONE image
+   ({prompt, enhance, image} — setInputSchema strips anything else), so a text-only
+   description of the second garment (no visual reference) is weakly obeyed by the
+   diffusion model and visually reads as "replaced" rather than "layered". Giving BOTH
+   garments an actual pixel reference — even split across one image — is what makes
+   the second garment actually render. Returns ONE JPEG Blob for rtClient.set({ image }).
+   Memoized per top+bottom URL pair; falls back to null (caller falls back to the
+   top-only reference) on any decode/composite failure. */
+const LOOK_W   = 1024, LOOK_H = 2048, LOOK_SEP = 200;
+const LOOK_PAD = 44;                                // black gutter framing each half (isolated panel)
+const LOOK_BOX = (LOOK_H - LOOK_SEP) / 2;           // 924px per half
+const _lookStitchCache = new Map();   // `${topUrl} ${bottomUrl}` → Promise<Blob|null>
+
+/**
+ * Stitch a TOP + BOTTOM garment asset into ONE fixed 1024×2048 reference Blob: TOP boxed
+ * into the upper half (inset by a 44px black gutter) + "TOP" white marker, a WIDE 200px
+ * opaque black separator bar, BOTTOM boxed into the lower half (same gutter) + "BOTTOM"
+ * white marker. Same rigid geometry + wide bar + gutter that keeps the front/back stitch
+ * from bleeding — here it keeps the shirt and pants from bleeding into each other.
+ * @param {string} topUrl     upper-body garment image URL (http(s)/data:/blob:)
+ * @param {string} bottomUrl  lower-body garment image URL
+ * @returns {Promise<Blob|null>}  JPEG Blob, or null on any failure (caller falls back
+ *   to the plain top-only reference so a full look is never left without ANY reference).
+ */
+function stitchLookBlob(topUrl, bottomUrl) {
+  if (!topUrl || !bottomUrl) return Promise.resolve(null);
+  const key = `${topUrl} ${bottomUrl}`;
+  if (_lookStitchCache.has(key)) return _lookStitchCache.get(key);
+
+  const job = (async () => {
+    try {
+      const [top, bottom] = await Promise.all([loadGarmentBitmap(topUrl), loadGarmentBitmap(bottomUrl)]);
+
+      const boxH = LOOK_BOX, W = LOOK_W;
+      const bottomY = boxH + LOOK_SEP;   // start of the BOTTOM box (after the bar)
+
+      const off    = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(LOOK_W, LOOK_H) : null;
+      const canvas = off || Object.assign(document.createElement("canvas"), { width: LOOK_W, height: LOOK_H });
+      const ctx    = canvas.getContext("2d");
+
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, LOOK_W, LOOK_H);
+
+      const pad = LOOK_PAD;
+      const innerW = W - pad * 2, innerH = boxH - pad * 2;
+
+      // Upper half = TOP, clipped to its box so a wide packshot can't bleed toward the bar.
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, W, boxH); ctx.clip();
+      drawImageCover(ctx, top, pad, pad, innerW, innerH);
+      ctx.restore();
+
+      // Lower half = BOTTOM, clipped to its box (starts after the bar).
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, bottomY, W, boxH); ctx.clip();
+      drawImageCover(ctx, bottom, pad, bottomY + pad, innerW, innerH);
+      ctx.restore();
+
+      // High-contrast 200px SOLID BLACK separator bar — the diffusion "no-man's-land".
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, boxH, W, LOOK_SEP);
+
+      // Hard architectural markers: "TOP" in the upper half, "BOTTOM" in the lower half.
+      const fontPx = Math.round(W * 0.09);
+      const inset  = Math.round(W * 0.04);
+      drawSectionLabel(ctx, "TOP",    inset, inset, fontPx, "left");
+      drawSectionLabel(ctx, "BOTTOM", inset, bottomY + inset, fontPx, "left");
+      top.close?.(); bottom.close?.();             // release decoded bitmaps
+
+      return off
+        ? await off.convertToBlob({ type: "image/jpeg", quality: 0.95 })
+        : await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.95));
+    } catch (e) {
+      console.warn("[PEAR] stitchLookBlob failed:", e?.message || e);
+      _lookStitchCache.delete(key);   // never cache a failure — allow a later retry
+      return null;
+    }
+  })();
+
+  _lookStitchCache.set(key, job);
+  return job;
+}
+
 /**
  * Return an absolute URL that the Decart server can reliably fetch.
  * Raw CDN URLs (suitsupply, magnific, etc.) can take 20-25 s for Decart's

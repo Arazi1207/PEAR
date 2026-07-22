@@ -67,12 +67,32 @@
       badge.classList.toggle("is-empty", count === 0);
     }
 
+    function inIframe() {
+      try { return window.self !== window.top; } catch (_) { return true; }
+    }
+
     function land() {
       count += 1;
       localStorage.setItem("pear_cart_count", String(count));
       renderBadge();
       bounceCart();
-      springToast("נוסף לסל · Added to cart");
+
+      const garment = (window.pearGetActiveGarment && window.pearGetActiveGarment()) || {};
+
+      if (inIframe()) {
+        // Embedded in a store (e.g. fox.co.il) — hand the garment off to the host
+        // page's own cart. pear-widget.js listens for this and calls /cart/add.js.
+        window.parent.postMessage({
+          type: "PEAR_ADD_TO_CART",
+          garmentUrl: garment.url || "",
+          garmentName: garment.name || "",
+          variantId: garment.variantId || "",
+        }, "*");
+        springToast("נוסף לסל · Added to cart");
+      } else {
+        // Standalone (PEAR demo site, no host store to hand off to).
+        springToast("הפריט נוסף לסל! (דמו)");
+      }
     }
 
     let busy = false;

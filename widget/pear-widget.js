@@ -243,6 +243,17 @@
     return readAttr(img, name) || readAttr(img.parentElement, name);
   }
 
+  /* Shopify (and Shopify-alike) variant id — read off the store's own Add-to-Cart
+     form so the fitting room's "הוסף לסל" button can hand it back for a real
+     /cart/add.js call. Prefer the id scoped to THIS button's own form (multi-
+     product pages); fall back to a page-wide lookup for bare PDPs. */
+  function extractVariantId(atcBtn) {
+    var form = atcBtn && atcBtn.closest ? atcBtn.closest("form") : null;
+    var input = (form && form.querySelector('input[name="id"], select[name="id"]')) ||
+                d.querySelector('input[name="id"], select[name="id"]');
+    return input ? input.value : "";
+  }
+
   /* Fall back to the next distinct product-gallery image as an approximate rear
      reference (best-effort — gallery order is a storefront convention, not a rule). */
   function findGalleryBack(primaryUrl, root) {
@@ -395,11 +406,39 @@
         "font-size:20px;border:none;cursor:pointer;line-height:40px;" +
         "padding:0;text-align:center;" +
       "}" +
-      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}";
+      ".pear-widget-close:hover{background:rgba(255,255,255,0.25);}" +
+      ".pear-widget-toast{" +
+        "position:fixed;top:24px;left:50%;transform:translate(-50%,-12px);z-index:1000000;" +
+        "background:#111;color:#fff;padding:12px 22px;border-radius:999px;" +
+        "font-size:14px;font-weight:600;font-family:inherit;white-space:nowrap;" +
+        "opacity:0;pointer-events:none;transition:opacity 0.25s,transform 0.25s;" +
+      "}" +
+      ".pear-widget-toast.show{opacity:1;transform:translate(-50%,0);}";
     var style = d.createElement("style");
     style.className = "pear-widget-styles";
     style.textContent = css;
     d.head.appendChild(style);
+  }
+
+  /* ── toast (Add-to-Cart confirmation/error) ───────────────────────────────
+     Own z-index sits ABOVE the fitting-room overlay (999999) so it's visible
+     while the modal is still open — the click that triggers it happens inside
+     the iframe, before the shopper closes the modal. */
+  var toastEl = null, toastTimer = 0;
+  function showToast(msg) {
+    injectStyles();
+    if (!toastEl) {
+      toastEl = d.createElement("div");
+      toastEl.className = "pear-widget-toast";
+      toastEl.setAttribute("role", "status");
+      d.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    toastEl.classList.remove("show");
+    void toastEl.offsetWidth;
+    toastEl.classList.add("show");
+    w.clearTimeout(toastTimer);
+    toastTimer = w.setTimeout(function () { toastEl.classList.remove("show"); }, 2600);
   }
 
   /* ── front/back classification (Gemini, via the PEAR server) ──────────────────
@@ -482,6 +521,7 @@
          switcher. Sent only when there's more than one distinct image. */
       (garment.images && garment.images.length > 1
         ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
+      (garment.variantId ? "&garment_variant_id=" + encodeURIComponent(garment.variantId) : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
       (STORE_KEY ? "&pear_key=" + encodeURIComponent(STORE_KEY) : "") +
       /* Tells the fitting room to skip registration + apply the one-time lock —
@@ -668,7 +708,8 @@
         back: findGalleryBack(primaryUrl, d),
         images: pgImages,
         name: pgName,
-        category: detectCategory(pgName)
+        category: detectCategory(pgName),
+        variantId: extractVariantId(btn)
       };
     }
 
@@ -688,7 +729,8 @@
             back: explicitAttr(img, "data-pear-back") || findGalleryBack(url, node),
             images: cardImages,
             name: name,
-            category: detectCategory(name)
+            category: detectCategory(name),
+            variantId: extractVariantId(btn)
           };
         }
       }
@@ -703,7 +745,8 @@
       return {
         url: primary.url, back: primary.back,
         images: fallbackImages,
-        name: pname, category: detectCategory(pname)
+        name: pname, category: detectCategory(pname),
+        variantId: extractVariantId(btn)
       };
     }
     return null;
@@ -781,11 +824,11 @@
           btn.textContent = originalText;
           var sorted = sortByFrontBack(imgs, results);
           var resolved = resolveFrontBack(imgs, results);
-          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted });
+          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted, variantId: garment.variantId });
         }).catch(function (err) {
           console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
           btn.textContent = originalText;
-          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs });
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs, variantId: garment.variantId });
         });
       });
     }
@@ -824,7 +867,8 @@
     var btn = makePearButton({
       url: primary.url, back: primary.back,
       images: collectGalleryImages(primary.url, d),
-      name: name, category: detectCategory(name)
+      name: name, category: detectCategory(name),
+      variantId: extractVariantId(null)
     });
     var h1 = d.querySelector("h1");
     if (h1 && h1.parentNode) h1.parentNode.insertBefore(btn, h1.nextSibling);
@@ -861,6 +905,35 @@
     if (!e.data || e.data.source !== "pear-fitting-room" || e.data.type !== "pear-demo-measured") return;
     setDemoLocked();
     lockAllButtons();
+  });
+
+  /* Fitting room's "הוסף לסל" button posts this on click (see lux-interactions.js
+     in fitting-room/) so the actual cart mutation happens on the HOST page, where
+     the store's own cart endpoint lives. Tries Shopify's /cart/add.js first; on
+     any failure (non-Shopify store, no variant id resolved, network error) falls
+     back to telling the shopper to add it manually rather than guessing a URL. */
+  w.addEventListener("message", function (e) {
+    if (e.origin !== PEAR_BASE) return;
+    if (!e.data || e.data.type !== "PEAR_ADD_TO_CART") return;
+
+    var variantId = e.data.variantId;
+    if (!variantId) {
+      showToast(isHebrewPage() ? "לא נמצאה גרסת מוצר להוספה לסל" : "Couldn't find a product variant to add");
+      return;
+    }
+    fetch("/cart/add.js", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: variantId, quantity: 1 })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("cart/add.js HTTP " + r.status);
+      return r.json();
+    }).then(function () {
+      showToast(isHebrewPage() ? "הפריט נוסף לסל!" : "Added to cart!");
+    }).catch(function (err) {
+      console.warn("[PEAR widget] /cart/add.js failed:", err && err.message);
+      showToast(isHebrewPage() ? "לא הצלחנו להוסיף לסל אוטומטית — נסה/י ידנית" : "Couldn't add to cart automatically — please add it manually");
+    });
   });
 
   /* ── boot ───────────────────────────────────────────────────────────────── */
