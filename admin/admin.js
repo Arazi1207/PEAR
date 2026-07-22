@@ -114,7 +114,7 @@
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Phone</th>
+                <th>Email</th>
                 <th>Measurements</th>
                 <th>Joined</th>
               </tr>
@@ -473,7 +473,7 @@
           const tr = document.createElement("tr");
           tr.innerHTML =
             `<td>${esc(u.name || "—")}</td>` +
-            `<td>${esc(u.phone || "—")}</td>` +
+            `<td>${esc(u.email || "—")}</td>` +
             `<td><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
             `<td class="cell-time">${esc(timeCell(u.created_at))}</td>`;
           frag.appendChild(tr);

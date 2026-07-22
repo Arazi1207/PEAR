@@ -705,6 +705,10 @@ function parseHandoff() {
       // sets data-pear-require-both-views. Hard-blocks go-live unless a real back
       // image arrived (custom garments are otherwise ungated — see liveBlockReason).
       requireBothViews: q.get("require_both_views") === "1",
+      // Shopify variant id (widget reads it off the store's own Add-to-Cart form) —
+      // carried through so the "הוסף לסל" button here can hand it back to the
+      // storefront's own /cart/add.js call (see pear-widget.js's PEAR_ADD_TO_CART listener).
+      variantId: q.get("garment_variant_id") || undefined,
       angle: readAngle(),
     };
     console.log("[PEAR] parseHandoff() — widget embed garment:", result);
@@ -959,6 +963,14 @@ function setActiveItem(item, opts = {}) {
     if (isLive()) applyActive().catch((e) => console.warn("pre-apply garment:", e?.message || e));
   }
 }
+
+// Exposed for lux-interactions.js (a plain, non-module script that can't import
+// app.js's module-scoped `activeItem`) so the "הוסף לסל" click handler knows which
+// garment/variant to send to the host store's cart.
+window.pearGetActiveGarment = function () {
+  if (!activeItem) return null;
+  return { url: activeItem.img, name: activeItem.name, variantId: activeItem.variantId };
+};
 
 /* =============================================================================
    Multi-Image Product Gallery Sync — colour swatches + perspective rail
@@ -3021,7 +3033,7 @@ const PEAR_SESSION_ID = (() => {
 /* =============================================================================
    RETURNING-USER IDENTITY
    -----------------------------------------------------------------------------
-   First-time visitors enter name + phone ONCE. We generate a persistent device
+   First-time visitors enter name + email ONCE. We generate a persistent device
    id (localStorage 'pear_device_id') and create a user server-side. On every
    later visit we find that device id, load the profile, and skip the form — new
    measurements just attach to the existing user via sessions.user_id.
@@ -3044,7 +3056,7 @@ function newUuid() {
    DEMO MODE — scoped to ONE specific embed, never the general product
    -----------------------------------------------------------------------------
    The fitting room is shared infrastructure: the SAME app.js/index.html serves
-   real merchant embeds and the main platform (full name/phone registration,
+   real merchant embeds and the main platform (full name/email registration,
    no measurement limit) AND the public marketing-site demo widget on
    pear-platform.vercel.app (no registration, one measurement per browser).
 
@@ -3117,7 +3129,7 @@ function lockDemoAfterFirstMeasurement() {
 /* =============================================================================
    CACHED BODY PROFILE (height + weight)
    -----------------------------------------------------------------------------
-   The name/phone identity gate above is skipped for returning visitors, but the
+   The name/email identity gate above is skipped for returning visitors, but the
    measurement form was still blank on every visit — the user re-typed their
    height + weight each time. This caches those two mandatory values in
    localStorage so a returning user's form is pre-filled and the size result
@@ -3192,7 +3204,7 @@ function writeProfileCache(height, weight, tsMs) {
    -----------------------------------------------------------------------------
    The SINGLE decision point for what happens right after a visitor is identified
    (whether via a known device on page load, or via submitIdentity() registering /
-   auto-logging-in by phone). Called with the raw /api/users response.
+   auto-logging-in by email). Called with the raw /api/users response.
 
      Case A — no saved measurements at all → reveal Screen 1's measurement form
               (first-time visitor, or a known profile that never finished sizing).
@@ -3370,7 +3382,7 @@ function updateMeasurementsNow() {
   toast("✓ המדידות שלך עודכנו");
 }
 
-/* Show the name/phone gate and wire its controls (idempotent — safe to call
+/* Show the name/email gate and wire its controls (idempotent — safe to call
    more than once). Hides the measurement form until the visitor registers. */
 function showIdentityGate() {
   const idForm   = $("identityForm");
@@ -3386,7 +3398,7 @@ function showIdentityGate() {
     btn.addEventListener("click", () => submitIdentity());
   }
   // Enter inside the identity fields submits the gate.
-  ["userName", "userPhone"].forEach((id) => {
+  ["userName", "userEmail"].forEach((id) => {
     const el = $(id);
     if (el && !el.dataset.wired) {
       el.dataset.wired = "1";
@@ -3398,14 +3410,14 @@ function showIdentityGate() {
   if (errEl) errEl.hidden = true;
 }
 
-/* Step 0 for EVERY visit — the name/phone gate is ALWAYS the first thing shown,
+/* Step 0 for EVERY visit — the name/email gate is ALWAYS the first thing shown,
    never silently skipped for a "remembered" browser. Routing (Case A/B/C) only
-   happens AFTER the visitor submits the form, keyed by the PHONE NUMBER they type
+   happens AFTER the visitor submits the form, keyed by the EMAIL ADDRESS they type
    (submitIdentity → POST /api/users → routeAfterIdentity), not by a cached device
    id. The device id is still sent along on submit purely so the same browser
    re-attaches to the same server profile server-side — it no longer bypasses this
    screen (that was the bug: a previously-registered device silently skipped
-   straight to an empty measurement form instead of asking for name/phone again). */
+   straight to an empty measurement form instead of asking for name/email again). */
 function setupIdentityGate() {
   showIdentityGate();
 }
@@ -3413,17 +3425,17 @@ function setupIdentityGate() {
 /* Validate, create the user, persist the device id, then reveal measurements. */
 async function submitIdentity() {
   const nameEl  = $("userName");
-  const phoneEl = $("userPhone");
+  const emailEl = $("userEmail");
   const btn     = $("btn-identity-continue");
   const errEl   = $("identityError");
 
   const name  = (nameEl  && nameEl.value  || "").trim();
-  const phone = (phoneEl && phoneEl.value || "").trim();
+  const email = (emailEl && emailEl.value || "").trim();
 
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
 
   if (name.length < 2)  return showErr("נא להזין שם מלא.");
-  if (phone.replace(/\D/g, "").length < 7) return showErr("נא להזין מספר טלפון תקין.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr("נא להזין כתובת אימייל תקינה.");
   if (errEl) errEl.hidden = true;
 
   // Reuse the existing device id when re-registering (404 recovery); otherwise mint one.
@@ -3434,17 +3446,17 @@ async function submitIdentity() {
     const res = await fetch("/api/users", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ deviceId, name, phone }),
+      body:    JSON.stringify({ deviceId, name, email }),
     });
     const data = await res.json().catch(() => null);
 
-    // Saved, auto-logged-in (name+phone match), or this device was already known →
+    // Saved, auto-logged-in (name+email match), or this device was already known →
     // link the session, load any saved measurements, and continue.
     if (res.ok && data?.ok) {
       setDeviceId(deviceId);                 // remember this browser from now on
       PEAR_USER_ID = data.user?.id || null;  // stamp future sessions with this user
       console.log(
-        "[identity] " + (data.matched === "phone" ? "auto-login (name+phone)" : "registered") +
+        "[identity] " + (data.matched === "email" ? "auto-login (name+email)" : "registered") +
         " user:", data.user?.name, "→", PEAR_USER_ID
       );
       routeAfterIdentity(data);              // Case A/B/C routing
@@ -3453,12 +3465,12 @@ async function submitIdentity() {
 
     // Fixable INPUT problem → the visitor can correct it, so surface a message and
     // let them retry. This is the only case that stays on the gate:
-    //   • 409 phone_taken — phone already registered to a DIFFERENT name
+    //   • 409 email_taken — email already registered to a DIFFERENT name
     //   • 400/422         — missing/invalid fields
     if (res.status === 409 || res.status === 400 || res.status === 422) {
       if (btn) btn.disabled = false;
-      const msg = data?.error === "phone_taken"
-        ? "מספר טלפון זה כבר רשום למשתמש אחר."
+      const msg = data?.error === "email_taken"
+        ? "כתובת אימייל זו כבר רשומה למשתמש אחר."
         : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
       return showErr(msg);
     }
