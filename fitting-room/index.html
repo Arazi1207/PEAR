@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PEAR">
-    <title>PEAR — חדר הלבשה וירטואלי · Lucy VTON</title>
+    <title>PEAR — חדר הלבשה וירטואלי</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -266,7 +266,8 @@
              of how wide the nav/actions zones are. -->
         <span class="app-header__titles">
             <span class="app-header__brand">PEAR</span>
-            <span class="app-header__sub">חדר הלבשה וירטואלי · Lucy VTON</span>
+            <!-- CONTENT CLEANUP: dropped the "· Lucy VTON" provider suffix -->
+            <span class="app-header__sub">חדר הלבשה וירטואלי</span>
         </span>
 
         <!-- Actions zone (end / left in RTL): cart + engine status dot -->
@@ -339,15 +340,21 @@
                 <span class="live-countdown__label">שניות · sec</span>
             </div>
 
-            <!-- luxury AI scanning overlay -->
+            <!-- luxury AI scanning overlay — the LOADING state. Stays visible from go-live
+                 until Model Ready (see the state-transition comment on startBillingWindow()
+                 in app.js), not just while an image is mid-process. -->
             <div class="scan-overlay" id="scanOverlay" hidden>
                 <div class="scan-overlay__lines"></div>
                 <div class="pear-loader" aria-hidden="true">
                     <img class="pear-loader__fruit" src="/pear-logo.png" alt="" width="48">
                     <div class="pear-loader__shadow"></div>
                 </div>
-                <div class="scan-overlay__text">מעבד תמונה באמצעות AI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
-                <div class="scan-overlay__sub" id="scanSub">Lucy VTON · photorealistic render</div>
+                <div class="scan-overlay__text">מכין את חדר ההלבשה הוירטואלי<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
+                <!-- CONTENT CLEANUP: generic, provider-free copy — never names the underlying
+                     AI vendor/model. Ticking mm:ss elapsed counter is written here every
+                     second by startScanTimer()/updateScanTimer() in app.js for as long as
+                     the loading phase lasts; "00:00" is just the pre-JS default. -->
+                <div class="scan-overlay__sub" id="scanSub">Preparing Virtual Fitting Room · 00:00</div>
             </div>
 
             <div class="camera-card__placeholder" id="camPlaceholder">

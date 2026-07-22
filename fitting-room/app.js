@@ -44,6 +44,57 @@ const {
 
 const DEMO_FLAG = new URLSearchParams(location.search).get("demo") === "1";
 
+/* ── Public demo-widget one-time gate (opt-in, isolated from the main app) ───
+   Config-driven via ?demo_gate=1, forwarded by widget/pear-widget.js only when
+   the embed sets data-pear-demo-gate — never a hostname/domain check, so this
+   can never misfire for a real store's own embed. When DEMO_GATE is false
+   (every normal visit — direct app use, or a widget embed without the demo
+   attribute) every branch below is skipped entirely and existing behavior is
+   unchanged. */
+const DEMO_GATE = new URLSearchParams(location.search).get("demo_gate") === "1";
+const DEMO_GATE_KEY = "pear_demo_gated_measured";
+
+function isDemoGateLocked() {
+  if (!DEMO_GATE) return false;
+  try { return localStorage.getItem(DEMO_GATE_KEY) === "true"; } catch { return false; }
+}
+
+/* Spends this browser's one free demo measurement, then tells the parent page
+   (widget/pear-widget.js) so it can lock its on-page button immediately. A
+   postMessage (not shared localStorage) is required here because the iframe
+   (PEAR_BASE) and the host marketing/store page are generally different
+   origins — the message carries no sensitive data, just a lock signal. */
+function lockDemoGate() {
+  if (!DEMO_GATE) return;
+  try { localStorage.setItem(DEMO_GATE_KEY, "true"); } catch {}
+  try { window.parent.postMessage({ type: "pear-demo-gate-locked" }, "*"); } catch {}
+}
+
+/* Friendly one-time-used screen for demo mode — injected on demand so shipping
+   this needs no index.html/style.css changes. Only ever reachable when
+   DEMO_GATE is true; the main app never calls this. */
+function showDemoGateLockedMessage() {
+  hideAllScreen1Forms();
+  $("screen-calculator")?.classList.add("active");
+  $("screen-fitting")?.classList.remove("active");
+
+  let el = document.getElementById("demoGateLocked");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "demoGateLocked";
+    el.setAttribute("role", "status");
+    el.style.cssText =
+      "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+      "text-align:center;gap:12px;padding:48px 24px;";
+    el.innerHTML =
+      '<div style="font-size:40px;">👗</div>' +
+      '<p style="font-size:16px;font-weight:600;margin:0;">כבר ביצעת את המדידה הווירטואלית שלך בדמו. תודה!</p>';
+    const host = $("sizeForm")?.parentElement;
+    if (host) host.appendChild(el);
+  }
+  el.hidden = false;
+}
+
 /* ── Strict live-session lifecycle (credit spend lives here) ─────────────────
    Two windows, set EQUAL so the whole clip is genuine live motion:
      • LIVE_DURATION_MS — the BILLED Decart inference window. Credits accrue here.
@@ -92,6 +143,30 @@ const CREDITS_PER_SESSION = CREDITS_PER_SECOND * (LIVE_DURATION_MS / 1000);   //
    This bounds how long the WebRTC session may stay open with no frame before we tear it
    down, so it can never bill indefinitely. Generous — real warm-up is ~1s. */
 const FIRST_FRAME_TIMEOUT_MS = 15000;
+
+/* ── Black-screen / camera-off gate (credit saver) ───────────────────────────
+   Before we mint a token or open the billed Decart session, we sample the LOCAL
+   webcam and refuse to go live if it's a black screen (lens covered, camera off,
+   privacy shutter, or a stream that only ever produces black frames). Streaming a
+   black feed to Decart still burns the full CREDITS_PER_SESSION for zero usable
+   render, so this pays for itself the first time a user forgets to uncover the lens.
+
+   Two independent signals, sampled from a tiny downscaled canvas (cheap, runs in a
+   few ms). A frame is judged "black" if EITHER holds — both thresholds are extreme
+   enough that even a dim, poorly-lit but genuinely open camera clears them, so we
+   don't false-block a paying user:
+     • CAMERA_BLACK_AVG_LUMA   — mean Rec.601 luma (0-255) at/below this ⇒ effectively black.
+     • CAMERA_BLACK_PIXEL_FRAC — fraction of near-black pixels at/above this ⇒ covered/off.
+   We take the BRIGHTEST of a few spaced samples (auto-exposure warm-up can emit a
+   transient black frame right after play()), so only a persistently black feed blocks. */
+const CAMERA_BLACK_AVG_LUMA   = 12;     // mean luma ≤ 12/255 ⇒ black feed
+const CAMERA_BLACK_PIXEL_CUT  = 16;     // a pixel counts as "near-black" when its luma < this
+const CAMERA_BLACK_PIXEL_FRAC = 0.985;  // ≥ 98.5% near-black pixels ⇒ covered lens / camera off
+const CAMERA_BLACK_SAMPLES    = 5;      // frames to sample before judging (keep the brightest)
+const CAMERA_BLACK_SAMPLE_MS  = 60;     // gap between samples — spans ~300ms of exposure warm-up
+// NOTE: the four thresholds above are also reused by armFirstFrameBilling() below to
+// verify the FIRST REMOTE (AI-rendered) frame isn't a black warm-up placeholder — same
+// "is this frame black" test, just pointed at a different <video> element.
 
 /* Capture + inference resolution. The SDK never forwards model.width/height to the
    session, so resolution MUST be enforced at the track level too — the throttler
@@ -482,6 +557,9 @@ let recordHold = false;        // true once billing stopped & the recorder is ho
 let recordHoldSrc = null;      // off-DOM canvas holding the frozen final dressed frame the recorder repaints during the hold
 let firstFrameGuardTimer = null; // safety timeout — tears the session down if Decart's first frame never arrives (no billing cap otherwise)
 let billingStarted = false;      // guards startBillingWindow() so it arms the billed window ONCE per session, on the first rendered frame
+let dressedFrameReady = false;   // true once #aiVideo has shown a VERIFIED non-black AI-rendered frame this
+                                  // session — the single "model ready" signal shared by billing/countdown
+                                  // (armFirstFrameBilling/startBillingWindow) AND the recorder (startRecording)
 let isGarmentApplied = false;    // true once rtClient.set() has resolved — gates billing/recording to the first DRESSED frame, not raw passthrough
 
 /** @returns {boolean} true while a billable realtime session is active. */
@@ -802,6 +880,11 @@ function goToFitting() {
     { id: _handoff?.id ?? "", name: _handoff?.name ?? "" },
     currentUserSize
   );
+
+  // Demo-gate mode: this is the visitor's one measurement — spend it now, right
+  // as they commit to entering the try-on room.
+  lockDemoGate();
+
 
   // The actual screen swap — deferred to the mid-point of the Bitten-Pear
   // transition so the change happens fully behind the opaque pear mask.
@@ -1324,6 +1407,72 @@ async function startCamera(facing = cameraFacing) {
   finally { cameraStartPromise = null; }
 }
 
+/* Sample ONE frame of ANY <video> element into a tiny downscaled canvas and measure
+   how dark it is. Returns { ready, avgLuma, blackFrac }:
+     • ready=false  → no decoded frame yet (videoWidth 0 / not paintable) — caller
+                      must NOT treat this as black, only as "can't judge yet".
+     • avgLuma      → mean Rec.601 luma across the frame (0-255).
+     • blackFrac    → fraction of pixels below CAMERA_BLACK_PIXEL_CUT (near-black).
+   Same-origin MediaStream pixels are not tainted, so getImageData never throws for
+   security; any unexpected error still fails OPEN (ready=false) so we never wrongly
+   block a paying user. 64×36 keeps this well under a millisecond.
+   Shared by two callers: cameraLooksBlack() (local #webcam, the credit-saving gate)
+   and armFirstFrameBilling() (remote #aiVideo, verifying the first real AI frame). */
+function sampleVideoLuma(v) {
+  if (!v || !v.videoWidth || !v.videoHeight) return { ready: false, avgLuma: 0, blackFrac: 1 };
+  try {
+    const cw = 64, ch = 36;                       // downscaled probe — cheap, enough for a luma verdict
+    const cnv = document.createElement("canvas");
+    cnv.width = cw; cnv.height = ch;
+    const ctx = cnv.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, cw, ch);
+    const data = ctx.getImageData(0, 0, cw, ch).data;
+    const total = cw * ch;
+    let sum = 0, black = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      // Rec.601 luma — matches how "brightness" reads to the human eye.
+      const luma = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+      sum += luma;
+      if (luma < CAMERA_BLACK_PIXEL_CUT) black++;
+    }
+    return { ready: true, avgLuma: sum / total, blackFrac: black / total };
+  } catch (_) {
+    return { ready: false, avgLuma: 0, blackFrac: 1 };   // fail open — never block on a probe error
+  }
+}
+
+/* Black-screen / camera-off verdict for the CREDIT-SAVING gate in goLive().
+   Sends nothing to any API — it only inspects local webcam pixels. Samples a few
+   frames (CAMERA_BLACK_SAMPLES) spaced by CAMERA_BLACK_SAMPLE_MS and keeps the
+   BRIGHTEST one, so a single transient black frame during auto-exposure warm-up
+   doesn't trip the gate — only a persistently black feed does.
+   Returns true ONLY when we have a real, paintable frame that is black; if we never
+   get a decodable frame we return false (fail open — let the normal connect path and
+   its FIRST_FRAME_TIMEOUT_MS safety net handle a truly dead camera). */
+async function cameraLooksBlack() {
+  let sawFrame = false;
+  let bestLuma = -1;          // brightest mean luma seen
+  let bestBlackFrac = 1;      // lowest near-black fraction seen (from the brightest frame)
+  for (let i = 0; i < CAMERA_BLACK_SAMPLES; i++) {
+    const s = sampleVideoLuma($("webcam"));
+    if (s.ready) {
+      sawFrame = true;
+      if (s.avgLuma > bestLuma) { bestLuma = s.avgLuma; bestBlackFrac = s.blackFrac; }
+    }
+    if (i < CAMERA_BLACK_SAMPLES - 1) {
+      await new Promise((r) => setTimeout(r, CAMERA_BLACK_SAMPLE_MS));
+    }
+  }
+  if (!sawFrame) return false;   // couldn't judge → don't block here; connect path guards a dead camera
+  const isBlack = bestLuma <= CAMERA_BLACK_AVG_LUMA || bestBlackFrac >= CAMERA_BLACK_PIXEL_FRAC;
+  if (isBlack) {
+    console.warn("[PEAR] Black-screen gate tripped — skipping billed session " +
+      "(avgLuma=" + bestLuma.toFixed(1) + " ≤ " + CAMERA_BLACK_AVG_LUMA +
+      " or blackFrac=" + bestBlackFrac.toFixed(3) + " ≥ " + CAMERA_BLACK_PIXEL_FRAC + ")");
+  }
+  return isBlack;
+}
+
 /* Flip between the front ("user") and rear ("environment") camera. Stops ALL current
    preview tracks before requesting the new device so single-camera machines don't
    throw "device in use". Disabled while a billed session is live — we never swap the
@@ -1412,6 +1561,32 @@ function scrollToCamera() {
   window.scrollTo({ top: Math.max(0, Math.min(target, maxScroll)), behavior: "smooth" });
 }
 
+/* ── Loading-state elapsed timer (#scanOverlay / #scanSub) ───────────────────
+   LOADING (w/ timer) → Model Ready → Start 5s capture. Ticks a live mm:ss counter
+   for as long as the loading overlay is up (goLive() start → startBillingWindow()'s
+   Model Ready reveal, or an earlier failure/timeout — see those call sites for
+   start/stop wiring). Copy is deliberately generic: never names the underlying AI
+   vendor/model, just what the user is waiting for. */
+let scanTimerInterval = null;
+let scanTimerStartMs = 0;
+function startScanTimer() {
+  stopScanTimer();                 // clear any stale interval before arming a fresh one
+  scanTimerStartMs = Date.now();
+  updateScanTimer();
+  scanTimerInterval = setInterval(updateScanTimer, 1000);
+}
+function updateScanTimer() {
+  const el = $("scanSub");
+  if (!el) return;
+  const elapsedSec = Math.floor((Date.now() - scanTimerStartMs) / 1000);
+  const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+  const ss = String(elapsedSec % 60).padStart(2, "0");
+  el.textContent = `Preparing Virtual Fitting Room · ${mm}:${ss}`;
+}
+function stopScanTimer() {
+  if (scanTimerInterval) { clearInterval(scanTimerInterval); scanTimerInterval = null; }
+}
+
 function showCamError(msg) {
   const el = $("camError");
   el.textContent = msg;
@@ -1422,6 +1597,7 @@ function resetToLive() {
   if (!isLive()) clearRecording();   // revoke replay URL + hide post-session buttons when no active API session
   exitClipReplay();                  // drop any history-clip playing in #aiVideo
   card().classList.remove("show-result");
+  stopScanTimer();                   // defensive — never leave the loading counter ticking in the background
   $("scanOverlay").hidden = true;
   // #retakeBtn now lives in the .pear-interaction-pod; its visibility is governed
   // by the pod (shown once history exists), so it's no longer toggled here.
@@ -1605,6 +1781,22 @@ async function ensureOnline() {
    Returns { stream, dispose }. dispose() MUST run in teardown() — it clears the
    paint timer, stops the canvas track, and stops the cloned source track it owns.
    ============================================================================= */
+/* ── Resource/token-usage optimization ────────────────────────────────────────
+   This is the ONE place raw camera frames become the payload Decart bills on, so
+   it's where "minimal frame/token usage" is actually enforced, not a place that
+   needed new code — it already does exactly that:
+     • fps capped to LIVE_INFERENCE_FPS (10) — the camera can capture faster (LIVE_FPS
+       =15 for a smooth local preview), but only 10 frames/sec ever leave the browser.
+     • resolution capped to LIVE_W×LIVE_H (512×288) — every frame is downscaled before
+       it's sent, regardless of the camera's native resolution.
+     • captureStream(0) + a single requestFrame() per tick — the output track emits
+       EXACTLY fps frames/sec, never more; there is no separate/duplicate capture path
+       sending additional raw frames anywhere.
+   NOTE on "keypoints/pose data instead of frames": this app streams live video to
+   Decart's Lucy VTON realtime diffusion model over WebRTC — there is no pose/landmark
+   API in this pipeline to swap frames for (that would be a different, MediaPipe-style
+   architecture; see project history). The real lever here is exactly what's already
+   enforced above: fewer frames/sec, smaller frames, no redundant capture. */
 function createThrottledInputStream(srcStream, { fps = LIVE_INFERENCE_FPS, width = LIVE_W, height = LIVE_H } = {}) {
   const srcTrack = srcStream.getVideoTracks()[0];
   // No video track (camera failed) — hand the stream back untouched; nothing to throttle.
@@ -1721,6 +1913,7 @@ async function connectRealtime() {
   // no-first-frame safety timer, so the billed window re-arms cleanly on THIS session's
   // first rendered frame (see startBillingWindow / armFirstFrameBilling).
   billingStarted = false;
+  dressedFrameReady = false;
   isGarmentApplied = false;
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
@@ -1850,6 +2043,7 @@ function teardown() {
   // session starts clean (the billed window re-arms only on its own first rendered frame).
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
   billingStarted = false;
+  dressedFrameReady = false;
 
   // Bug 3 fix: bump the generation FIRST so any in-flight callbacks from the
   // client we're about to disconnect become no-ops (see connectRealtime).
@@ -3668,7 +3862,21 @@ function startBillingWindow(gen) {
   // First real frame arrived → cancel the no-first-frame safety teardown.
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
-  console.log("[PEAR] First frame received — billing started (" +
+  // STATE TRANSITION: Loading (w/ timer) → Model Ready → Start 5s capture. Everything
+  // above this line only runs once armFirstFrameBilling has VERIFIED a real, non-black
+  // AI-rendered frame — so this is the exact instant the model is "fully initialized."
+  // Reveal the live stage + retire the loading overlay HERE (not earlier in goLive())
+  // so the user never sees a "ready" UI before there's real content behind it.
+  stopScanTimer();
+  $("scanOverlay").hidden = true;
+  card().classList.add("show-live");
+  // Feature 2 — start recording HERE, on the exact frame that arms billing, so the
+  // encoded clip always matches the billed 5s window (no black warm-up frames at the
+  // front — see the BLACK-FRAME FIX note in startRecording, and the isDressedFrame
+  // check above that now guarantees this frame really is dressed content).
+  startRecording();
+
+  console.log("[PEAR] First verified AI frame — billing + 5s capture started (" +
     (LIVE_DURATION_MS / 1000) + "s / " + CREDITS_PER_SESSION + " credits)");
 
   // Visual countdown over the full VIDEO_LENGTH_MS experience. Drift-tolerant: the hard
@@ -3695,28 +3903,55 @@ function startBillingWindow(gen) {
   }, LIVE_DURATION_MS);
 }
 
-/* Fire the billed window ONCE, at the first frame #aiVideo actually presents (renders)
-   from Decart. Prefers requestVideoFrameCallback (fires precisely on frame presentation,
-   the same frame the recording paint loop draws to its canvas that tick); falls back to
-   a rAF poll on videoWidth/currentTime where rVFC is unavailable. sessionGen-guarded so a
+/* Fire the billed window ONCE — at the first frame #aiVideo presents that is VERIFIED
+   to be real AI-rendered output, not just "a frame decoded". Model ready == fully
+   initialized here means "the remote track is actually producing dressed content", so
+   we reuse sampleVideoLuma()'s black-frame test (same thresholds as the local-camera
+   credit-saving gate above) on the REMOTE feed.
+
+   PRECISION-TIMING FIX: the remote WebRTC track can start delivering frames (and
+   requestVideoFrameCallback/videoWidth can go non-zero) up to ~1s BEFORE Decart's model
+   finishes warming up server-side — that gap was previously a black/blank placeholder
+   frame (see the BLACK-FRAME FIX note in startRecording). The old code fired billing on
+   THAT first decoded frame regardless of content, so the 5s countdown — and the
+   recorder, gated on the same signal below — could start while the model hadn't
+   actually produced anything yet, shaving real seconds off the useful captured window.
+   Now we keep checking subsequent frames (via the same rVFC/rAF mechanism) until one
+   verifiably isn't black, and ONLY that frame arms billing.
+
+   Prefers requestVideoFrameCallback (fires precisely on frame presentation, the same
+   frame the recording paint loop draws to its canvas that tick); falls back to a rAF
+   poll on videoWidth/currentTime where rVFC is unavailable. sessionGen-guarded so a
    stale session's late frame can never start the new one's billing. */
 function armFirstFrameBilling(video, gen) {
   if (!video || billingStarted || gen !== sessionGen) return;
   let done = false;
+  const isDressedFrame = () => {
+    const s = sampleVideoLuma(video);
+    return s.ready && s.avgLuma > CAMERA_BLACK_AVG_LUMA && s.blackFrac < CAMERA_BLACK_PIXEL_FRAC;
+  };
   const fire = () => {
     if (done) return;
     done = true;
     if (gen !== sessionGen) return;      // session was torn down before the first frame
+    dressedFrameReady = true;            // model-ready signal shared with the recorder (startRecording)
     startBillingWindow(gen);
   };
-  // A frame existing isn't enough — it may be the raw/undressed passthrough frame
-  // that arrives before applyActive()'s rtClient.set() has resolved. Keep re-checking
-  // on each subsequent decoded frame until isGarmentApplied flips true, THEN fire —
-  // so billing (and recording, started together in startBillingWindow) begin on the
-  // first DRESSED frame, never before.
+  // TWO independent gates, both required before firing — each closes a gap the other
+  // doesn't cover:
+  //  (1) isGarmentApplied — rtClient.set() has resolved, so this can't be a stray
+  //      raw/undressed passthrough frame that arrived before the apply request even
+  //      went out.
+  //  (2) isDressedFrame() — the frame is verified non-black, so it can't be the ~1s of
+  //      blank/black placeholder Decart's server can still emit for a beat AFTER the
+  //      apply was acknowledged (see the BLACK-FRAME FIX note in startRecording).
+  // Re-checked on every subsequent decoded frame (rVFC, or the rAF poll below where
+  // rVFC is unavailable) until both hold, THEN fire — so billing, the countdown, and
+  // recording (started together in startBillingWindow) all begin on the first frame
+  // that is genuinely ready, never before.
   const frameReady = () => {
     if (done || gen !== sessionGen) return;
-    if (!isGarmentApplied) {
+    if (!isGarmentApplied || !isDressedFrame()) {
       if (typeof video.requestVideoFrameCallback === "function") {
         video.requestVideoFrameCallback(frameReady);
       } else {
@@ -3729,7 +3964,8 @@ function armFirstFrameBilling(video, gen) {
   if (typeof video.requestVideoFrameCallback === "function") {
     video.requestVideoFrameCallback(frameReady);
   } else {
-    // Fallback: poll until a real decoded frame exists (dimensions set + playback advanced).
+    // Fallback: poll until a real decoded frame exists, then hand off to frameReady's
+    // own isGarmentApplied + isDressedFrame checks.
     (function poll() {
       if (done || gen !== sessionGen) return;
       if (video.videoWidth > 0 && video.currentTime > 0) return frameReady();
@@ -3779,12 +4015,30 @@ async function goLive() {
 
     if (!localStream) { const ok = await startCamera(); if (!ok) return; }
 
+    // ── Black-screen / camera-off gate (credit saver) ────────────────────────
+    // Runs AFTER the camera is live but BEFORE any token mint / WebRTC connect /
+    // billing. Streaming a black feed to Decart would burn the full
+    // CREDITS_PER_SESSION for a render nobody can use, so if the local webcam is a
+    // black screen (lens covered, camera off, privacy shutter) we bail out here —
+    // no /api/realtime-token, no connectRealtime(), no credits — and tell the user
+    // exactly what to fix. cameraLooksBlack() only inspects local pixels; it sends
+    // nothing to any API.
+    if (await cameraLooksBlack()) {
+      showCamError("זוהה מסך שחור. הפעל את המצלמה או הסר חסימה מהעדשה כדי להמשיך. " +
+        "(Black screen detected. Please turn on your camera or remove any obstacles to proceed.)");
+      toast("📷 מסך שחור — המדידה לא הופעלה כדי לחסוך קרדיטים");
+      return;   // finally{} resets busy + the capture button; no billed session opened
+    }
+
     // AI Auto: warm the front+back Blob cache NOW so both assets download in parallel
     // with the WebRTC handshake — the first orientation flip then costs zero fetches.
     if (currentAngle === AUTO_ANGLE) { autoOrientation = "front"; prewarmOrientationAssets(); }
 
+    // LOADING state: overlay + a live elapsed-time counter (generic copy, no model/
+    // vendor names — see startScanTimer). Runs until startBillingWindow() confirms
+    // Model Ready and hides it — see the state-transition comment there.
     $("scanOverlay").hidden = false;
-    $("scanSub").textContent = "Lucy VTON · photorealistic render";
+    startScanTimer();
 
     // 1) mint ek_ token + open the WebRTC session. NOTE: billing no longer starts here —
     //    the WebRTC session is open, but the billed 5s window is armed by the FIRST
@@ -3806,9 +4060,12 @@ async function goLive() {
       logTryOnAnalytics(activeItem, _trackSize);
     }
 
-    // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
-    $("scanOverlay").hidden = true;
-    card().classList.add("show-live");
+    // 3) "Stop" becomes available immediately — the user can always bail out of a slow
+    //    connect/warm-up rather than being stuck watching the loading timer with no
+    //    escape hatch. NOTE: the scanOverlay/"show-live" reveal itself is NOT done here
+    //    anymore — that only happens once startBillingWindow() verifies Model Ready
+    //    (see the state-transition comment there), so the user never sees "ready" UI
+    //    before there's real AI content behind it.
     setLiveControls(true);
     syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
     // Feature 2 — recording is now started in startBillingWindow(), on the same first
@@ -3829,6 +4086,8 @@ async function goLive() {
         firstFrameGuardTimer = null;
         if (sessionGen !== guardGen || billingStarted) return;   // session moved on / billing already ticking
         console.warn("[PEAR] No first frame within " + FIRST_FRAME_TIMEOUT_MS + "ms — tearing down (no idle billing)");
+        stopScanTimer();                // model never became ready — retire the loading UI here
+        $("scanOverlay").hidden = true;
         stopLive();
         showCamError("החיבור לא הניב תמונה — נסה שוב.");
         setConn("error");
@@ -3847,7 +4106,11 @@ async function goLive() {
       setConn("error");
     }
   } finally {
-    $("scanOverlay").hidden = true;
+    // Only force-hide the loading overlay here on a FAILURE path (never got to a live
+    // session — isLive() false). On success the session is already connected and we're
+    // just waiting on the model's first verified frame, so leave the overlay + ticking
+    // timer showing — startBillingWindow() (Model Ready) is what closes them, not this.
+    if (!isLive()) { stopScanTimer(); $("scanOverlay").hidden = true; }
     busy = false;
     if (!isLive()) $("captureBtn").disabled = !localStream;
   }
@@ -5658,6 +5921,89 @@ function syncCompareUI() {
   if (bar) bar.hidden = compareSel.size !== 2;
 }
 
+/* ── Compare overlay: page-scroll lock ───────────────────────────────────────
+   .pear-compare-overlay is position:fixed, so without this a mobile swipe over the
+   comparison scrolls the catalog UNDERNEATH it — the split-screen appears to drift
+   off its own backdrop. Freeze the page while the modal owns the screen and restore
+   the caller's original value verbatim on close. Null = not currently locked, which
+   also makes a second openCompareOverlay() (the "Compare" pill re-opening an already
+   open overlay) a no-op instead of clobbering the saved value with "hidden". */
+let compareScrollLock = null;
+function lockPageScroll() {
+  if (compareScrollLock !== null) return;          // already locked — don't overwrite the saved value
+  compareScrollLock = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+}
+function unlockPageScroll() {
+  if (compareScrollLock === null) return;
+  document.body.style.overflow = compareScrollLock;
+  compareScrollLock = null;
+}
+
+/* ── Smooth-scroll the side-by-side comparison into view ─────────────────────
+   Called the moment a 2nd measurement is picked (via openCompareOverlay).
+
+   CONTAINER RESOLUTION: #pearCompare is `position: fixed; inset: 0` (style.css
+   .pear-compare-overlay), so it is already viewport-anchored and contributes
+   nothing to document scroll — window.scrollTo()/scrollIntoView() on it (or on
+   document/body) would be a guaranteed no-op, which is exactly why a plain
+   window-scroll approach can't work here. The element that genuinely scrolls is
+   .pcmp__panel (`max-height: 92vh; overflow-y: auto`), so instead of manually
+   walking up to find it, we call scrollIntoView() on #compareSplit — the native
+   API already walks the ancestor chain and scrolls whichever real container
+   (panel, or the window, on a layout where nothing overflows) needs it. That is
+   a real scroll on mobile, where the two cells stack tall and the second
+   measurement would otherwise sit below the fold; on desktop the panel usually
+   fits and this correctly resolves to a no-op.
+
+   THE ACTUAL BUG (deployed build): .pcmp__panel plays its own CSS entrance
+   animation on open (galleryItemIn .45s: translateY(14px) scale(.96) → none).
+   The previous fix used two nested requestAnimationFrame calls (~2 frames,
+   ~32ms) as its "DOM is laid out" check — but that only proves a layout/paint
+   has happened, NOT that the panel's transform animation has settled. Calling
+   scrollIntoView() while an ANCESTOR is still mid CSS-transform computes the
+   scroll target from that transient (shrunk/shifted) geometry, not the final
+   one — so on the one case that matters (mobile, panel taller than 92vh, an
+   internal scroll is actually required) it was landing on the wrong offset,
+   which read as "the auto-scroll does nothing." Fix: wait for the entrance
+   animation to actually finish (animationend), with a timeout fallback in case
+   the event is ever missed (reduced motion skips it entirely; some engines can
+   drop `animation: … both` events), THEN measure + scroll.
+
+   Honours prefers-reduced-motion (instant jump, same final position; also
+   short-circuits straight to a single rAF since there's no entrance transform
+   to race against). Guards scrollIntoView's existence for any environment
+   where it might not be implemented. */
+const PANEL_ENTRANCE_MS = 520;   // .pcmp__panel's galleryItemIn is .45s — padded well past that
+function scrollCompareIntoView() {
+  const split = $("compareSplit");
+  if (!split || typeof split.scrollIntoView !== "function") return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const behavior = reduce ? "auto" : "smooth";
+
+  const doScroll = () => {
+    try {
+      // block:"start"  → comparison top-aligned in .pcmp__panel (the real scroll container)
+      // inline:"nearest" → never nudges horizontally, so the RTL layout is left untouched
+      split.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+    } catch (_) {
+      try { split.scrollIntoView(true); } catch (_) {}   // legacy Safari: no options object
+    }
+  };
+
+  const panel = $("pearCompare")?.querySelector(".pcmp__panel");
+  if (reduce || !panel) {
+    // No entrance transform to race (motion reduced, or markup changed) —
+    // one rAF is enough to guarantee the just-injected DOM has laid out.
+    requestAnimationFrame(doScroll);
+    return;
+  }
+  let done = false;
+  const fire = () => { if (done) return; done = true; doScroll(); };
+  panel.addEventListener("animationend", fire, { once: true });
+  setTimeout(fire, PANEL_ENTRANCE_MS);   // safety net if animationend never fires
+}
+
 /* Build + reveal the side-by-side Compare overlay from the two selected fits. */
 function openCompareOverlay() {
   const data = readGallery();
@@ -5677,12 +6023,15 @@ function openCompareOverlay() {
   }).join("");
   ov.hidden = false;
   requestAnimationFrame(() => ov.classList.add("show"));
+  lockPageScroll();          // mobile: swipes now belong to the panel, not the page behind it
+  scrollCompareIntoView();   // smooth-scroll the side-by-side in once it has laid out
 }
 function closeCompare() {
   const ov = $("pearCompare");
   if (!ov || ov.hidden) return;
   ov.classList.remove("show");
   ov.hidden = true;
+  unlockPageScroll();                     // hand scrolling back to the page
   const split = $("compareSplit");
   if (split) split.innerHTML = "";        // stop the two playing clips
 }
@@ -5882,26 +6231,37 @@ function init() {
 
   // Identity gate — ALWAYS Step 0 for the main app / a real merchant embed
   // (device-id auto-login / measurements-refresh routing happens in
-  // setupIdentityGate → routeUser). The ONE exception: DEMO_MODE (the
-  // marketing-site widget demo, see the "DEMO MODE" block above) skips
-  // straight to the size form — no registration.
+  // setupIdentityGate → routeUser). Two exceptions skip straight to the size
+  // form's flow instead: DEMO_MODE (the marketing-site widget demo) always
+  // shows the form; DEMO_GATE (the public demo embed's one-time measurement)
+  // shows the "already used" screen instead once spent.
   if (DEMO_MODE) {
     showSizeForm();
+  } else if (DEMO_GATE && isDemoGateLocked()) {
+    showDemoGateLockedMessage();
   } else {
-    setupIdentityGate();
+    showSizeForm();
   }
 
-  // Permanent "Update Measurements" CTA.
-  $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
-  // "Edit Measurements" — always-visible Screen 2 CTA. A returning visitor whose
-  // fresh profile skipped Screen 1 entirely may never have seen it; this brings
-  // it up pre-filled.
-  $("btn-edit-measurements")?.addEventListener("click", () => {
-    if (isDemoLocked()) { showDemoLockedScreen(); return; }
-    backToCalculator();
-    showSizeForm();
-  });
-  setupProfileButton();
+  // Permanent "Update Measurements" CTA + "Edit Measurements" Screen 2 CTA —
+  // main-app-only. A gated demo visitor gets exactly one measurement, so these
+  // secondary re-measure entry points stay unwired/hidden in that mode instead
+  // of offering a way around the one-time limit within a single widget open.
+  if (DEMO_GATE) {
+    const um = $("btn-update-measurements"); if (um) um.style.display = "none";
+    const em = $("btn-edit-measurements");   if (em) em.style.display = "none";
+  } else {
+    $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
+    // "Edit Measurements" — always-visible Screen 2 CTA. A returning visitor whose
+    // fresh profile skipped Screen 1 entirely may never have seen it; this brings
+    // it up pre-filled.
+    $("btn-edit-measurements")?.addEventListener("click", () => {
+      if (isDemoLocked()) { showDemoLockedScreen(); return; }
+      backToCalculator();
+      showSizeForm();
+    });
+    setupProfileButton();
+  }
 
   document.querySelectorAll("#sizeForm input").forEach((i) => {
     i.addEventListener("input", calculateSize);
