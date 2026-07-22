@@ -221,7 +221,15 @@
         email,
         options: {
           shouldCreateUser: false,
-          emailRedirectTo: "https://pear-web-demo.vercel.app/admin/",
+          // DOMAIN FIX: was hardcoded to pear-web-demo.vercel.app, which is a
+          // separate/broken Vercel deployment this project doesn't control (see
+          // troubleshooting notes) — magic-link emails were bouncing admins to a
+          // stale build. window.location.origin always matches whatever domain
+          // this page was actually loaded from, so it self-corrects if the
+          // domain situation changes again. NOTE: this exact origin must also be
+          // present in Supabase → Authentication → URL Configuration → Redirect
+          // URLs, or Supabase will reject/ignore the redirect.
+          emailRedirectTo: window.location.origin + "/admin/",
         },
       });
 

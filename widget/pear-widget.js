@@ -6,14 +6,14 @@
 
    1) SCRIPT TAG (permanent — paste ONE line into your product page/template):
 
-        <script src="https://pear-web-demo.vercel.app/widget/pear-widget.js"
+        <script src="https://pear-web-demo-sigma.vercel.app/widget/pear-widget.js"
                 data-pear-key="STORE_KEY"></script>
 
    2) BROWSER CONSOLE (instant test on ANY live site — no code changes). Open
       DevTools → Console on a product page and paste:
 
         var s=document.createElement('script');
-        s.src='https://pear-web-demo.vercel.app/widget/pear-widget.js';
+        s.src='https://pear-web-demo-sigma.vercel.app/widget/pear-widget.js';
         s.setAttribute('data-pear-key','STORE_KEY');
         document.head.appendChild(s);
 
@@ -63,7 +63,14 @@
   w.__pearWidgetLoaded = true;
 
   /* ── configuration ──────────────────────────────────────────────────────── */
-  var FALLBACK_BASE = "https://pear-web-demo.vercel.app";
+  // DOMAIN FIX: was hardcoded to pear-web-demo.vercel.app, a separate Vercel
+  // deployment this project no longer controls/deploys to (see troubleshooting
+  // notes). This constant only matters when the normal script.src resolution
+  // below fails (no document.currentScript AND no matching <script> tag found
+  // in the DOM — a rare embed pattern) — but if it ever DOES kick in, it must
+  // point at a domain that's actually current, or every API call/iframe src
+  // the widget builds would silently target a stale build.
+  var FALLBACK_BASE = "https://pear-web-demo-sigma.vercel.app";
 
   /* Resolve the PEAR origin from this script's own src so the widget works
      against localhost / preview deployments too; fall back to production. */
