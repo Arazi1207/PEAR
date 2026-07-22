@@ -122,6 +122,7 @@ const trackLimiter    = rateLimit({ windowMs: 60_000, max: 60 });   // analytics
 const proxyLimiter    = rateLimit({ windowMs: 60_000, max: 120 });  // image proxy
 const authLimiter     = rateLimit({ windowMs: 60_000, max: 10 });   // admin login — brake password guessing
 const classifyLimiter = rateLimit({ windowMs: 60_000, max: 20 });   // garment front/back classification — calls Gemini
+const storeCatalogLimiter = rateLimit({ windowMs: 60_000, max: 30 }); // "Complete the Look" store-scoped catalog reads
 
 /* ── CORS enforcement ────────────────────────────────────────────────────────
    The fitting room is PUBLICLY ACCESSIBLE to any anonymous visitor — no login
@@ -1055,6 +1056,37 @@ app.post("/api/classify-images", classifyLimiter, async (req, res) => {
     }
   }
   res.json({ results });
+});
+
+/* POST /api/store-catalog — { domain, type } → { items: [{ image_url, classification }] }
+   Backs "Complete the Look" for a widget/store session (see fetchStoreLookItems in
+   fitting-room/app.js): recommends garments already cached for the SAME store domain
+   instead of the hardcoded demo PEAR_CATALOG — a real shopper should never be shown
+   stock photos of unrelated merchandise. `type` is accepted but NOT filtered on here:
+   garment_cache's `classification` column is front|back (see classifyFrontBack above),
+   not a garment category, so the client filters these same rows by category itself
+   via guessTypeFromUrl(). No cached rows yet for a domain → an empty list, which the
+   client treats as "hide the section" rather than falling back to the demo catalog. */
+app.post("/api/store-catalog", storeCatalogLimiter, async (req, res) => {
+  const domain = typeof req.body?.domain === "string" ? req.body.domain.trim() : "";
+  if (!domain) {
+    return res.status(400).json({ error: "missing_domain", message: "domain is required." });
+  }
+  if (!supabase) {
+    return res.json({ items: [] });   // DB not configured — empty result, not an error the caller must handle
+  }
+  try {
+    const { data, error } = await supabase
+      .from("garment_cache")
+      .select("image_url, classification")
+      .ilike("image_url", `%${domain}%`)
+      .limit(8);
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error("[store-catalog] query failed:", err?.message || err);
+    res.status(500).json({ error: "query_failed", message: err?.message || String(err) });
+  }
 });
 
 app.all("/api/*", (req, res) => {

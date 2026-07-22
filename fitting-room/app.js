@@ -676,6 +676,13 @@ function parseHandoff() {
   // a catalog color/subType we don't have.
   const widgetUrl = q.get("garment_url");
   if (widgetUrl) {
+    // Real-store session marker: "Complete the Look" must never recommend the
+    // hardcoded demo PEAR_CATALOG when the fitting room is embedded on an actual
+    // store (see fetchStoreLookItems). The garment's own CDN host IS the store's
+    // domain, so stash it globally the moment we know we're in a widget embed.
+    try { window.__pearStoreDomain = new URL(widgetUrl).hostname; }
+    catch (e) { console.warn("[PEAR] parseHandoff() — could not derive store domain from garment_url:", e?.message || e); }
+
     const wType   = (q.get("garment_type") || "tops").toLowerCase();
     const isPants = wType === "pants" || wType === "bottoms";
     // Multi-image gallery: the widget forwards ALL product photos as a comma-joined
@@ -4500,11 +4507,80 @@ function recommendFor(item) {
     .map((r) => r.x);
 }
 
-function renderCompleteTheLook(item) {
-  const recs = recommendFor(item);
-  // Conditional render (requirement 3): when the catalog has NO real complementary
-  // product, hide the whole section — never an empty shell, placeholder, or the wrong
-  // category. This function owns #completeLook's visibility (see enterRoom).
+/* Keyword-guess a scanned garment_cache image's category from its URL. garment_cache
+   only stores { image_url, classification } and `classification` there means
+   front|back (see classifyFrontBack in server.js) — it carries no garment-category
+   signal, so this is the only classifier we have for store items. Returns "shirt" |
+   "pants" (the SAME vocabulary as PEAR_CATALOG.type) so a store item can flow through
+   toItem()/slotOf()/recommendFor's card rendering exactly like a catalog item. */
+function guessTypeFromUrl(url) {
+  const u = (url || "").toLowerCase();
+  if (/pants|jeans|trouser/.test(u)) return "pants";
+  if (/shirt|top|blouse/.test(u)) return "shirt";
+  return "shirt";
+}
+
+/* Real-store "Complete the Look" source. A widget embed on an actual store
+   (window.__pearStoreDomain set by parseHandoff() the moment a garment_url handoff
+   arrives) must recommend items from THAT store — never the hardcoded demo
+   PEAR_CATALOG, which is stock/placeholder imagery unrelated to any real retailer.
+   Demo/catalog sessions (no storeDomain) keep the existing recommendFor() behavior
+   unchanged. A store session that has no cached items yet (or the fetch fails)
+   returns [] rather than ever falling back to the demo catalog — renderCompleteTheLook
+   hides the section entirely in that case (see Step 5 requirement). */
+async function fetchStoreLookItems(currentItem) {
+  const domain = window.__pearStoreDomain;
+  if (!domain) return recommendFor(currentItem);   // demo/catalog mode — existing behavior
+
+  const wantType = currentItem.garmentType === "lower_body" ? "shirt" : "pants";
+  try {
+    const resp = await fetch("/api/store-catalog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, type: wantType }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { items } = await resp.json();
+    return (Array.isArray(items) ? items : [])
+      .filter((it) => it && it.image_url)
+      .map((it) => ({
+        id: it.image_url,
+        img: it.image_url,
+        type: guessTypeFromUrl(it.image_url),
+        name: "פריט מהחנות",
+        custom: true,
+      }))
+      .filter((it) => it.type === wantType)
+      .slice(0, 4);
+  } catch (e) {
+    console.warn("[PEAR] fetchStoreLookItems failed — hiding Complete the Look:", e?.message || e);
+    return [];
+  }
+}
+
+/* data-look is now an INDEX into this array, not a PEAR_CATALOG id — a store item's
+   "id" is its image_url (a string, and one we'd rather not stuff into an HTML
+   attribute verbatim), so both catalog and store recs are looked up the same safe
+   way. Rebuilt on every render; stale after the section next re-renders. */
+let _lookCards = [];
+
+/* Guards against a slow store-catalog fetch resolving AFTER a newer garment has
+   already been activated (rapid re-clicks) — the stale response is discarded rather
+   than clobbering the section with recommendations for the wrong item. */
+let _lookRenderToken = 0;
+
+async function renderCompleteTheLook(item) {
+  const myToken = ++_lookRenderToken;
+  const recs = window.__pearStoreDomain ? await fetchStoreLookItems(item) : recommendFor(item);
+  if (myToken !== _lookRenderToken) return;   // a newer item took over while this was in flight
+
+  _lookCards = recs;
+  // Conditional render (requirement 3): when there's NO real complementary product
+  // (demo catalog has none, or the store's garment_cache has nothing cached yet for
+  // this domain), hide the whole section — never an empty shell, placeholder, or the
+  // wrong category, and never a demo-catalog fallback during a real store session.
+  // .complete-look[hidden] { display: none; } in style.css makes this an actual
+  // display:none, not just an ARIA-hidden section.
   const section = $("completeLook");
   if (!recs.length) {
     $("clTrack").innerHTML = "";
@@ -4518,11 +4594,11 @@ function renderCompleteTheLook(item) {
     <article class="cl-card" style="--i:${i}">
       <div class="cl-card__media">${garmentThumb(r)}</div>
       <div class="cl-card__body">
-        <span class="cl-card__cat">${r.type === "pants" ? "Pants" : "Shirt"} · ${SUBTYPE_LABEL_HE[r.subType] || ""}</span>
+        <span class="cl-card__cat">${r.type === "pants" ? "Pants" : "Shirt"}${SUBTYPE_LABEL_HE[r.subType] ? " · " + SUBTYPE_LABEL_HE[r.subType] : ""}</span>
         <div class="cl-card__name">${r.name}</div>
-        <span class="cl-card__price">$${r.price}</span>
+        ${r.price != null ? `<span class="cl-card__price">$${r.price}</span>` : ""}
       </div>
-      <button class="cl-card__look" data-look="${r.id}">הוסף ללוק · Add to Look</button>
+      <button class="cl-card__look" data-look="${i}">הוסף ללוק · Add to Look</button>
     </article>`).join("");
 }
 
@@ -5926,11 +6002,13 @@ function init() {
 
     // "Add to Look" (הוסף ללוק) — drop this recommendation into its slot beside the
     // active garment (additive; keeps the opposite category). toItem() rebuilds the
-    // full record from the catalog so image URL, metadata AND category (garmentType →
-    // top|bottom) are always extracted, regardless of where on the card the user tapped.
+    // full record so image URL, metadata AND category (garmentType → top|bottom) are
+    // always extracted, regardless of where on the card the user tapped. data-look is
+    // an index into _lookCards (not a PEAR_CATALOG id) so this works identically for
+    // both demo-catalog recs and real-store recs (see renderCompleteTheLook).
     const lk = e.target.closest("[data-look]");
     if (lk) {
-      const p = PEAR_CATALOG.find((x) => x.id === Number(lk.dataset.look));
+      const p = _lookCards[Number(lk.dataset.look)];
       if (p) addToLook(toItem(p));
       return;
     }
