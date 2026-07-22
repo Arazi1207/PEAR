@@ -3861,12 +3861,15 @@ async function goLive() {
       logTryOnAnalytics(activeItem, _trackSize);
     }
 
-    // 3) reveal the live edited feed (onRemoteStream also reveals it as frames arrive)
-    $("scanOverlay").hidden = true;
-    card().classList.add("show-live");
+    // 3) "Stop" becomes available immediately — the user can always bail out of a slow
+    //    connect/warm-up rather than being stuck watching the loading timer with no
+    //    escape hatch. NOTE: the scanOverlay/"show-live" reveal itself is NOT done here
+    //    anymore — that only happens once startBillingWindow() verifies Model Ready
+    //    (see the state-transition comment there), so the user never sees "ready" UI
+    //    before there's real AI content behind it.
     setLiveControls(true);
     syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
-    startRecording();                  // Feature 2 — record while the session is live
+    startRecording();                  // Feature 2 — record while the session is live (arms once Model Ready)
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
     // The BILLED window (countdown + hard disconnect at LIVE_DURATION_MS) is NOT armed
@@ -3883,6 +3886,8 @@ async function goLive() {
         firstFrameGuardTimer = null;
         if (sessionGen !== guardGen || billingStarted) return;   // session moved on / billing already ticking
         console.warn("[PEAR] No first frame within " + FIRST_FRAME_TIMEOUT_MS + "ms — tearing down (no idle billing)");
+        stopScanTimer();                // model never became ready — retire the loading UI here
+        $("scanOverlay").hidden = true;
         stopLive();
         showCamError("החיבור לא הניב תמונה — נסה שוב.");
         setConn("error");
