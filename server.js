@@ -80,6 +80,12 @@ app.use((req, res, next) => {
     res.header("Cache-Control", "no-store, no-cache, must-revalidate");
   } else if (isEmbeddable) {
     res.header("Content-Security-Policy", "frame-ancestors *");
+    // Same no-store guarantee as /admin above: the fitting-room HTML/JS/CSS iterate
+    // fast (active demo work) and are embedded via <iframe>/<script src> on third-party
+    // pages we don't control the caching of, so nothing here should ever be served
+    // from a browser/CDN/proxy cache — every load must hit the origin fresh. Query
+    // strings (id/itemType/color/img) are irrelevant once caching is off outright.
+    res.header("Cache-Control", "no-store, no-cache, must-revalidate");
   } else {
     res.header("X-Frame-Options", "SAMEORIGIN");
     res.header("Content-Security-Policy", "frame-ancestors 'self'");
