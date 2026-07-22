@@ -542,7 +542,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .focus-bar__badge:empty { display: none; }
 
 .app-header {
-  position: relative;   /* containing block for .app-header__titles' absolute centering */
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 24px clamp(16px,5vw,36px) 0;
   max-width: 760px; margin: 0 auto;
@@ -591,7 +590,12 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   background: var(--pear-tint);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   border: 1px solid rgba(141, 182, 0, .35);
-  color: var(--pear-deep);
+  /* LEGIBILITY FIX: var(--pear-deep) (#5f7d00) on var(--pear-tint) over the page's
+     cream backdrop computes to only ~4.08:1 contrast — under the 4.5:1 WCAG AA
+     minimum for text this size/weight. #4a6300 on the same background is ~5.9:1.
+     Scoped to just this button rather than changing --pear-deep globally (that
+     variable is the app's one shared accent color, used well beyond the header). */
+  color: #4a6300;
   font-family: "Inter", sans-serif; font-size: .8rem; font-weight: 700;
   white-space: nowrap; cursor: pointer;
   transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease), background .3s var(--ease);
@@ -609,13 +613,13 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   line-height: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* OVERLAP FIX: nav now also carries the logo (moved in from the old brand-lockup),
-   so its realistic minimum footprint is wider than it used to be — and the
-   geometric max-width cap above means nav MUST fit inside a narrower box on small
-   screens. Drop both labels to icon-only a bit earlier (560px, was 480px, and
-   back-to-store's label wasn't covered at all before) so there's still room for
-   nav to satisfy that cap without clipping its own icons. */
-@media (max-width: 560px) {
+/* LEGIBILITY: nav no longer carries the logo (it's back in the brand-lockup), so
+   it has real room again at typical widths — this is a safety net for genuinely
+   small screens only, not the primary mechanism (that's the ellipsis truncation
+   above, which now gets to actually do its job at in-between widths instead of
+   labels disappearing pre-emptively). Covers both buttons — back-to-store's
+   label had no icon-only fallback at all before. */
+@media (max-width: 480px) {
   .back-to-store span,
   .btn-edit-measurements span { display: none; }
 }
@@ -2171,7 +2175,10 @@ body::after  { background: radial-gradient(circle at 60% 40%, rgba(150, 132, 92,
 .btn-add-cart.is-done .bac__check { color: #fff; }
 
 .cart-btn__count {
-  background: linear-gradient(135deg, var(--pear), var(--pear-deep));
+  /* LEGIBILITY FIX: the lighter end of the old pear→pear-deep gradient put white
+     text at ~2.4:1 contrast — well under the 4.5:1 AA minimum. A flat
+     --pear-deep keeps the same brand color family at a safe ~4.75:1. */
+  background: var(--pear-deep);
   box-shadow: 0 3px 10px rgba(141, 182, 0, .45);
 }
 .cart-fly--dot {
@@ -2507,48 +2514,43 @@ body.gd-open { overflow: hidden; }
   font-family: var(--pear-wordmark);
 }
 
-/* Header layout — nav zone (logo + back-to-store + edit-measurements, right in
-   RTL) and actions zone (cart, left in RTL) sit on the row; the PEAR
-   wordmark + subtitle are pulled OUT of flow and centred across the FULL
-   header width via position:absolute (see .app-header{position:relative}).
-
-   OVERLAP FIX: z-index:1 below only decides WHICH element wins visually
-   WHEN nav/actions and the centred title geometrically collide — it never
-   stopped the collision itself, which is exactly what was reported (the
-   edit-measurements button rendering on top of, and hiding, the subtitle
-   text). Since .app-header__titles is out of flex flow, growing nav/actions
-   does NOT push it aside the way normal flex siblings would. The actual fix
-   is to hard-cap nav/actions so they are GEOMETRICALLY INCAPABLE of reaching
-   the title's reserved centre strip: each side gets at most half of whatever
-   width the title's own max-width (below) doesn't claim. This makes
-   overlap impossible by construction, not just lower-priority — nav/actions'
-   existing min-width:0 + ellipsis truncation (further below) then shrinks
-   their labels once the zone itself is capped tighter than its content.
-   MUST stay numerically in sync with .app-header__titles' max-width. */
+/* Header layout — three GENUINE flex siblings on one row: nav (right in RTL) ·
+   brand-lockup (centre) · actions (left in RTL). This replaces an earlier
+   design where the lockup was pulled out of flex flow via position:absolute
+   and centred across the full header width — that made overlap with nav/
+   actions a geometry problem (nothing pushed it aside when they grew), which
+   is exactly what caused the edit-measurements button to render on top of the
+   subtitle text. With all three as real flex items again, ordinary
+   justify-content:space-between + min-width:0 makes overlap structurally
+   impossible: the browser lays them out side by side and shrinks them (via
+   the existing ellipsis truncation below) instead of ever letting one grow
+   into another's space. flex:1 1 0 on the two side zones keeps them equal, so
+   the lockup is genuinely centred whenever nav/actions are reasonably
+   balanced, and gracefully shrinks itself (min-width:0) if space runs out. */
 .app-header__nav,
 .app-header__actions {
   display: flex; align-items: center; gap: 8px; min-width: 0;
-  max-width: calc((100% - min(40vw, 260px)) / 2 - 8px);
-  /* Final backstop for the narrowest real phones (~320-360px), where even
-     icon-only nav content (logo + two pill icons) can still add up to more
-     than the calc() above allows. overflow:hidden means the worst case is a
-     hard clip at nav's OWN edge — never a spill into the title zone, which is
-     the one outcome that must be impossible. Hover glow (box-shadow) on the
-     pills can get clipped in that narrow case, but hover is largely moot on
-     touch/mobile anyway, and this only ever engages at widths where it would. */
-  overflow: hidden;
-  position: relative; z-index: 1;   /* belt-and-suspenders: nav/actions win if this is ever off by a hair */
+  flex: 1 1 0;
 }
 .app-header__actions { justify-content: flex-end; }
 .app-header__actions .cart-btn { margin: 0; }   /* zone handles placement now */
+
+/* Brand lockup: logo + title/subtitle as one row. Logo is FIRST in DOM order,
+   so in this RTL document it renders at the lockup's visual RIGHT edge — i.e.
+   to the right of "PEAR" / the subtitle, vertically centred via
+   align-items:center. flex:0 1 auto + min-width:0 lets the whole lockup
+   shrink (and its title text ellipsize, see .app-header__brand/__sub) rather
+   than force nav/actions to make room for it. */
+.app-header__brand-lockup {
+  display: flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0;
+}
 .app-header__titles {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 3px; min-width: 0; max-width: min(40vw, 260px);   /* kept in sync with the calc() above */
-  pointer-events: none;   /* decorative text only — never blocks the nav/actions above it */
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 3px; min-width: 0;
 }
 /* Header mark is a raster <img>; height-driven so its portrait width stays
-   proportional. */
+   proportional. flex:none — the logo never shrinks/distorts; only the text
+   beside it truncates under pressure. */
 .brand-mark {
   width: auto; height: 38px; object-fit: contain; margin: 0; align-self: center; flex: none;
 }
