@@ -851,7 +851,17 @@ function toItem(raw) {
  * BEFORE this is called — see onSizeFormContinue()/updateMeasurementsNow() —
  * and routeUser() calls this directly for a returning visitor whose profile
  * is still within the 30-day window (nothing new to persist). */
-function goToFitting() {
+/**
+ * @param {{instant?: boolean}} [opts] — instant:true skips the branded Bitten-
+ *   Pear transition entirely (straight commitSwap(), no ~1.2s animation). Used
+ *   ONLY by routeUser()'s silent fast-path re-login (a known device with a
+ *   fresh profile): that visitor never saw Screen 1 at all, so playing the
+ *   full "Screen 1 → Screen 2" transition would show a multi-second animated
+ *   detour to someone who should just land straight on the camera. The
+ *   manual Continue-button path (onSizeFormContinue) always omits this, so it
+ *   keeps the normal animated transition.
+ */
+function goToFitting(opts) {
   if (isDemoLocked()) { showDemoLockedScreen(); return; }
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
@@ -906,6 +916,7 @@ function goToFitting() {
     }
   };
 
+  if (opts && opts.instant) { commitSwap(); return; }
   playPearTransition(commitSwap);
 }
 
@@ -3545,7 +3556,10 @@ function routeUser(user) {
     const setIf = (id, v) => { const el = $(id); if (el && v != null && v !== "") el.value = String(v); };
     setIf("height", user.height); setIf("weight", user.weight);
     try { calculateSize(); } catch {}
-    goToFitting();
+    // instant:true — this visitor never saw Screen 1 (pre-paint gate kept
+    // #screen-calculator hidden the whole time), so skip the branded transition
+    // and land directly on the camera with zero visible animation/delay.
+    goToFitting({ instant: true });
     return;
   }
 
@@ -6235,12 +6249,25 @@ function init() {
   // form's flow instead: DEMO_MODE (the marketing-site widget demo) always
   // shows the form; DEMO_GATE (the public demo embed's one-time measurement)
   // shows the "already used" screen instead once spent.
+  //
+  // BUGFIX: this previously called showSizeForm() unconditionally here, which
+  // never actually called setupIdentityGate() at all — despite the comment
+  // above (and the pre-paint html.pear-returning-check gate in index.html)
+  // describing exactly that flow. showSizeForm() immediately clears the
+  // pre-paint hide (clearReturningCheckGate()) and reveals Screen 1's
+  // measurement form BEFORE the device-id lookup even started, so every
+  // visitor — including an already-known returning device with a fresh
+  // profile — flashed Screen 1 first and only reached the camera once the
+  // (now redundant) async check resolved. Calling setupIdentityGate() here
+  // restores the real routing: unknown/new device → identity gate; known
+  // device, stale/missing profile → size form; known device, fresh profile →
+  // straight to the camera with #screen-calculator never revealed at all.
   if (DEMO_MODE) {
     showSizeForm();
   } else if (DEMO_GATE && isDemoGateLocked()) {
     showDemoGateLockedMessage();
   } else {
-    showSizeForm();
+    setupIdentityGate();
   }
 
   // Permanent "Update Measurements" CTA + "Edit Measurements" Screen 2 CTA —
