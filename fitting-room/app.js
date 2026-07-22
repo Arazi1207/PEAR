@@ -482,6 +482,7 @@ let recordHold = false;        // true once billing stopped & the recorder is ho
 let recordHoldSrc = null;      // off-DOM canvas holding the frozen final dressed frame the recorder repaints during the hold
 let firstFrameGuardTimer = null; // safety timeout — tears the session down if Decart's first frame never arrives (no billing cap otherwise)
 let billingStarted = false;      // guards startBillingWindow() so it arms the billed window ONCE per session, on the first rendered frame
+let isGarmentApplied = false;    // true once rtClient.set() has resolved — gates billing/recording to the first DRESSED frame, not raw passthrough
 
 /** @returns {boolean} true while a billable realtime session is active. */
 const isLive = () => connState === "connected" || connState === "generating";
@@ -1730,6 +1731,7 @@ async function connectRealtime() {
   // no-first-frame safety timer, so the billed window re-arms cleanly on THIS session's
   // first rendered frame (see startBillingWindow / armFirstFrameBilling).
   billingStarted = false;
+  isGarmentApplied = false;
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
   console.log("[PEAR] connectRealtime() — stage 1/4: loading SDK from CDN…");
@@ -1791,13 +1793,14 @@ async function connectRealtime() {
         aiVideo.style.willChange = "transform";
         aiVideo.style.transform = "translateZ(0)";
         aiVideo.play().catch(() => {});
-        // BILLING START: the 5s / 10-credit window begins at the FIRST frame Decart
-        // actually renders to #aiVideo here — NOT at connect and NOT at set() — so the
-        // handshake + server warm-up (~1s) is never billed. Idempotent + sessionGen-
-        // guarded inside startBillingWindow, so a stale/duplicate stream can't re-arm it.
+        // BILLING START: the 5s / 10-credit window begins at the FIRST DRESSED frame
+        // Decart actually renders to #aiVideo here — NOT at connect and NOT merely at
+        // set() being called, but once it has resolved AND a frame reflecting it has
+        // decoded — so the handshake + server warm-up + styling round-trip is never
+        // billed. Idempotent + sessionGen-guarded inside startBillingWindow, so a
+        // stale/duplicate stream can't re-arm it. Recording (Feature 2) is armed from
+        // the same call, inside startBillingWindow, so both cover the identical span.
         armFirstFrameBilling(aiVideo, gen);
-        // NOTE: recording is NOT started here — it is armed in goLive() at the exact
-        // go-live instant so its duration matches the strict 5s window (see Feature 2).
       },
       onConnectionChange: (state) => {
         if (gen !== sessionGen) return;    // stale callback from a torn-down session
@@ -2857,8 +2860,9 @@ function buildCustomPrompt(item) {
  */
 async function applyActive() {
   const look = resolveLook();        // non-null only when activeOutfit has top AND bottom
-  if (look) return applyLook(look.top, look.bottom);
-  return applyGarment(activeItem);
+  if (look) await applyLook(look.top, look.bottom);
+  else await applyGarment(activeItem);
+  isGarmentApplied = true;           // rtClient.set() resolved — the NEXT rendered frame is dressed
 }
 
 /**
@@ -3696,6 +3700,11 @@ function startBillingWindow(gen) {
   if (gen !== sessionGen) return;        // stale first-frame from a torn-down session
   billingStarted = true;
 
+  // Start recording from the SAME event that starts billing (the first DRESSED frame)
+  // so the encoded clip and the billed window cover exactly the same span — no gap
+  // for applyActive()'s rtClient.set() round-trip to eat into the recorded duration.
+  startRecording();
+
   // First real frame arrived → cancel the no-first-frame safety teardown.
   if (firstFrameGuardTimer) { clearTimeout(firstFrameGuardTimer); firstFrameGuardTimer = null; }
 
@@ -3740,13 +3749,30 @@ function armFirstFrameBilling(video, gen) {
     if (gen !== sessionGen) return;      // session was torn down before the first frame
     startBillingWindow(gen);
   };
+  // A frame existing isn't enough — it may be the raw/undressed passthrough frame
+  // that arrives before applyActive()'s rtClient.set() has resolved. Keep re-checking
+  // on each subsequent decoded frame until isGarmentApplied flips true, THEN fire —
+  // so billing (and recording, started together in startBillingWindow) begin on the
+  // first DRESSED frame, never before.
+  const frameReady = () => {
+    if (done || gen !== sessionGen) return;
+    if (!isGarmentApplied) {
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback(frameReady);
+      } else {
+        requestAnimationFrame(frameReady);
+      }
+      return;
+    }
+    fire();
+  };
   if (typeof video.requestVideoFrameCallback === "function") {
-    video.requestVideoFrameCallback(() => fire());
+    video.requestVideoFrameCallback(frameReady);
   } else {
     // Fallback: poll until a real decoded frame exists (dimensions set + playback advanced).
     (function poll() {
       if (done || gen !== sessionGen) return;
-      if (video.videoWidth > 0 && video.currentTime > 0) return fire();
+      if (video.videoWidth > 0 && video.currentTime > 0) return frameReady();
       requestAnimationFrame(poll);
     })();
   }
@@ -3825,7 +3851,8 @@ async function goLive() {
     card().classList.add("show-live");
     setLiveControls(true);
     syncOrientationWatcher();          // AI Auto: begin monitoring the user's orientation
-    startRecording();                  // Feature 2 — record while the session is live
+    // Feature 2 — recording is now started in startBillingWindow(), on the same first
+    // DRESSED frame that arms billing, so the encoded clip always matches the billed window.
     startStatsMonitor();               // diagnostic getStats poller (DevTools console; no billing effect)
 
     // The BILLED window (countdown + hard disconnect at LIVE_DURATION_MS) is NOT armed
