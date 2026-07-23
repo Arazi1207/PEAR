@@ -84,7 +84,6 @@
   try {
     if (script && script.src) PEAR_BASE = new URL(script.src).origin;
   } catch (_) {}
-  console.log("[PEAR widget] resolved PEAR_BASE:", PEAR_BASE, script ? "(from script src: " + script.src + ")" : "(fallback — no script tag found)");
 
   var STORE_KEY = (script && script.getAttribute("data-pear-key")) || "";
 
@@ -405,8 +404,6 @@
       if (!el || el.tagName !== "IMG") continue;
       add(el.currentSrc || el.src || "");
     }
-    var candidates = urls;
-    console.log('[PEAR] Gallery candidates found:', candidates.length, candidates.map(c => c.src || c));
     return urls;
   }
 
@@ -521,20 +518,15 @@
      DOM order. */
   function classifyImages(urls) {
     var endpoint = PEAR_BASE + "/api/classify-images";
-    console.log("[PEAR widget] classifyImages() — POST", endpoint, "images:", urls);
-    console.log('[PEAR] Classifying images:', urls);
     return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ images: urls })
     }).then(function (r) {
-      console.log("[PEAR widget] classifyImages() — response", r.status, r.ok ? "OK" : "FAILED");
       if (!r.ok) throw new Error("classify-images HTTP " + r.status);
       return r.json();
     }).then(function (data) {
-      console.log("[PEAR widget] classifyImages() — results:", data && data.results);
       var results = (data && data.results) || [];
-      console.log('[PEAR] Classification results:', results);
       return results;
     });
   }
@@ -773,7 +765,6 @@
     if (primaryUrl) {
       var pgName = getGarmentName();
       var pgImages = collectGalleryImages(primaryUrl, d);
-      console.log('[PEAR] All images for this product:', pgImages);
       return {
         url: primaryUrl,
         back: findGalleryBack(primaryUrl, d),
@@ -794,7 +785,6 @@
         if (url && !isExcludedSrc(url)) {
           var name = cardNameFor(node, img);
           var cardImages = collectGalleryImages(url, node);
-          console.log('[PEAR] All images for this product:', cardImages);
           return {
             url: url,
             back: explicitAttr(img, "data-pear-back") || findGalleryBack(url, node),
@@ -812,7 +802,6 @@
     if (primary && primary.url) {
       var pname = getGarmentName();
       var fallbackImages = collectGalleryImages(primary.url, d);
-      console.log('[PEAR] All images for this product:', fallbackImages);
       return {
         url: primary.url, back: primary.back,
         images: fallbackImages,
@@ -907,7 +896,6 @@
         var originalText = btn.textContent;
         btn.textContent = "מזהה בגד...";
         classifyImages(imgs).then(function (results) {
-          console.log('[PEAR] Saving to cache:', imgs, results);
           btn.textContent = originalText;
           var sorted = sortByFrontBack(imgs, results);
           var resolved = resolveFrontBack(imgs, results);
