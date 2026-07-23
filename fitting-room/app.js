@@ -6313,7 +6313,6 @@ function init() {
     i.addEventListener("keydown", onMeasurementKeydown);   // Task 5 — Enter to proceed
   });
   $("btn-next-screen").addEventListener("click", onSizeFormContinue);
-  $("btn-back").addEventListener("click", backToCalculator);
 
   // Explicit open only — startCamera() is also called from flipCamera() and
   // reinitCameraForOrientation(), where the page shouldn't jump since the user is
