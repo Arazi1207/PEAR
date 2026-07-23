@@ -1083,12 +1083,17 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   box-shadow: 0 8px 22px rgba(141, 182, 0, .2);
 }
 .cl-arrow:active { transform: translateY(-50%) scale(.94); }
+.cl-arrow svg { flex: none; }
 /* Plain left/right (not inset-inline-start/end): these buttons scroll the
    PHYSICAL viewport left/right (see the JS — scrollBy({left}) is a physical-axis
    API regardless of RTL), so "left arrow" must always be the button on the
-   visual left, independent of the page's RTL reading direction. */
-.cl-arrow--prev { left: 4px; }
-.cl-arrow--next { right: 4px; }
+   visual left, independent of the page's RTL reading direction.
+   NEGATIVE offsets — push the buttons OUTSIDE .cl-track-wrap's own box (which
+   exactly matches the visible card area) instead of overlapping the first/last
+   card. .complete-look/.container have no overflow:hidden in their ancestor
+   chain, so this negative offset is never clipped. */
+.cl-arrow--prev { left: -20px; }
+.cl-arrow--next { right: -20px; }
 
 /* Desktop only. Mouse/trackpad users benefit from click-to-scroll; touch
    devices already scroll the track natively via swipe, so these would just be

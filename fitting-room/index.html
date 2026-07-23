@@ -420,9 +420,24 @@
                  swipe already works there, and floating circular buttons over a touch
                  carousel just get in the way. -->
             <div class="cl-track-wrap">
-                <button class="cl-arrow cl-arrow--prev" id="clArrowPrev" type="button" aria-label="גלול שמאלה · Scroll left">‹</button>
+                <!-- SVG chevrons, not "‹"/"›" text: those are Unicode Bidi_Mirrored characters,
+                     so inside this RTL-inheriting page the browser auto-substitutes the
+                     MIRRORED glyph for rendering — "‹" was visually showing as "›" and vice
+                     versa. SVG paths aren't text runs, so they're never subject to the
+                     Unicode Bidi Algorithm and can't flip like this. -->
+                <button class="cl-arrow cl-arrow--prev" id="clArrowPrev" type="button" aria-label="גלול שמאלה · Scroll left">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M15 6l-6 6 6 6"/>
+                    </svg>
+                </button>
                 <div class="cl-track" id="clTrack"></div>
-                <button class="cl-arrow cl-arrow--next" id="clArrowNext" type="button" aria-label="גלול ימינה · Scroll right">›</button>
+                <button class="cl-arrow cl-arrow--next" id="clArrowNext" type="button" aria-label="גלול ימינה · Scroll right">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 6l6 6-6 6"/>
+                    </svg>
+                </button>
             </div>
         </section>
 
