@@ -862,9 +862,7 @@ function toItem(raw) {
  *   keeps the normal animated transition.
  */
 function goToFitting(opts) {
-<<<<<<< Updated upstream
   if (isDemoLocked()) { showDemoLockedScreen(); return; }
-=======
   // Demo-gate re-entry guard: this browser already spent its one measurement
   // (set by lockDemoGate() below on a prior call). Without this check, the
   // in-room "back" button (backToCalculator()) lets the visitor return to the
@@ -875,8 +873,12 @@ function goToFitting(opts) {
     return;
   }
 
+  // NOTE: declared but not yet read anywhere below — looks like the other half of
+  // this change (an opts.skipProfileSave gate on whatever it was meant to guard)
+  // didn't survive a stash conflict. Kept rather than dropped since deleting it
+  // risks discarding intended-but-incomplete work; flagging for a follow-up rather
+  // than guessing at the missing behavior.
   const skipProfileSave = !!(opts && opts.skipProfileSave);
->>>>>>> Stashed changes
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
   const _payload = {
