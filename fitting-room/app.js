@@ -3715,6 +3715,9 @@ function logoutUser() {
     localStorage.removeItem(PEAR_DEVICE_KEY);
     localStorage.removeItem(PEAR_LAST_MEASUREMENTS_KEY);
     localStorage.removeItem("pear_body_profile");   // legacy cache key, harmless if absent
+    localStorage.removeItem("pear_fit_gallery");
+    localStorage.removeItem("pear_cart_count");
+    localStorage.removeItem("pear_custom_garment");
   } catch {}
   location.reload();
 }
