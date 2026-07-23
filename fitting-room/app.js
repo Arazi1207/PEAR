@@ -3216,19 +3216,42 @@ function injectSizeSelector() {
     s.id = "pearSizeSelectorStyles";
     s.textContent = `
       /* Liquid-glass size selector — matches the liquid-glass theme in style.css.
-         Light refractive pod, glass pill tiles, pear-green active glow. */
+         Light refractive pod, glass pill tiles, pear-green active glow.
+
+         LAYOUT FIX: this used to be ONE flex row — label, the button group, and
+         the "★ recommended" hint all as direct flex children of a single
+         align-items:center container with border-radius:100px (a full stadium
+         shape). That only looks right if everything fits on one line. With 7
+         sizes (SIZE_SCALE: XS/S/M/L/XL/XXL/3XL) plus the label and hint, a
+         narrow phone screen doesn't have room for that — .pear-sz-btns wraps
+         its own buttons onto 2-3 lines internally, and because it was still
+         just ONE item in an align-items:center row, the label and hint floated
+         to the VERTICAL CENTER of that now-tall wrapped block — landing
+         visually in the MIDDLE row of buttons instead of staying put, and the
+         100px stadium radius around 3 wrapped rows read as a broken blob
+         rather than a pill.
+         Fix: split into two always-separate rows — a header row (label + hint,
+         never touched by however many rows the buttons wrap to) stacked above
+         a button-grid row. A normal card radius replaces the stadium shape,
+         since this can genuinely be 1-3 rows tall depending on screen width. */
       #pearSizeSelector {
         display: flex;
-        align-items: center;
-        gap: 10px;
+        flex-direction: column;
+        gap: 8px;
         margin: 14px 0 4px;
-        padding: 10px 16px;
+        padding: 12px 16px;
         background: linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.18) 100%);
         border: 1px solid rgba(255,255,255,0.55);
-        border-radius: 100px;
+        border-radius: 22px;
         backdrop-filter: blur(25px) saturate(210%);
         -webkit-backdrop-filter: blur(25px) saturate(210%);
         box-shadow: 0 8px 32px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
+      }
+      .pear-sz-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
       }
       .pear-sz-label {
         font-size: 11px;
@@ -3280,7 +3303,8 @@ function injectSizeSelector() {
         50%      { box-shadow: 0 0 0 3px rgba(141,182,0,0.30), 0 10px 28px rgba(141,182,0,0.34), inset 0 0 18px rgba(141,182,0,0.28); }
       }
       .pear-sz-hint {
-        margin-left: auto;
+        /* margin-left:auto removed — .pear-sz-head's own justify-content:space-between
+           now positions this, no longer needs to fight for its own space. */
         font-size: 10px;
         font-weight: 600;
         color: #6b6b70;
@@ -3306,9 +3330,11 @@ function injectSizeSelector() {
   }).join("");
 
   row.innerHTML =
-    `<span class="pear-sz-label">מידה · Size</span>` +
-    `<div class="pear-sz-btns">${btnHtml}</div>` +
-    (currentUserSize ? `<span class="pear-sz-hint">★ מומלצת</span>` : "");
+    `<div class="pear-sz-head">` +
+      `<span class="pear-sz-label">מידה · Size</span>` +
+      (currentUserSize ? `<span class="pear-sz-hint">★ מומלצת</span>` : "") +
+    `</div>` +
+    `<div class="pear-sz-btns">${btnHtml}</div>`;
 
   row.addEventListener("click", (e) => {
     const btn = e.target.closest(".pear-sz-btn");
