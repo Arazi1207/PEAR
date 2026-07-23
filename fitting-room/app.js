@@ -3617,21 +3617,43 @@ async function updateMeasurementsNow() {
    room once a user is known. Click reveals name/email/height/weight + logout.
    Hidden entirely while PEAR_USER is null (nothing to show pre-login).
    ============================================================================= */
+/* First letter of first name + first letter of last name; a single-word name
+   uses its own first two letters instead ("איתי ארזי" → "אא", "איתי" → "אי"). */
+function getInitials(name) {
+  const parts = (name || "").trim().split(/\s+/);
+  if (!parts[0]) return "?";
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
 function updateProfileButton() {
   const btn = $("profileBtn");
   if (!btn) return;
   if (!PEAR_USER) { btn.hidden = true; closeProfileDropdown(); return; }
   btn.hidden = false;
 
+  const initials = getInitials(PEAR_USER.name);
   const initial = $("profileInitial");
-  if (initial) initial.textContent = (PEAR_USER.name || "?").trim().charAt(0).toUpperCase() || "?";
+  if (initial) initial.textContent = initials;
+  const avatar = $("profileAvatar");
+  if (avatar) avatar.textContent = initials;
+
+  const nameEl = $("profileName"), emailEl = $("profileEmail");
+  if (nameEl) nameEl.textContent = PEAR_USER.name || "—";
+  if (emailEl) emailEl.textContent = PEAR_USER.email || "—";
 
   const heightEl = $("profileHeight"), weightEl = $("profileWeight");
   if (heightEl) heightEl.textContent = PEAR_USER.height != null ? `${PEAR_USER.height} ס"מ` : "—";
   if (weightEl) weightEl.textContent = PEAR_USER.weight != null ? `${PEAR_USER.weight} ק"ג` : "—";
+
+  const sizeEl = $("profileSize");
+  if (sizeEl) {
+    const sizeText = $("final-size-text");
+    sizeEl.textContent = (sizeText && sizeText.innerText.trim()) || currentUserSize || "—";
+  }
 }
 
-function openProfileDropdown()  { const p = $("profileDropdown"); if (p) p.hidden = false; }
+function openProfileDropdown()  { updateProfileButton(); const p = $("profileDropdown"); if (p) p.hidden = false; }
 function closeProfileDropdown() { const p = $("profileDropdown"); if (p) p.hidden = true; }
 function toggleProfileDropdown() {
   const p = $("profileDropdown");
