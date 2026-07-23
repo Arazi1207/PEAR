@@ -404,7 +404,17 @@
                 <h3 class="cl-title">השלמת הלוק <span>· Complete the Look</span></h3>
                 <p class="cl-sub" id="clSub"></p>
             </div>
-            <div class="cl-track" id="clTrack"></div>
+            <!-- Desktop-only scroll arrows (style.css: .cl-arrow, @media min-width:1024px).
+                 .cl-track-wrap does NOT scroll — only #clTrack does — so the arrows, as its
+                 siblings, stay pinned to the carousel's edges regardless of scroll position
+                 instead of scrolling away with the cards. Hidden on touch/mobile: native
+                 swipe already works there, and floating circular buttons over a touch
+                 carousel just get in the way. -->
+            <div class="cl-track-wrap">
+                <button class="cl-arrow cl-arrow--prev" id="clArrowPrev" type="button" aria-label="גלול שמאלה · Scroll left">‹</button>
+                <div class="cl-track" id="clTrack"></div>
+                <button class="cl-arrow cl-arrow--next" id="clArrowNext" type="button" aria-label="גלול ימינה · Scroll right">›</button>
+            </div>
         </section>
 
         <!-- ░░ PEAR Live-Action Gallery & Retake Pod — unified glass capsule ░░

@@ -6322,6 +6322,21 @@ function init() {
     if (b) setColor(b.dataset.color);
   });
 
+  // Complete-the-Look carousel — desktop-only arrow buttons (CSS hides them
+  // below 1024px; wiring them unconditionally here is harmless on touch, they're
+  // just never visible/clickable there). scrollBy({left}) is a PHYSICAL-axis
+  // operation per spec — it always scrolls the viewport visually left/right
+  // regardless of the page's RTL direction, so no RTL sign-flipping is needed:
+  // the left button simply scrolls left, the right button scrolls right.
+  // ~2 cards per click (.cl-card flex-basis 182px + .cl-track gap 16px).
+  const CL_SCROLL_PX = (182 + 16) * 2;
+  $("clArrowPrev")?.addEventListener("click", () => {
+    $("clTrack")?.scrollBy({ left: -CL_SCROLL_PX, behavior: "smooth" });
+  });
+  $("clArrowNext")?.addEventListener("click", () => {
+    $("clTrack")?.scrollBy({ left: CL_SCROLL_PX, behavior: "smooth" });
+  });
+
   // PEAR Live-Action Gallery — render persisted looks + wire tray/clear/retake
   loadGallery();
   const galleryTrack = $("galleryTrack");
