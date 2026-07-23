@@ -1935,6 +1935,19 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   body.is-scrolled .profile-dropdown { top: calc(46px + var(--safe-t)); }
 }
 
+/* Vertically center the avatar on the focus-bar's own content row while
+   they're both visible together (focus mode, unscrolled — once scrolled the
+   avatar is faded out, see below, so no alignment to worry about there).
+   .focus-bar is 15px vertical padding + a ~24.6px content row (the badge is
+   the tallest child: 5px+5px padding + a ~14.6px line) = ~54.6px tall,
+   centered at ~27px from the top. The avatar's own base top:16px + half its
+   40px height = a 36px center — about 9px lower than the bar's row. Only
+   scoped >480px: below that the avatar is a smaller 32px circle (see the
+   ≤480px "Profile icon" rule) with a different, much closer offset already. */
+@media (min-width: 481px) {
+  body.focus-mode:not(.is-scrolled) .profile-btn { top: 7px; }
+}
+
 /* Focus mode + scrolled: the focus-bar's item-name/dot needs the WHOLE right
    edge (flush, zero gutter — see .focus-bar.is-scrolled below). Tried
    relocating the avatar to the opposite corner instead — it crowded the size
@@ -2339,7 +2352,7 @@ body::after  { background: radial-gradient(circle at 60% 40%, rgba(150, 132, 92,
 @media (min-width: 1340px) {
   .focus-bar {
     padding-left: clamp(84px, 7vw, 150px);
-    padding-right: 64px;
+    padding-right: 72px;   /* 56px avatar clearance + a deliberate ~16px breathing gap */
   }
 }
 
@@ -2800,7 +2813,7 @@ body.gd-open { overflow: hidden; }
 @media (max-width: 1339px) {
   .focus-bar {
     justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
-    padding-right: 60px;           /* clears the UNSCROLLED (40px) profile button */
+    padding-right: 68px;           /* 56px avatar clearance + a deliberate ~12px breathing gap */
   }
 }
 
