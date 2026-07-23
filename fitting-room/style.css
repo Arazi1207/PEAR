@@ -1840,17 +1840,17 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
    z-index is 9, see .camera-card__* rules) but below any modal/overlay
    (garment-detect / lightbox / compare start at 200+). ── */
 .profile-btn {
-  position: fixed; top: calc(14px + var(--safe-t, 0px)); right: 14px; z-index: 100;
+  position: fixed; top: 16px; right: 16px; z-index: 100;
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 40px; border-radius: 50%; padding: 0;
-  border: 1px solid rgba(141, 182, 0, .35);
-  background: var(--pear-tint);
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: var(--glass-dark);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  color: var(--pear-deep); cursor: pointer;
-  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.6);
+  color: #fff; cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.1);
   transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
 }
-.profile-btn:hover  { transform: translateY(-2px); background: rgba(141, 182, 0, .24); box-shadow: var(--shadow); }
+.profile-btn:hover  { transform: translateY(-2px); background: rgba(16, 16, 18, .8); box-shadow: var(--shadow); }
 .profile-btn:active { transform: scale(.92); }
 .profile-btn[hidden] { display: none; }
 .profile-btn__initial {
@@ -1858,8 +1858,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 
 .profile-dropdown {
-  position: fixed; top: calc(58px + var(--safe-t, 0px)); right: 14px; z-index: 100;
-  width: min(240px, calc(100vw - 28px)); padding: 14px 16px;
+  position: fixed; top: 60px; right: 16px; z-index: 100;
+  width: min(220px, calc(100vw - 32px)); padding: 14px 16px;
   border: 1px solid var(--glass-border); border-radius: 16px;
   background: var(--glass-strong);
   -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);

@@ -3626,13 +3626,9 @@ function updateProfileButton() {
   const initial = $("profileInitial");
   if (initial) initial.textContent = (PEAR_USER.name || "?").trim().charAt(0).toUpperCase() || "?";
 
-  const nameEl = $("profileName"), emailEl = $("profileEmail"), measEl = $("profileMeasurements");
-  if (nameEl)  nameEl.textContent  = PEAR_USER.name  || "";
-  if (emailEl) emailEl.textContent = PEAR_USER.email || "";
-  if (measEl) {
-    const h = PEAR_USER.height, w = PEAR_USER.weight;
-    measEl.textContent = (h != null && w != null) ? `${h} ס"מ · ${w} ק"ג` : "אין מדידות שמורות";
-  }
+  const heightEl = $("profileHeight"), weightEl = $("profileWeight");
+  if (heightEl) heightEl.textContent = PEAR_USER.height != null ? `${PEAR_USER.height} ס"מ` : "—";
+  if (weightEl) weightEl.textContent = PEAR_USER.weight != null ? `${PEAR_USER.weight} ק"ג` : "—";
 }
 
 function openProfileDropdown()  { const p = $("profileDropdown"); if (p) p.hidden = false; }
