@@ -511,6 +511,11 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   border-bottom: 1px solid var(--glass-border);
   box-shadow: var(--shadow-soft);
   font-size: .95rem; font-weight: 600;
+  /* On the BASE rule (not just the mobile/is-scrolled overrides) so scrolling
+     back UP also animates at every width — previously only the ≤768px block
+     and .is-scrolled itself declared this, so desktop widths snapped instantly
+     the moment .is-scrolled was removed instead of tweening back. */
+  transition: padding .3s ease-in-out;
 }
 .focus-bar[hidden] { display: none; }
 .focus-bar__dot {
@@ -2758,22 +2763,26 @@ body.gd-open { overflow: hidden; }
   .focus-bar {
     justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
     padding-right: 60px;           /* clears the UNSCROLLED (40px) profile button */
-    transition: padding .3s ease-in-out;
   }
 }
 
 /* Once scrolled, the avatar fades out (see body.focus-mode.is-scrolled
    .profile-btn above) instead of sharing the edge — so the gutter it used to
    reserve (mobile's 60px above, or the ≥1340px ambient-rail gutter below) is
-   no longer needed at all. Zero padding: the dot+text group is flush against
-   the true viewport edge. Deliberately UNSCOPED by width — a compound class
-   selector (0,2,0) beats a plain `.focus-bar` rule (0,1,0) regardless of which
-   media query it's in or its source order, so this wins at every breakpoint,
-   including inside `@media (min-width:1340px)` above. That's intentional:
-   the rail-collision bug that gutter guards against only ever hit the
-   STATIC, unscrolled bar — the scrolled bar is a distinct compact-chrome
-   state, sitting above the rails with its own frosted/blurred background. */
-.focus-bar.is-scrolled { padding-right: 0; transition: padding .3s ease-in-out; }
+   no longer needed. A literal 0 read as clipped/cramped in practice (the dot
+   sitting flush on the physical screen edge, no breathing room) — 14px is
+   the smallest edge inset already used elsewhere in this file (the ≤480px
+   profile-btn), so it stays visually "flush" without touching the glass.
+   Deliberately UNSCOPED by width — a compound class selector (0,2,0) beats a
+   plain `.focus-bar` rule (0,1,0) regardless of which media query it's in or
+   its source order, so this wins at every breakpoint, including inside
+   `@media (min-width:1340px)` above. That's intentional: the rail-collision
+   bug that gutter guards against only ever hit the STATIC, unscrolled bar —
+   the scrolled bar is a distinct compact-chrome state, sitting above the
+   rails with its own frosted/blurred background. The transition itself now
+   lives on .focus-bar's base rule (not here) so BOTH directions — scrolling
+   down to this state and back up out of it — animate identically. */
+.focus-bar.is-scrolled { padding-right: 14px; }
 
 /* ════════════════════════════════════════════════════════════════════════
    ✦ CAMERA — flip control · front-only mirror · orientation-adaptive stage
