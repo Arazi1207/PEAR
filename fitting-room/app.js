@@ -2141,7 +2141,7 @@ function waitConnected(timeout) {
       if (isLive()) return resolve();
       if (connState === "error" || connState === "disconnected") return reject(new Error("session " + connState));
       if (Date.now() - start > timeout) return reject(new Error("timeout מחכה לחיבור (" + connState + ")"));
-      setTimeout(poll, 150);
+      setTimeout(poll, 50);
     })();
   });
 }
@@ -2920,7 +2920,7 @@ async function applyGarment(item) {
   const imageRef  = await referenceImageFor(item, activeImg);   // Blob for combined, URL otherwise
   const payload = {
     prompt: buildPrompt(item) + angleClause(item),
-    enhance: true,
+    enhance: false,
     ...(imageRef ? { image: imageRef } : {}),
   };
 
@@ -3140,7 +3140,7 @@ async function applyLook(top, bottom) {
   // ONE combined payload — both garments, one pass, same session.
   const payload = {
     prompt,
-    enhance: true,
+    enhance: false,
     image: primaryImage,               // SDK single-image slot: TOP+BOTTOM stitched composite (or top-only fallback)
     images,                           // both verified proxy URLs, bundled together
     garments: [                       // per-slot metadata incl. category (top|bottom)
@@ -3154,7 +3154,7 @@ async function applyLook(top, bottom) {
   } catch (e) {
     // A stricter SDK build may reject the enriched shape — retry with the minimal contract.
     console.warn("look payload rejected, retrying minimal:", e?.message || e);
-    await rtClient.set({ prompt, image: primaryImage, enhance: true });
+    await rtClient.set({ prompt, image: primaryImage, enhance: false });
   }
 }
 
