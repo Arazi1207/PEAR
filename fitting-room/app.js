@@ -862,7 +862,21 @@ function toItem(raw) {
  *   keeps the normal animated transition.
  */
 function goToFitting(opts) {
+<<<<<<< Updated upstream
   if (isDemoLocked()) { showDemoLockedScreen(); return; }
+=======
+  // Demo-gate re-entry guard: this browser already spent its one measurement
+  // (set by lockDemoGate() below on a prior call). Without this check, the
+  // in-room "back" button (backToCalculator()) lets the visitor return to the
+  // size form and call goToFitting() again in the SAME session, re-entering
+  // the camera indefinitely — the lock was being set but never read back.
+  if (DEMO_GATE && isDemoGateLocked()) {
+    showDemoGateLockedMessage();
+    return;
+  }
+
+  const skipProfileSave = !!(opts && opts.skipProfileSave);
+>>>>>>> Stashed changes
   // Log to Sheets the moment the user presses the button — always fire, even without handoff
   const _handoff = parseHandoff();
   const _payload = {
