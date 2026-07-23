@@ -3238,7 +3238,9 @@ function injectSizeSelector() {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        margin: 14px 0 4px;
+        /* SPACING FIX: bottom margin was 4px — barely any air before the camera
+           stage directly below this pod. 20px gives it real breathing room. */
+        margin: 14px 0 20px;
         padding: 12px 16px;
         background: linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.18) 100%);
         border: 1px solid rgba(255,255,255,0.55);
@@ -3262,13 +3264,32 @@ function injectSizeSelector() {
         white-space: nowrap;
         flex-shrink: 0;
       }
+      /* SYMMETRY FIX: was a plain flex-wrap row with no justify-content (default
+         flex-start) and no fixed per-button width — with all 7 SIZE_SCALE entries
+         (XS/S/M/L/XL/XXL/3XL), that let however many happened to fit on line 1 (6)
+         wrap the single leftover (3XL) onto line 2, stuck to one edge with a big
+         empty gap beside it. Two changes fix this together:
+           • each button's flex-basis is pinned to calc(25% - 4.5px) — exactly
+             ("100% - 3 gaps of 6px" / 4) — so rows are ALWAYS a clean 4-then-3
+             split for these 7 sizes, not whatever the browser's organic wrap
+             happens to land on.
+           • justify-content:center centers each row's own content — including
+             the short 3-item second row, which now sits centered instead of
+             flush to one side. */
       .pear-sz-btns {
         display: flex;
         gap: 6px;
         flex-wrap: wrap;
+        justify-content: center;
       }
       .pear-sz-btn {
+        /* flex-basis pinned to a quarter-row (minus its share of the 6px gaps) so
+           these 7 buttons always land as a clean 4-then-3 split — see the
+           SYMMETRY FIX note on .pear-sz-btns above. min-width stays as a floor for
+           very narrow screens where 25% would otherwise shrink below readable. */
+        flex: 0 1 calc(25% - 4.5px);
         min-width: 40px;
+        text-align: center;
         padding: 7px 13px;
         border-radius: 100px;
         border: 1px solid rgba(255,255,255,0.55);
