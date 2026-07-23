@@ -1097,8 +1097,8 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
    exactly matches the visible card area) instead of overlapping the first/last
    card. .complete-look/.container have no overflow:hidden in their ancestor
    chain, so this negative offset is never clipped. */
-.cl-arrow--prev { left: -20px; }
-.cl-arrow--next { right: -20px; }
+.cl-arrow--prev { left: -55px; }
+.cl-arrow--next { right: -55px; }
 
 /* Desktop only. Mouse/trackpad users benefit from click-to-scroll; touch
    devices already scroll the track natively via swipe, so these would just be
