@@ -1728,24 +1728,30 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
    ════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
 
-  /* sticky, frosted app chrome that compacts as you scroll into the stage */
+  /* sticky, frosted app chrome that compacts as you scroll into the stage.
+     DEAD-SPACE FIX: top/bottom padding trimmed (was 14px/14px, scrolled 8px/8px) —
+     the row's own content height was already carrying the visual weight; this was
+     pure extra air above/below it. */
   .app-header {
     position: sticky; top: 0; z-index: 40;
     max-width: none; margin: 0;
-    padding: calc(14px + var(--safe-t)) clamp(16px, 5vw, 22px) 14px;
+    padding: calc(8px + var(--safe-t)) clamp(16px, 5vw, 22px) 8px;
+    gap: 8px;   /* was the base rule's 12px — tighter, more compact on phones */
     background: linear-gradient(180deg, rgba(247,247,246,.88), rgba(247,247,246,.30));
     -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     border-bottom: 1px solid transparent;
   }
   .app-header.is-scrolled {
-    padding-top: calc(8px + var(--safe-t)); padding-bottom: 8px;
+    padding-top: calc(5px + var(--safe-t)); padding-bottom: 5px;
     border-bottom-color: var(--glass-border);
     box-shadow: 0 6px 20px rgba(0, 0, 0, .06);
   }
   /* in focus mode the .focus-bar already owns the sticky top slot — don't stack two */
   .focus-bar:not([hidden]) ~ .app-header { position: static; }
-  .app-header__brand { font-size: 1.26rem; transition: font-size .45s var(--ease); }
-  .app-header.is-scrolled .app-header__brand { font-size: 1.1rem; }
+  /* PROMINENCE FIX: was 1.26rem/1.1rem (scrolled) — scaled up so the wordmark reads
+     as the header's visual anchor instead of getting lost in the trimmed padding. */
+  .app-header__brand { font-size: 1.4rem; transition: font-size .45s var(--ease); }
+  .app-header.is-scrolled .app-header__brand { font-size: 1.2rem; }
   .app-header__sub { font-size: .78rem; }
 
   /* roomier, thumb-first body; keep the live control clear of the home indicator */
@@ -1882,11 +1888,28 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   color: #fff; cursor: pointer;
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.1);
-  transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
+  transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease),
+              top .3s var(--ease), width .3s var(--ease), height .3s var(--ease);
 }
 .profile-btn:hover  { transform: translateY(-2px); background: rgba(16, 16, 18, .8); box-shadow: var(--shadow); }
 .profile-btn:active { transform: scale(.92); }
 .profile-btn[hidden] { display: none; }
+
+/* STICKING/OVERLAP FIX: .profile-btn is position:fixed at a CONSTANT top offset,
+   independent of .app-header's own scroll-triggered compaction (padding shrinks,
+   see .app-header.is-scrolled) — so as the header shrank on scroll, the button
+   stayed rigidly where it started, drifting out of sync with (and at some scroll
+   positions, overlapping) header/focus-bar content that had since moved up under
+   it. body.is-scrolled is set by the SAME scroll listener that drives
+   .app-header.is-scrolled (see mobile-ux.js) — .profile-btn can't use a sibling
+   selector off .app-header directly (it comes BEFORE it in the DOM; combinators
+   only select forward), so this shared flag on <body> is what lets it react. */
+@media (max-width: 768px) {
+  body.is-scrolled .profile-btn {
+    top: calc(8px + var(--safe-t)); width: 34px; height: 34px;
+  }
+  body.is-scrolled .profile-dropdown { top: calc(46px + var(--safe-t)); }
+}
 .profile-btn__initial {
   font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .92rem; line-height: 1;
 }
@@ -2621,10 +2644,11 @@ body.gd-open { overflow: hidden; }
   .camera-card { max-width: 600px; aspect-ratio: 4 / 3; }
 }
 
-/* Phone: keep the logo proportional to the compacting sticky header. */
+/* Phone: keep the logo proportional to the compacting sticky header.
+   PROMINENCE FIX: was 32px/28px (scrolled) — scaled up to match the larger wordmark above. */
 @media (max-width: 768px) {
-  .brand-mark { height: 32px; }
-  .app-header.is-scrolled .brand-mark { height: 28px; }
+  .brand-mark { height: 36px; }
+  .app-header.is-scrolled .brand-mark { height: 30px; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2711,12 +2735,49 @@ body.gd-open { overflow: hidden; }
 /* Focus bar (garment-name status strip): reserve room on the physical right
    so its text/badge never render under the fixed, always-visible profile
    button. The garment name truncates to a single line with ellipsis instead
-   of overflowing or wrapping. */
+   of overflowing or wrapping. Same reservation now also applied at the
+   481-768px range below (previously only ≤480px had it — the profile button
+   is 40px + a 16px offset there, i.e. wider than the 34px it shrinks to once
+   scrolled, so the gutter has to clear the LARGER, pre-scroll size). */
 @media (max-width: 480px) {
   .focus-bar { padding-right: 52px; font-size: 12px; flex-wrap: nowrap; }
   .focus-bar__text {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+}
+
+/* SCROLL ANIMATION FIX: idle (page just loaded / not yet scrolled), the strip reads
+   as a calm, centered banner; once scrolled past the same body.is-scrolled threshold
+   the rest of the mobile header uses, it condenses into a compact right-aligned
+   "navbar mode" alongside the size badge — flex-start = visual RIGHT in this RTL page.
+   .focus-bar__text already carries flex:1 1 auto (see the rails-safety rule above),
+   which fills the row edge-to-edge — overridden to flex:0 1 auto ONLY in the idle
+   state below so justify-content:center can actually center the text+badge as a
+   group instead of the text filling all available width first.
+   NOTE ON THE TRANSITION: justify-content is a discrete keyword property — browsers
+   cannot smoothly interpolate "center" to "flex-start" the way they can a numeric
+   value, so that specific flip is an instant snap no matter what. The opacity+
+   translateY micro-fade on the text/badge below is what actually reads as "smooth"
+   here; the padding/gap transition on the row softens the surrounding reflow. A
+   truly continuous pixel-by-pixel slide would need JS to measure the exact centered
+   vs. right-aligned offsets at runtime (layout-dependent, not expressible in CSS
+   alone) — happy to add that if the snap is ever visible/bothersome in practice. */
+@media (max-width: 768px) {
+  .focus-bar {
+    padding-right: 60px;
+    justify-content: center;
+    transition: justify-content .3s ease-in-out, padding .3s ease-in-out, gap .3s ease-in-out;
+  }
+  .focus-bar__text { flex: 0 1 auto; }
+  .focus-bar__badge { margin-inline-start: 0; }
+  .focus-bar__text,
+  .focus-bar__badge { transition: opacity .25s ease-in-out, transform .25s ease-in-out; }
+
+  .focus-bar.is-scrolled {
+    justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
+  }
+  .focus-bar.is-scrolled .focus-bar__text { flex: 1 1 auto; }
+  .focus-bar.is-scrolled .focus-bar__badge { margin-inline-start: auto; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════

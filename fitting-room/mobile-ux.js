@@ -24,7 +24,7 @@
      own (the calculator + gallery pod already animate themselves). reveal-up's
      hidden state lives in CSS but only applies once THIS script adds the class,
      so a no-JS / reduced-motion visit shows everything immediately. */
-  const SEL = ".personal-title, .camera-card, .cam-controls, .catalog-panel, .complete-look, #btn-back";
+  const SEL = ".personal-title, .camera-card, .cam-controls, .catalog-panel, .complete-look";
   let io = null;
 
   if (!reduce && "IntersectionObserver" in window) {
@@ -54,7 +54,7 @@
       }
     });
   };
-  ["btn-next-screen", "btn-back"].forEach((id) => {
+  ["btn-next-screen"].forEach((id) => {
     const b = document.getElementById(id);
     if (b) b.addEventListener("click", () => setTimeout(sweep, 90), { passive: true });
   });
@@ -62,8 +62,19 @@
 
   /* ── 2) Sticky-header shrink ─────────────────────────────────────────────── */
   const header = document.querySelector(".app-header");
-  if (header) {
-    const onScroll = () => header.classList.toggle("is-scrolled", scrollY > 12);
+  const focusBar = document.querySelector(".focus-bar");
+  if (header || focusBar) {
+    const onScroll = () => {
+      const scrolled = scrollY > 12;
+      // .profile-btn is position:fixed and sits BEFORE .app-header in the DOM (see
+      // index.html), so a `.app-header.is-scrolled ~ .profile-btn` sibling selector
+      // can't reach it — CSS combinators only select forward. A shared flag on
+      // <body> lets ANY component react to the same scroll threshold regardless of
+      // its position in the document (see style.css: body.is-scrolled .profile-btn).
+      document.body.classList.toggle("is-scrolled", scrolled);
+      if (header) header.classList.toggle("is-scrolled", scrolled);
+      if (focusBar) focusBar.classList.toggle("is-scrolled", scrolled);
+    };
     addEventListener("scroll", onScroll, { passive: true });
     onScroll();
   }
@@ -72,7 +83,7 @@
      Delegated so it covers controls app.js injects later (Watch / Download). The
      ripple node is pointer-events:none and self-removes, so it can never swallow a
      click or alter behaviour. */
-  const RIPPLE = ".btn-capture, .btn-primary, .btn-watch, .btn-download, .pip-retake, .plb-btn, .pear-compare-bar, .btn-back";
+  const RIPPLE = ".btn-capture, .btn-primary, .btn-watch, .btn-download, .pip-retake, .plb-btn, .pear-compare-bar";
   addEventListener("pointerdown", (ev) => {
     const el = ev.target.closest(RIPPLE);
     if (!el || el.disabled) return;
