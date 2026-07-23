@@ -2783,8 +2783,13 @@ body.gd-open { overflow: hidden; }
    padding — so "centered" meant centered inside an ASYMMETRIC box, which reads as
    visually wrong (neither centered nor edge-aligned) regardless of scroll state.
    That's what looked broken in every screenshot, not just the un-scrolled one.
-   Fix: flex-start (RTL = visual right, alongside the badge) unconditionally. */
-@media (max-width: 768px) {
+   Fix: flex-start (RTL = visual right, alongside the badge) unconditionally.
+   Range is <=1339px, not <=768px: this used to stop at the old mobile
+   breakpoint, leaving 769-1339px (a very ordinary desktop/laptop width) with
+   NO gutter at all — the unscrolled avatar (40px + 16px inset = 56px) sat
+   directly on top of the dot/text there, nothing pushing them apart, since
+   the >=1340px ambient-rail gutter below hasn't kicked in yet either. */
+@media (max-width: 1339px) {
   .focus-bar {
     justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
     padding-right: 60px;           /* clears the UNSCROLLED (40px) profile button */
