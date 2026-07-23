@@ -1044,12 +1044,58 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .cl-title span { color: var(--pear-deep); font-weight: 700; }
 .cl-sub { margin: 5px 0 0; color: var(--muted); font-size: .9rem; }
 
+/* Non-scrolling positioning reference for the arrows below — ONLY #clTrack
+   itself scrolls, so the arrows (its siblings here) stay pinned to the
+   carousel's edges regardless of how far the cards have scrolled, instead of
+   scrolling away with the content. */
+.cl-track-wrap { position: relative; }
+
 .cl-track {
   display: flex; gap: 16px; overflow-x: auto; padding: 4px 2px 18px;
   scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 .cl-track::-webkit-scrollbar { height: 0; width: 0; display: none; }
+
+/* Desktop-only mouse/trackpad scroll arrows — same pear-tint/pear-deep glass-pill
+   language as .cl-card__look ("Add to Look") so they read as part of the same
+   design system rather than a bolted-on control. display:none by default (touch
+   devices already have native horizontal swipe); enabled only at desktop widths
+   in the @media block below. */
+.cl-arrow {
+  display: none;
+  position: absolute; top: 50%; transform: translateY(-50%);
+  z-index: 2;
+  width: 44px; height: 44px; border-radius: 50%;
+  align-items: center; justify-content: center;
+  border: 1px solid rgba(141, 182, 0, .35);
+  background: var(--pear-tint);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  color: var(--pear-deep);
+  font-size: 1.4rem; line-height: 1; cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: transform .3s var(--ease), background .3s var(--ease),
+              border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+.cl-arrow:hover {
+  transform: translateY(-50%) scale(1.05);
+  background: rgba(141, 182, 0, .26); border-color: rgba(141, 182, 0, .55);
+  box-shadow: 0 8px 22px rgba(141, 182, 0, .2);
+}
+.cl-arrow:active { transform: translateY(-50%) scale(.94); }
+/* Plain left/right (not inset-inline-start/end): these buttons scroll the
+   PHYSICAL viewport left/right (see the JS — scrollBy({left}) is a physical-axis
+   API regardless of RTL), so "left arrow" must always be the button on the
+   visual left, independent of the page's RTL reading direction. */
+.cl-arrow--prev { left: 4px; }
+.cl-arrow--next { right: 4px; }
+
+/* Desktop only. Mouse/trackpad users benefit from click-to-scroll; touch
+   devices already scroll the track natively via swipe, so these would just be
+   redundant floating buttons that can be mis-tapped over the cards. */
+@media (min-width: 1024px) {
+  .cl-arrow { display: flex; }
+}
 
 .cl-card {
   flex: 0 0 182px; scroll-snap-align: start;
