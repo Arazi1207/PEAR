@@ -2732,47 +2732,33 @@ body.gd-open { overflow: hidden; }
   }
 }
 
-/* SCROLL ANIMATION FIX: idle (page just loaded / not yet scrolled), the strip reads
-   as a calm, centered banner; once scrolled past the same body.is-scrolled threshold
-   the rest of the mobile header uses, it condenses into a compact right-aligned
-   "navbar mode" alongside the size badge — flex-start = visual RIGHT in this RTL page.
-   .focus-bar__text already carries flex:1 1 auto (see the rails-safety rule above),
-   which fills the row edge-to-edge — overridden to flex:0 1 auto ONLY in the idle
-   state below so justify-content:center can actually center the text+badge as a
-   group instead of the text filling all available width first.
-   NOTE ON THE TRANSITION: justify-content is a discrete keyword property — browsers
-   cannot smoothly interpolate "center" to "flex-start" the way they can a numeric
-   value, so that specific flip is an instant snap no matter what. The opacity+
-   translateY micro-fade on the text/badge below is what actually reads as "smooth"
-   here; the padding/gap transition on the row softens the surrounding reflow. A
-   truly continuous pixel-by-pixel slide would need JS to measure the exact centered
-   vs. right-aligned offsets at runtime (layout-dependent, not expressible in CSS
-   alone) — happy to add that if the snap is ever visible/bothersome in practice. */
+/* EDGE-ALIGNED, ALWAYS (was: centered when idle, edge-aligned only once scrolled).
+   That toggle is GONE — it was the actual bug. Centering the dot+text+badge group
+   used .focus-bar's own padding-right (60px, reserved for the profile button) as
+   one wall of the centering box, while the LEFT side only had the base ~16-20px
+   padding — so "centered" meant centered inside an ASYMMETRIC box, which reads as
+   visually wrong (neither centered nor edge-aligned) regardless of scroll state.
+   That's what looked broken in every screenshot, not just the un-scrolled one.
+   Fix: flex-start (RTL = visual right, alongside the badge) unconditionally. The
+   scroll-triggered part that's left — and the one thing that still genuinely
+   animates, since padding is a real number a transition can smoothly tween,
+   unlike the justify-content flip this replaces — is the gutter shrinking as the
+   profile button itself shrinks on scroll (see body.is-scrolled .profile-btn
+   above): the text slides a little closer to the edge once scrolled. */
 @media (max-width: 768px) {
   .focus-bar {
-    padding-right: 60px;
-    justify-content: center;
-    transition: justify-content .3s ease-in-out, padding .3s ease-in-out, gap .3s ease-in-out;
+    justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
+    padding-right: 60px;           /* clears the UNSCROLLED (40px) profile button */
+    transition: padding .3s ease-in-out;
   }
-  .focus-bar__text { flex: 0 1 auto; }
-  .focus-bar__badge { margin-inline-start: 0; }
-  .focus-bar__text,
-  .focus-bar__badge { transition: opacity .25s ease-in-out, transform .25s ease-in-out; }
 
   .focus-bar.is-scrolled {
-    justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
-    /* EDGE-GAP FIX: the 60px idle gutter above is sized for the profile button's
-       UNSCROLLED footprint (right:16px + 40px wide). Once scrolled, the button
-       itself shrinks (body.is-scrolled .profile-btn — see style.css above:
-       34px wide, still right:16px), so the safe minimum clearance shrinks too:
-       16 + 34 + a small 2px visual buffer = 52px. Genuinely animates (unlike
-       justify-content, this is a plain numeric value the "padding .3s" transition
-       above already covers) — the text visibly slides closer to the edge as part
-       of the same scroll transition, not a second, separate motion. */
+    /* Once scrolled, body.is-scrolled .profile-btn shrinks the button itself
+       (40px -> 34px, still right:16px) — 16 + 34 + a 2px buffer = 52px is the
+       new safe minimum, so the gutter (and the text right up against it) can
+       shrink too. This is what actually animates on scroll now. */
     padding-right: 52px;
   }
-  .focus-bar.is-scrolled .focus-bar__text { flex: 1 1 auto; }
-  .focus-bar.is-scrolled .focus-bar__badge { margin-inline-start: auto; }
 }
 
 /* Same fix, tighter number: at <=480px the profile button sits at right:14px
