@@ -1889,7 +1889,7 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   color: #fff; cursor: pointer;
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.1);
   transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease),
-              top .3s var(--ease), width .3s var(--ease), height .3s var(--ease);
+              top .3s var(--ease), width .3s var(--ease), height .3s var(--ease), opacity .3s var(--ease);
 }
 .profile-btn:hover  { transform: translateY(-2px); background: rgba(16, 16, 18, .8); box-shadow: var(--shadow); }
 .profile-btn:active { transform: scale(.92); }
@@ -1909,6 +1909,18 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
     top: calc(8px + var(--safe-t)); width: 34px; height: 34px;
   }
   body.is-scrolled .profile-dropdown { top: calc(46px + var(--safe-t)); }
+}
+
+/* Focus mode + scrolled: the focus-bar's item-name/dot needs the WHOLE right
+   edge (flush, zero gutter — see .focus-bar.is-scrolled below). Tried
+   relocating the avatar to the opposite corner instead — it crowded the size
+   badge sitting there and read as cramped. Simplest clean fix: fade the
+   avatar out while scrolled; it's still one tap away (fades back in the
+   instant the user scrolls back up, off the same class toggle). Applies at
+   ANY width, not just mobile — desktop needs the same flush edge. */
+body.focus-mode.is-scrolled .profile-btn {
+  opacity: 0;
+  pointer-events: none;
 }
 .profile-btn__initial {
   font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .92rem; line-height: 1;
@@ -2724,7 +2736,9 @@ body.gd-open { overflow: hidden; }
    of overflowing or wrapping. Same reservation now also applied at the
    481-768px range below (previously only ≤480px had it — the profile button
    is 40px + a 16px offset there, i.e. wider than the 34px it shrinks to once
-   scrolled, so the gutter has to clear the LARGER, pre-scroll size). */
+   scrolled, so the gutter has to clear the LARGER, pre-scroll size). This is
+   the UNSCROLLED gutter only — see the is-scrolled rule below for why it
+   drops to a true 0 instead of just shrinking further. */
 @media (max-width: 480px) {
   .focus-bar { padding-right: 52px; font-size: 12px; flex-wrap: nowrap; }
   .focus-bar__text {
@@ -2739,36 +2753,27 @@ body.gd-open { overflow: hidden; }
    padding — so "centered" meant centered inside an ASYMMETRIC box, which reads as
    visually wrong (neither centered nor edge-aligned) regardless of scroll state.
    That's what looked broken in every screenshot, not just the un-scrolled one.
-   Fix: flex-start (RTL = visual right, alongside the badge) unconditionally. The
-   scroll-triggered part that's left — and the one thing that still genuinely
-   animates, since padding is a real number a transition can smoothly tween,
-   unlike the justify-content flip this replaces — is the gutter shrinking as the
-   profile button itself shrinks on scroll (see body.is-scrolled .profile-btn
-   above): the text slides a little closer to the edge once scrolled. */
+   Fix: flex-start (RTL = visual right, alongside the badge) unconditionally. */
 @media (max-width: 768px) {
   .focus-bar {
     justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
     padding-right: 60px;           /* clears the UNSCROLLED (40px) profile button */
     transition: padding .3s ease-in-out;
   }
-
-  .focus-bar.is-scrolled {
-    /* Once scrolled, body.is-scrolled .profile-btn shrinks the button itself
-       (40px -> 34px, still right:16px) — 16 + 34 + a 2px buffer = 52px is the
-       new safe minimum, so the gutter (and the text right up against it) can
-       shrink too. This is what actually animates on scroll now. */
-    padding-right: 52px;
-  }
 }
 
-/* Same fix, tighter number: at <=480px the profile button sits at right:14px
-   (see the "Profile icon: 32px circle" rule below) instead of 16px, and this
-   media query's higher specificity+later source position lets it correctly
-   override the 52px above at this narrower width. 14 + 34 (scrolled width) + a
-   2px buffer = 50px. */
-@media (max-width: 480px) {
-  .focus-bar.is-scrolled { padding-right: 50px; }
-}
+/* Once scrolled, the avatar fades out (see body.focus-mode.is-scrolled
+   .profile-btn above) instead of sharing the edge — so the gutter it used to
+   reserve (mobile's 60px above, or the ≥1340px ambient-rail gutter below) is
+   no longer needed at all. Zero padding: the dot+text group is flush against
+   the true viewport edge. Deliberately UNSCOPED by width — a compound class
+   selector (0,2,0) beats a plain `.focus-bar` rule (0,1,0) regardless of which
+   media query it's in or its source order, so this wins at every breakpoint,
+   including inside `@media (min-width:1340px)` above. That's intentional:
+   the rail-collision bug that gutter guards against only ever hit the
+   STATIC, unscrolled bar — the scrolled bar is a distinct compact-chrome
+   state, sitting above the rails with its own frosted/blurred background. */
+.focus-bar.is-scrolled { padding-right: 0; transition: padding .3s ease-in-out; }
 
 /* ════════════════════════════════════════════════════════════════════════
    ✦ CAMERA — flip control · front-only mirror · orientation-adaptive stage
