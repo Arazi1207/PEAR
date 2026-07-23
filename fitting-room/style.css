@@ -2330,9 +2330,17 @@ body::after  { background: radial-gradient(circle at 60% 40%, rgba(150, 132, 92,
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .focus-bar__badge { flex-shrink: 0; }
-/* once the rails appear (≥1340px) keep every full-width bar inside the gutter */
+/* once the rails appear (≥1340px) keep every full-width bar inside the gutter.
+   Split left/right instead of the symmetric padding-inline shorthand: the
+   right side only ever needs to clear the fixed avatar (40px + 16px inset =
+   56px), which the wide rail clamp badly over-reserved — dot+text ended up
+   with a big dead gap before the avatar instead of sitting close to it. Left
+   keeps the full rail clamp (still guards the badge side). */
 @media (min-width: 1340px) {
-  .focus-bar { padding-inline: clamp(84px, 7vw, 150px); }
+  .focus-bar {
+    padding-left: clamp(84px, 7vw, 150px);
+    padding-right: 64px;
+  }
 }
 
 /* ── Real-logo loaders (/pear-logo.png) — replace the emoji pear ──────────── */
