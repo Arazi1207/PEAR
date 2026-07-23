@@ -504,7 +504,7 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 .focus-bar {
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; gap: 12px;
-  padding: 15px clamp(16px,5vw,36px);
+  padding: 22px clamp(16px,5vw,36px);   /* was 15px — sat too close to the viewport's top edge */
   background: linear-gradient(135deg, rgba(255,255,255,.6), rgba(255,255,255,.4));
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   color: var(--ink);
@@ -1938,14 +1938,16 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 /* Vertically center the avatar on the focus-bar's own content row while
    they're both visible together (focus mode, unscrolled — once scrolled the
    avatar is faded out, see below, so no alignment to worry about there).
-   .focus-bar is 15px vertical padding + a ~24.6px content row (the badge is
-   the tallest child: 5px+5px padding + a ~14.6px line) = ~54.6px tall,
-   centered at ~27px from the top. The avatar's own base top:16px + half its
-   40px height = a 36px center — about 9px lower than the bar's row. Only
-   scoped >480px: below that the avatar is a smaller 32px circle (see the
-   ≤480px "Profile icon" rule) with a different, much closer offset already. */
+   .focus-bar is now 22px vertical padding (bumped from 15px — the bar sat too
+   close to the viewport's top edge) + a ~24.6px content row (the badge is the
+   tallest child: 5px+5px padding + a ~14.6px line) = ~68.6px tall, centered at
+   ~34px from the top. The avatar's own base top:16px + half its 40px height =
+   a 36px center, so this only needs a small nudge now (previously a bigger
+   9px gap when the bar's padding was 15px). Only scoped >480px: below that
+   the avatar is a smaller 32px circle (see the ≤480px "Profile icon" rule)
+   with a different, already-close offset. */
 @media (min-width: 481px) {
-  body.focus-mode:not(.is-scrolled) .profile-btn { top: 7px; }
+  body.focus-mode:not(.is-scrolled) .profile-btn { top: 14px; }
 }
 
 /* Focus mode + scrolled: the focus-bar's item-name/dot needs the WHOLE right
@@ -2779,6 +2781,12 @@ body.gd-open { overflow: hidden; }
   .profile-btn { width: 32px; height: 32px; top: 14px; right: 14px; }
   .profile-btn__initial { font-size: .78rem; }
   .profile-dropdown { top: 50px; right: 14px; }
+
+  /* Same focus-bar vertical-centering the >480px rule does (see body.focus-
+     mode:not(.is-scrolled) .profile-btn above), recomputed for this smaller
+     32px avatar: bar center is now ~34px (22px padding + ~24.6px row / 2);
+     avatar center = top + 16 (half of 32px) → top:18px lands it there. */
+  body.focus-mode:not(.is-scrolled) .profile-btn { top: 18px; }
 }
 
 /* Focus bar (garment-name status strip): reserve room on the physical right
