@@ -1511,17 +1511,49 @@ async function flipCamera() {
 /* Rotate handling — when the device flips between portrait and landscape, re-request the
    PREVIEW stream so its capture aspect follows the new orientation (no stretch on rotate).
    Guards: only when the camera is open, never during a billed session (would break the
-   Decart stream), and never mid-flip. The localStream-null check keeps the two listeners
-   (matchMedia + orientationchange) idempotent for a single rotation. Fires only on a real
-   portrait↔landscape flip, so it ignores plain resizes (mobile URL-bar show/hide). */
-function reinitCameraForOrientation() {
+   Decart stream), and never mid-flip. Fires only on a real portrait↔landscape flip, so it
+   ignores plain resizes (mobile URL-bar show/hide).
+
+   RACE FIX (Portrait→Landscape→Portrait, fast): the old version fired startCamera(facing)
+   without awaiting it, relying on the localStream-null check alone for idempotency. A
+   getUserMedia() re-request takes real time (the camera has to physically reconfigure for
+   the new aspect ratio), and most devices only allow ONE open capture session per camera —
+   so if the user rotated back again before that call resolved, startCamera()'s own shared
+   cameraStartPromise guard (`if (cameraStartPromise) return cameraStartPromise;`) made the
+   second reinit call just return the FIRST (still-pending, now-stale) request instead of
+   ever issuing a fresh one — leaving the stream permanently mismatched with the device's
+   actual final orientation (e.g. a landscape-shaped stream squeezed via object-fit:cover
+   into the portrait-aspect .camera-card box → heavily cropped on the sides, exactly the
+   "narrows into an unwanted tall format" symptom).
+
+   Fix: this is now async and properly sequential — each startCamera() call is fully
+   awaited before another can start, so cameraStartPromise is always settled (and thus
+   never short-circuits a new call) by the time we'd issue one. reinitInFlight/reinitPending
+   coalesce any rotations that happen WHILE a re-request is in flight (including the two
+   listeners below both firing for one physical rotation) into a single trailing re-run
+   instead of trying to overlap getUserMedia() calls on the same camera hardware — so the
+   stream always converges on whatever orientation the device is ACTUALLY in once things
+   settle, no matter how many times it flipped in between. */
+let reinitInFlight = false;   // a stop+reopen sequence is actively running
+let reinitPending  = false;   // another rotation arrived while one was already running
+async function reinitCameraForOrientation() {
   if (!localStream) return;                 // camera not open — nothing to re-init
   if (isLive()) return;                     // never swap the stream mid-generation
   if ($("flipCamBtn")?.disabled) return;    // a flip is already switching cameras
-  const facing = cameraFacing;
-  localStream.getTracks().forEach((t) => t.stop());
-  localStream = null;
-  startCamera(facing);                       // re-open with orientation-matched constraints
+
+  if (reinitInFlight) { reinitPending = true; return; }
+  reinitInFlight = true;
+  try {
+    do {
+      reinitPending = false;
+      const facing = cameraFacing;
+      localStream.getTracks().forEach((t) => t.stop());
+      localStream = null;
+      await startCamera(facing);   // re-open with orientation-matched constraints, fully awaited
+    } while (reinitPending && localStream && !isLive());
+  } finally {
+    reinitInFlight = false;
+  }
 }
 
 /* Smoothly bring the camera stage into a comfortable reading position after the user
