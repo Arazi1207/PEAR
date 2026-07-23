@@ -641,9 +641,13 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   color: var(--muted); font-size: .84rem; line-height: 1.2; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.app-header__engine { font-size: .7rem; color: var(--muted-2); transition: color .3s, text-shadow .3s; }
-.app-header__engine.live { color: var(--pear); text-shadow: 0 0 10px var(--pear-glow); }
-.app-header__engine.mock { color: var(--muted-2); }
+/* Removed everywhere, not just mobile — a bare grey dot with no label reads
+   as a stray UI fragment next to the cart button (it already had a comment
+   below calling it purely decorative and hiding it at <=768px; this just
+   drops the width condition). setConn() (app.js) still updates it defensively
+   if a #engineBadge element exists, but no-ops harmlessly since it no longer
+   renders. */
+.app-header__engine { display: none; }
 
 .fitting-container { max-width: 760px; }
 .personal-title { font-size: 1.6rem; font-weight: 800; margin: 8px 0 26px; }
@@ -2770,10 +2774,7 @@ body.gd-open { overflow: hidden; }
   .brand-mark { height: 27px; }
   .app-header.is-scrolled .brand-mark { height: 23px; }
 
-  /* Engine status dot is decorative and there's no room for it beside the
-     cart icon at this width. */
   .cart-btn { width: 32px; height: 32px; }
-  .app-header__engine { display: none; }
 }
 
 /* Profile icon: 32px circle per spec; the dropdown follows it down. */
