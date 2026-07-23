@@ -2589,92 +2589,94 @@ body.gd-open { overflow: hidden; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   ✦ MOBILE HEADER — 2-row layout (≤768px)
+   ✦ MOBILE HEADER — same order as desktop, scaled down (≤480px)
    ─────────────────────────────────────────────────────────────────────────
-   The single-row header (back + edit-measurements + logo + cart/engine, all
-   squeezed beside the always-fixed .profile-btn) ran out of room anywhere in
-   the phone range — not just under 480px: the shared flex row (nav/actions at
-   flex:1 1 0, min-width:0) let the nav pills shrink all the way down to an
-   ellipsis, which is what was rendering "חזרה"/"עריכת מידות" as a single
-   letter. Split into two grid rows instead: row 1 is back (physical left) /
-   logo (centre) / a reserved gutter under the fixed profile button (physical
-   right); row 2 carries "עריכת מידות" plus the cart/engine actions. Each
-   button now gets its own grid track sized to its own content instead of
-   competing for a shared shrinking row, so the full label always fits.
-   .app-header__nav is flattened with display:contents so its two buttons —
+   Desktop reads back-to-store … logo … profile (one row) then, implicitly,
+   edit-measurements + cart alongside it. Below 480px that single row has no
+   room, so it becomes two: row 1 keeps back (physical left) / logo (centre) /
+   a gutter reserved for the fixed profile button (physical right); row 2
+   mirrors the same left→right order with edit-measurements (physical left)
+   and the cart icon (physical right) — i.e. exactly the desktop order, just
+   wrapped onto a second line instead of shrunk to fit one. Each button gets
+   its own grid track sized to its own content (not a shared shrinking flex
+   row), so the full label is never ellipsis-truncated to a single letter.
+   .app-header__nav is flattened with display:contents so its two children —
    back-to-store and edit-measurements — can be placed in different rows
-   without touching the HTML; .app-header__actions keeps its own internal
-   flex layout and just moves to row 2 as one grid item. ════════════════════ */
+   without touching the HTML. The engine status dot is dropped at this width;
+   it's decorative and there's no room for a third element beside the cart
+   icon. ════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
+  /* Between 480-768px the buttons still share the base flex row — keep their
+     labels from ever ellipsis-truncating there too (the ≤480 rules below
+     take over the full layout at the smallest widths). */
+  .back-to-store span,
+  .btn-edit-measurements span {
+    overflow: visible; text-overflow: clip; white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
   .app-header {
     display: grid;
-    grid-template-columns: 60px 1fr auto;
+    grid-template-columns: 56px 1fr auto;
     grid-template-areas:
       "gutter brand back"
-      "actions edit  edit";
+      "cart   mid    edit";
     align-items: center;
-    row-gap: 8px;
-    column-gap: 8px;
-    padding: calc(10px + var(--safe-t)) 10px 10px;
+    row-gap: 6px;
+    column-gap: 6px;
+    padding: calc(6px + var(--safe-t)) 8px 6px;
   }
-  .app-header.is-scrolled { padding-top: calc(8px + var(--safe-t)); padding-bottom: 8px; }
+  .app-header.is-scrolled { padding-top: calc(5px + var(--safe-t)); padding-bottom: 5px; }
 
   /* Flatten the nav wrapper so its two children become independent grid
      items — back-to-store lands in row 1, edit-measurements in row 2. */
   .app-header__nav { display: contents; }
 
-  /* Full label, never truncated — min-height:36px keeps the tap target at
-     least thumb-sized even though the font itself is compact. */
   .back-to-store,
   .btn-edit-measurements {
-    font-size: 12px; padding: 8px 12px; min-height: 36px;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; padding: 6px 10px; min-height: 32px;
   }
   .back-to-store span,
   .btn-edit-measurements span {
     overflow: visible; text-overflow: clip; white-space: nowrap;
   }
 
-  .back-to-store { grid-area: back; justify-self: left; }
+  .back-to-store           { grid-area: back; justify-self: left; }
+  .btn-edit-measurements   { grid-area: edit; justify-self: left; }
+
   .app-header__brand-lockup { grid-area: brand; justify-self: center; }
-  .app-header__brand { font-size: 1.02rem; }
-  .brand-mark { height: 24px; }
-  .app-header.is-scrolled .brand-mark { height: 22px; }
+  .app-header__brand { font-size: 16px; }
+  .app-header__sub { display: none; }
+  .brand-mark { height: 20px; }
+  .app-header.is-scrolled .brand-mark { height: 18px; }
 
-  .btn-edit-measurements { grid-area: edit; justify-self: center; }
+  /* Row 2, physical right: cart only — the engine dot is decorative and
+     would crowd a layout this tight, so it's hidden below 480px. */
+  .app-header__actions { grid-area: cart; justify-self: right; flex: none; }
+  .cart-btn { width: 32px; height: 32px; }
+  .app-header__engine { display: none; }
 
-  /* Cart + engine dot move down to row 2 (physical right) — kept intact
-     (still its own flex row) rather than pulled apart with display:contents,
-     so the two icons don't need individual grid-area placement. */
-  .app-header__actions { grid-area: actions; justify-self: right; flex: none; gap: 6px; }
-  .cart-btn { width: 36px; height: 36px; }
-  .app-header__engine { font-size: .64rem; }
-
-  /* Empty reserved gutter (row 1, physical right) — keeps header content
-     clear of the always-visible, fixed .profile-btn (36px + inset on mobile,
-     see the profile-btn media rule below) so the two never overlap. */
+  /* "mid" (row 2, centre) and "gutter" (row 1, physical right, under the
+     fixed profile button) are intentionally empty grid cells. */
 }
 
-/* Profile icon: 36px tap target on phones; the dropdown follows it down. */
-@media (max-width: 768px) {
-  .profile-btn { width: 36px; height: 36px; top: 14px; right: 14px; }
-  .profile-btn__initial { font-size: .82rem; }
-  .profile-dropdown { top: 54px; right: 14px; }
+/* Profile icon: 32px circle per spec; the dropdown follows it down. */
+@media (max-width: 480px) {
+  .profile-btn { width: 32px; height: 32px; top: 14px; right: 14px; }
+  .profile-btn__initial { font-size: .78rem; }
+  .profile-dropdown { top: 50px; right: 14px; }
 }
 
 /* Focus bar (garment-name status strip): reserve room on the physical right
    so its text/badge never render under the fixed, always-visible profile
-   button — they used to collide because the bar spans full width while the
-   button floats fixed on top of it. Also let the garment name wrap onto a
-   second line instead of ellipsis-cutting mid-word (e.g. "Strata
-   Longsleeve" no longer gets truncated), and allow the bar itself to wrap so
-   its own children never overlap each other. */
-@media (max-width: 768px) {
-  .focus-bar { padding-right: 56px; align-items: flex-start; flex-wrap: wrap; }
+   button. The garment name truncates to a single line with ellipsis instead
+   of overflowing or wrapping. */
+@media (max-width: 480px) {
+  .focus-bar { padding-right: 52px; font-size: 12px; flex-wrap: nowrap; }
   .focus-bar__text {
-    white-space: normal;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; text-overflow: ellipsis;
-    line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 }
 
