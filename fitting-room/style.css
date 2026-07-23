@@ -2761,9 +2761,27 @@ body.gd-open { overflow: hidden; }
 
   .focus-bar.is-scrolled {
     justify-content: flex-start;   /* RTL flex-start = visual right, alongside the badge */
+    /* EDGE-GAP FIX: the 60px idle gutter above is sized for the profile button's
+       UNSCROLLED footprint (right:16px + 40px wide). Once scrolled, the button
+       itself shrinks (body.is-scrolled .profile-btn — see style.css above:
+       34px wide, still right:16px), so the safe minimum clearance shrinks too:
+       16 + 34 + a small 2px visual buffer = 52px. Genuinely animates (unlike
+       justify-content, this is a plain numeric value the "padding .3s" transition
+       above already covers) — the text visibly slides closer to the edge as part
+       of the same scroll transition, not a second, separate motion. */
+    padding-right: 52px;
   }
   .focus-bar.is-scrolled .focus-bar__text { flex: 1 1 auto; }
   .focus-bar.is-scrolled .focus-bar__badge { margin-inline-start: auto; }
+}
+
+/* Same fix, tighter number: at <=480px the profile button sits at right:14px
+   (see the "Profile icon: 32px circle" rule below) instead of 16px, and this
+   media query's higher specificity+later source position lets it correctly
+   override the 52px above at this narrower width. 14 + 34 (scrolled width) + a
+   2px buffer = 50px. */
+@media (max-width: 480px) {
+  .focus-bar.is-scrolled { padding-right: 50px; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
