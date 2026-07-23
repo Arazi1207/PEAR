@@ -2696,10 +2696,14 @@ body.gd-open { overflow: hidden; }
   .back-to-store span,
   .btn-edit-measurements span { display: none; }
 
-  .app-header__brand { font-size: 16px; }
+  /* PROMINENCE FIX: was 16px/20px (logo) — now that the nav buttons are icon-only
+     (freeing up real width in this row), scale both up so PEAR + the mark read as
+     the header's visual anchor instead of sitting small next to the icon buttons. */
+  .app-header__brand { font-size: 21px; }
+  .app-header.is-scrolled .app-header__brand { font-size: 18px; }
   .app-header__sub { display: none; }
-  .brand-mark { height: 20px; }
-  .app-header.is-scrolled .brand-mark { height: 18px; }
+  .brand-mark { height: 27px; }
+  .app-header.is-scrolled .brand-mark { height: 23px; }
 
   /* Engine status dot is decorative and there's no room for it beside the
      cart icon at this width. */
