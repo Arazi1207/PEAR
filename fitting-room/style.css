@@ -602,16 +602,11 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   line-height: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* LEGIBILITY: nav no longer carries the logo (it's back in the brand-lockup), so
-   it has real room again at typical widths — this is a safety net for genuinely
-   small screens only, not the primary mechanism (that's the ellipsis truncation
-   above, which now gets to actually do its job at in-between widths instead of
-   labels disappearing pre-emptively). Covers both buttons — back-to-store's
-   label had no icon-only fallback at all before. */
-@media (max-width: 480px) {
-  .back-to-store span,
-  .btn-edit-measurements span { display: none; }
-}
+/* NOTE: the old ≤480px rule that hid these buttons' text (icon-only fallback)
+   was removed — the 2-row mobile header (see the "SMALL-PHONE HEADER" block
+   further down) gives both buttons their own row/column, so the full label
+   ("חזרה לחנות" / "עריכת מידות") always fits and stays visible instead of
+   collapsing to an icon. */
 
 /* LAYOUT FIX: same shrink-and-ellipsize treatment as the nav pills above, so the
    "PEAR" wordmark + subtitle truncate gracefully instead of overflowing the brand
@@ -1879,17 +1874,17 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
    z-index is 9, see .camera-card__* rules) but below any modal/overlay
    (garment-detect / lightbox / compare start at 200+). ── */
 .profile-btn {
-  position: fixed; top: calc(14px + var(--safe-t, 0px)); right: 14px; z-index: 100;
+  position: fixed; top: 16px; right: 16px; z-index: 100;
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 40px; border-radius: 50%; padding: 0;
-  border: 1px solid rgba(141, 182, 0, .35);
-  background: var(--pear-tint);
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: var(--glass-dark);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  color: var(--pear-deep); cursor: pointer;
-  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.6);
+  color: #fff; cursor: pointer;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.1);
   transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
 }
-.profile-btn:hover  { transform: translateY(-2px); background: rgba(141, 182, 0, .24); box-shadow: var(--shadow); }
+.profile-btn:hover  { transform: translateY(-2px); background: rgba(16, 16, 18, .8); box-shadow: var(--shadow); }
 .profile-btn:active { transform: scale(.92); }
 .profile-btn[hidden] { display: none; }
 .profile-btn__initial {
@@ -1897,14 +1892,40 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 }
 
 .profile-dropdown {
-  position: fixed; top: calc(58px + var(--safe-t, 0px)); right: 14px; z-index: 100;
-  width: min(240px, calc(100vw - 28px)); padding: 14px 16px;
-  border: 1px solid var(--glass-border); border-radius: 16px;
-  background: var(--glass-strong);
+  position: fixed; top: 60px; right: 16px; z-index: 100;
+  direction: rtl;
+  width: 220px; max-width: calc(100vw - 32px); padding: 16px;
+  border: 1px solid var(--glass-border); border-radius: 12px;
+  background: rgba(255, 255, 255, .97);
   -webkit-backdrop-filter: var(--blur-lg); backdrop-filter: var(--blur-lg);
-  box-shadow: var(--shadow-lift);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .15);
 }
 .profile-dropdown[hidden] { display: none; }
+
+/* ── identity section — centred: big initials circle, full name, email ── */
+.profile-dropdown__identity {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  text-align: center; padding-bottom: 12px;
+}
+.profile-dropdown__avatar {
+  width: 48px; height: 48px; margin-bottom: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--glass-dark); color: #fff;
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: 1.05rem;
+}
+.profile-dropdown__name {
+  font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .96rem; color: var(--ink);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profile-dropdown__email {
+  font-family: "Inter", sans-serif; font-size: .78rem; color: var(--muted);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.profile-dropdown__divider { height: 1px; margin: 4px 0 8px; background: var(--glass-line); }
+
+/* ── measurements section — right-aligned rows ── */
+.profile-dropdown__measurements { text-align: right; }
 .profile-dropdown__row {
   display: flex; align-items: baseline; gap: 6px; padding: 4px 0;
   font-family: "Inter", sans-serif; font-size: .82rem;
@@ -2604,6 +2625,98 @@ body.gd-open { overflow: hidden; }
 @media (max-width: 768px) {
   .brand-mark { height: 32px; }
   .app-header.is-scrolled .brand-mark { height: 28px; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ✦ MOBILE HEADER — same order as desktop, scaled down (≤480px)
+   ─────────────────────────────────────────────────────────────────────────
+   Desktop reads back-to-store … logo … profile (one row) then, implicitly,
+   edit-measurements + cart alongside it. Below 480px that single row has no
+   room, so it becomes two: row 1 keeps back (physical left) / logo (centre) /
+   a gutter reserved for the fixed profile button (physical right); row 2
+   mirrors the same left→right order with edit-measurements (physical left)
+   and the cart icon (physical right) — i.e. exactly the desktop order, just
+   wrapped onto a second line instead of shrunk to fit one. Each button gets
+   its own grid track sized to its own content (not a shared shrinking flex
+   row), so the full label is never ellipsis-truncated to a single letter.
+   .app-header__nav is flattened with display:contents so its two children —
+   back-to-store and edit-measurements — can be placed in different rows
+   without touching the HTML. The engine status dot is dropped at this width;
+   it's decorative and there's no room for a third element beside the cart
+   icon. ════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Between 480-768px the buttons still share the base flex row — keep their
+     labels from ever ellipsis-truncating there too (the ≤480 rules below
+     take over the full layout at the smallest widths). */
+  .back-to-store span,
+  .btn-edit-measurements span {
+    overflow: visible; text-overflow: clip; white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    grid-template-areas:
+      "gutter brand back"
+      "cart   mid    edit";
+    align-items: center;
+    row-gap: 6px;
+    column-gap: 6px;
+    padding: calc(6px + var(--safe-t)) 8px 6px;
+  }
+  .app-header.is-scrolled { padding-top: calc(5px + var(--safe-t)); padding-bottom: 5px; }
+
+  /* Flatten the nav wrapper so its two children become independent grid
+     items — back-to-store lands in row 1, edit-measurements in row 2. */
+  .app-header__nav { display: contents; }
+
+  .back-to-store,
+  .btn-edit-measurements {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; padding: 6px 10px; min-height: 32px;
+  }
+  .back-to-store span,
+  .btn-edit-measurements span {
+    overflow: visible; text-overflow: clip; white-space: nowrap;
+  }
+
+  .back-to-store           { grid-area: back; justify-self: left; }
+  .btn-edit-measurements   { grid-area: edit; justify-self: left; }
+
+  .app-header__brand-lockup { grid-area: brand; justify-self: center; }
+  .app-header__brand { font-size: 16px; }
+  .app-header__sub { display: none; }
+  .brand-mark { height: 20px; }
+  .app-header.is-scrolled .brand-mark { height: 18px; }
+
+  /* Row 2, physical right: cart only — the engine dot is decorative and
+     would crowd a layout this tight, so it's hidden below 480px. */
+  .app-header__actions { grid-area: cart; justify-self: right; flex: none; }
+  .cart-btn { width: 32px; height: 32px; }
+  .app-header__engine { display: none; }
+
+  /* "mid" (row 2, centre) and "gutter" (row 1, physical right, under the
+     fixed profile button) are intentionally empty grid cells. */
+}
+
+/* Profile icon: 32px circle per spec; the dropdown follows it down. */
+@media (max-width: 480px) {
+  .profile-btn { width: 32px; height: 32px; top: 14px; right: 14px; }
+  .profile-btn__initial { font-size: .78rem; }
+  .profile-dropdown { top: 50px; right: 14px; }
+}
+
+/* Focus bar (garment-name status strip): reserve room on the physical right
+   so its text/badge never render under the fixed, always-visible profile
+   button. The garment name truncates to a single line with ellipsis instead
+   of overflowing or wrapping. */
+@media (max-width: 480px) {
+  .focus-bar { padding-right: 52px; font-size: 12px; flex-wrap: nowrap; }
+  .focus-bar__text {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
