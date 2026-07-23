@@ -309,17 +309,6 @@ html.pear-returning-check #screen-calculator { display: none !important; }
 .btn-ghost:hover { background: rgba(255, 255, 255, .78); transform: translateY(-3px) scale(1.02); box-shadow: var(--shadow); }
 .btn-ghost:active { transform: scale(.96); }
 
-.btn-back {
-  display: block; margin: 32px auto 56px; padding: 12px 26px;
-  border: 1px solid var(--glass-border); border-radius: var(--pill);
-  background: var(--glass-soft);
-  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  color: var(--muted); font-weight: 600; font-size: .88rem; cursor: pointer;
-  transition: color .3s var(--ease), background .3s var(--ease), transform .4s var(--ease);
-}
-.btn-back:hover { color: var(--ink); background: rgba(255, 255, 255, .65); transform: translateY(-2px); }
-.btn-back:active { transform: scale(.96); }
-
 /* ── "Update Measurements" CTA — always-available secondary action on the size
    screen (the user's dashboard). Pear-green outline pill, quieter than the primary
    Continue button but clearly interactive. ── */
@@ -1671,7 +1660,7 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
 
 /* ── tap ripple (mobile-ux.js spawns .pear-ripple inside the pressed control) ── */
 .btn-capture, .btn-primary, .btn-watch, .btn-download,
-.pip-retake, .plb-btn, .pear-compare-bar, .btn-back { position: relative; overflow: hidden; }
+.pip-retake, .plb-btn, .pear-compare-bar { position: relative; overflow: hidden; }
 .btn-capture > *, .btn-primary > *, .btn-watch > *, .btn-download > *,
 .pip-retake > *, .plb-btn > *, .pear-compare-bar > * { position: relative; z-index: 1; }
 .pear-ripple {
@@ -1770,7 +1759,6 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   .complete-look { margin-top: 34px; }
   .active-garment { padding: 13px; border-radius: var(--radius); margin-bottom: 18px; }
   .pear-interaction-pod { margin-top: 32px; border-radius: 26px; }
-  .btn-back { margin: 26px auto calc(40px + var(--safe-b)); }
 
   /* lift the toast above the home indicator */
   .toast { bottom: calc(24px + var(--safe-b)); }
