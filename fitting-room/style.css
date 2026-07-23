@@ -514,18 +514,32 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   /* On the BASE rule (not just the mobile/is-scrolled overrides) so scrolling
      back UP also animates at every width — previously only the ≤768px block
      and .is-scrolled itself declared this, so desktop widths snapped instantly
-     the moment .is-scrolled was removed instead of tweening back. */
-  transition: padding .3s ease-in-out;
+     the moment .is-scrolled was removed instead of tweening back. This is the
+     RETRACTING direction (is-scrolled → base): a smooth, no-overshoot ease,
+     since "settling back into place" should read as calm, not springy. */
+  transition: padding .45s var(--ease);
 }
 .focus-bar[hidden] { display: none; }
 .focus-bar__dot {
   width: 9px; height: 9px; border-radius: 50%; background: var(--pear);
   box-shadow: 0 0 0 0 var(--pear-glow); animation: pulseDot 1.8s infinite; flex-shrink: 0;
+  transform: scale(1);
 }
 @keyframes pulseDot {
   0% { box-shadow: 0 0 0 0 rgba(141,182,0,.5); }
   70% { box-shadow: 0 0 0 10px rgba(141,182,0,0); }
   100% { box-shadow: 0 0 0 0 rgba(141,182,0,0); }
+}
+/* Arrival flourish — a quick overshoot pop the instant the dot lands in its
+   flush position, layered on top of (not replacing) the constant ambient
+   pulse above; the two animate different properties so they never fight. */
+@keyframes dotPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+.focus-bar.is-scrolled .focus-bar__dot {
+  animation: pulseDot 1.8s infinite, dotPop .5s var(--spring);
 }
 .focus-bar__text strong { font-family: "Urbanist"; font-weight: 800; }
 .focus-bar__badge {
@@ -1893,8 +1907,13 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   color: #fff; cursor: pointer;
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.1);
-  transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease),
-              top .3s var(--ease), width .3s var(--ease), height .3s var(--ease), opacity .3s var(--ease);
+  transition: box-shadow .3s var(--ease), background .3s var(--ease),
+              top .3s var(--ease), width .3s var(--ease), height .3s var(--ease),
+              /* Asymmetric like the focus-bar padding above: a springy pop
+                 OUT of view, a calmer ease back IN — set on the base rule so
+                 it's the "returning to visible" direction's timing; the
+                 disappear rule below overrides both with its own pop. */
+              transform .35s var(--ease), opacity .35s var(--ease);
 }
 .profile-btn:hover  { transform: translateY(-2px); background: rgba(16, 16, 18, .8); box-shadow: var(--shadow); }
 .profile-btn:active { transform: scale(.92); }
@@ -1922,10 +1941,16 @@ html[dir="rtl"] .calc-editorial { border-radius: var(--radius-lg) 0 0 var(--radi
    badge sitting there and read as cramped. Simplest clean fix: fade the
    avatar out while scrolled; it's still one tap away (fades back in the
    instant the user scrolls back up, off the same class toggle). Applies at
-   ANY width, not just mobile — desktop needs the same flush edge. */
+   ANY width, not just mobile — desktop needs the same flush edge. Scale, not
+   just opacity, so it reads as a deliberate "tuck away" rather than a flat
+   dissolve — and its own transition (a quick, snappy --spring) so vanishing
+   is brisk while the reappear (base rule above, --ease, no overshoot) is a
+   calmer grow-in. */
 body.focus-mode.is-scrolled .profile-btn {
   opacity: 0;
+  transform: scale(.5);
   pointer-events: none;
+  transition: transform .3s var(--spring), opacity .25s var(--ease);
 }
 .profile-btn__initial {
   font-family: "Urbanist", sans-serif; font-weight: 800; font-size: .92rem; line-height: 1;
@@ -2779,10 +2804,13 @@ body.gd-open { overflow: hidden; }
    `@media (min-width:1340px)` above. That's intentional: the rail-collision
    bug that gutter guards against only ever hit the STATIC, unscrolled bar —
    the scrolled bar is a distinct compact-chrome state, sitting above the
-   rails with its own frosted/blurred background. The transition itself now
-   lives on .focus-bar's base rule (not here) so BOTH directions — scrolling
-   down to this state and back up out of it — animate identically. */
-.focus-bar.is-scrolled { padding-right: 14px; }
+   rails with its own frosted/blurred background.
+   ARRIVING direction gets its OWN transition (a CSS transition's timing is
+   taken from the after-change style, so base ≠ is-scrolled can genuinely
+   differ): a small spring overshoot, distinct from the calm ease-out on the
+   way back (base rule above) — the classic "confident snap in, gentle settle
+   out" asymmetry premium UI uses instead of one flat curve both ways. */
+.focus-bar.is-scrolled { padding-right: 14px; transition: padding .55s var(--spring); }
 
 /* ════════════════════════════════════════════════════════════════════════
    ✦ CAMERA — flip control · front-only mirror · orientation-adaptive stage
