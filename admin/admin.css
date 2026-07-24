@@ -360,6 +360,41 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
+/* ── "הצג הכל" trigger buttons — sit below each limited list/table ────────── */
+.full-page-trigger { margin-top: 14px; }
+
+/* ── Full-page overlay — same surfaces/colors as the dashboard, but a fixed
+   full-viewport layer so it reads as its own screen. ─────────────────────── */
+.full-page-view {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  overflow-y: auto;
+  z-index: 1000;
+  padding: 24px;
+}
+.full-page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto 24px;
+}
+.full-page-title {
+  margin: 0;
+  font-family: "Urbanist", sans-serif;
+  font-weight: 800;
+  font-size: 1.4rem;
+  color: var(--ink);
+}
+.full-page-content {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
 /* ── Empty / error states ─────────────────────────────────────────────────── */
 .empty {
   margin: 16px 2px 0;

@@ -123,18 +123,21 @@
           </table>
         </div>
         <p id="usersEmpty" class="empty" hidden>No users registered yet.</p>
+        <button id="btnShowAllUsers" class="dash-btn full-page-trigger" type="button">הצג את כל המשתמשים</button>
       </section>
 
       <section class="card">
         <h2 class="card__title">Most-Worn Garments</h2>
         <div id="garmentsList" class="rank-list"></div>
         <p id="garmentsEmpty" class="empty" hidden>No garment data yet.</p>
+        <button id="btnShowAllGarments" class="dash-btn full-page-trigger" type="button">הצג הכל</button>
       </section>
 
       <section class="card">
         <h2 class="card__title">Most-Requested Sizes</h2>
         <div id="sizesList" class="rank-list"></div>
         <p id="sizesEmpty" class="empty" hidden>No size data yet.</p>
+        <button id="btnShowAllSizes" class="dash-btn full-page-trigger" type="button">הצג הכל</button>
       </section>
 
       <section class="card">
@@ -154,11 +157,20 @@
             <tbody id="sessionRows"></tbody>
           </table>
         </div>
+        <button id="btnShowAllSessions" class="dash-btn full-page-trigger" type="button">הצג את כל הסשנים</button>
         <p id="emptyState" class="empty" hidden>No sessions logged yet.</p>
         <p id="dashError"  class="error" role="alert" hidden></p>
       </section>
 
-    </main>`;
+    </main>
+
+    <div id="fullPageView" class="full-page-view" hidden>
+      <div class="full-page-header">
+        <button id="btnBackToDashboard" class="dash-btn" type="button">← חזרה לדשבורד</button>
+        <h2 id="fullPageTitle" class="full-page-title"></h2>
+      </div>
+      <div id="fullPageContent" class="full-page-content"></div>
+    </div>`;
   }
 
   /* ── Show login form — single screen, magic-link ────────────────────────────
@@ -275,6 +287,30 @@
       showLogin();
     });
 
+    /* ── Full-page overlay (הצג הכל) — shows ALL items for one section ───── */
+    function showFullPage(title, htmlContent) {
+      const overlay = $("fullPageView");
+      const titleEl = $("fullPageTitle");
+      const contentEl = $("fullPageContent");
+      const dash = $("dashboardView");
+      if (!overlay || !titleEl || !contentEl) return;
+      titleEl.textContent = title;
+      contentEl.innerHTML = htmlContent;
+      overlay.hidden = false;
+      if (dash) dash.hidden = true;
+      window.scrollTo(0, 0);
+    }
+
+    function hideFullPage() {
+      const overlay = $("fullPageView");
+      const dash = $("dashboardView");
+      if (overlay) overlay.hidden = true;
+      if (dash) dash.hidden = false;
+    }
+
+    const backBtn = $("btnBackToDashboard");
+    if (backBtn) backBtn.addEventListener("click", hideFullPage);
+
     /* ── Refresh / clear ────────────────────────────────────────────────── */
     const refreshBtn = $("refreshBtn");
     if (refreshBtn) refreshBtn.addEventListener("click", () => loadSessions());
@@ -295,27 +331,44 @@
       }
     });
 
+    /* ── Data fetch helpers — reused by the dashboard (limited) views AND the
+       "הצג הכל" full-page overlays, which always pull fresh data. ─────────── */
+    async function fetchAllSessions() {
+      const url = "/api/sessions?_=" + Date.now();
+      const res = await authedFetch(url, { cache: "no-store" });
+      if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); throw new Error("Unauthorized"); }
+      const rawText = await res.text();
+      let data;
+      try { data = JSON.parse(rawText); } catch { data = null; }
+      console.log("[admin] GET /api/sessions →", res.status, res.ok ? "OK" : "ERROR");
+      if (!res.ok || !data || data.ok === false) {
+        throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
+      }
+      return Array.isArray(data.sessions) ? data.sessions : [];
+    }
+
+    async function fetchAllUsers() {
+      const url = "/api/admin/users?_=" + Date.now();
+      const res = await authedFetch(url, { cache: "no-store" });
+      if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); throw new Error("Unauthorized"); }
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok === false) {
+        throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
+      }
+      return Array.isArray(data.users) ? data.users : [];
+    }
+
+    function usersBySessionCount(users) {
+      return [...users].sort((a, b) => (b.session_count || 0) - (a.session_count || 0));
+    }
+
     /* ── Data load + render ─────────────────────────────────────────────── */
     async function loadSessions() {
       const errEl = $("dashError");
       if (errEl) errEl.hidden = true;
 
       try {
-        const url = "/api/sessions?_=" + Date.now();
-        const res = await authedFetch(url, { cache: "no-store" });
-
-        if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); return; }
-
-        const rawText = await res.text();
-        let data;
-        try { data = JSON.parse(rawText); } catch { data = null; }
-        console.log("[admin] GET /api/sessions →", res.status, res.ok ? "OK" : "ERROR");
-
-        if (!res.ok || !data || data.ok === false) {
-          throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
-        }
-
-        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        const sessions = await fetchAllSessions();
         renderStats(sessions);
         renderUsageStats(sessions);
         renderRows(sessions);
@@ -372,6 +425,18 @@
       return id.length > 14 ? id.slice(0, 8) + "…" + id.slice(-4) : id;
     }
 
+    function sessionRowHTML(s) {
+      return `<tr>` +
+        `<td data-label="Anonymized ID"><span class="cell-id" title="${esc(s.session_id)}">${esc(shortId(s.session_id))}</span></td>` +
+        `<td data-label="Recommended Size">${sizeBadge(s)}</td>` +
+        `<td data-label="Height">${val(s.height, "cm")}</td>` +
+        `<td data-label="Weight">${val(s.weight, "kg")}</td>` +
+        `<td data-label="Garment">${garmentCell(s)}</td>` +
+        `<td data-label="Timestamp" class="cell-time">${esc(timeCell(s.created_at))}</td>` +
+        `</tr>`;
+    }
+
+    /* sessions arrive newest-first from the API — "latest 10" is simply the head. */
     function renderRows(sessions) {
       const tbody   = $("sessionRows");
       const emptyEl = $("emptyState");
@@ -381,19 +446,16 @@
       if (!sessions.length) { if (emptyEl) emptyEl.hidden = false; return; }
       if (emptyEl) emptyEl.hidden = true;
 
-      const frag = document.createDocumentFragment();
-      for (const s of sessions) {
-        const tr = document.createElement("tr");
-        tr.innerHTML =
-          `<td data-label="Anonymized ID"><span class="cell-id" title="${esc(s.session_id)}">${esc(shortId(s.session_id))}</span></td>` +
-          `<td data-label="Recommended Size">${sizeBadge(s)}</td>` +
-          `<td data-label="Height">${val(s.height, "cm")}</td>` +
-          `<td data-label="Weight">${val(s.weight, "kg")}</td>` +
-          `<td data-label="Garment">${garmentCell(s)}</td>` +
-          `<td data-label="Timestamp" class="cell-time">${esc(timeCell(s.created_at))}</td>`;
-        frag.appendChild(tr);
-      }
-      tbody.appendChild(frag);
+      tbody.innerHTML = sessions.slice(0, 10).map(sessionRowHTML).join("");
+    }
+
+    const SESSIONS_TABLE_HEAD =
+      `<tr><th>Visitor ID</th><th>Recommended Size</th><th>Height</th><th>Weight</th><th>Garment</th><th>Date &amp; Time</th></tr>`;
+
+    function sessionsTableHTML(sessions) {
+      if (!sessions.length) return `<p class="empty">No sessions logged yet.</p>`;
+      const rows = sessions.map(sessionRowHTML).join("");
+      return `<div class="table-scroll"><table class="data-table"><thead>${SESSIONS_TABLE_HEAD}</thead><tbody>${rows}</tbody></table></div>`;
     }
 
     function esc(v) {
@@ -402,35 +464,36 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    function rankItemHTML(it, i, max, unit) {
+      const pct = Math.max(6, Math.round((it.count / max) * 100));
+      return `<div class="rank-item">` +
+        `<span class="rank-item__bar" style="width:${pct}%"></span>` +
+        `<span class="rank-item__main">` +
+          `<span class="rank-item__rank">${i + 1}</span>` +
+          `<span class="rank-item__label">${esc(it.label)}` +
+            (it.sub ? ` <span class="rank-item__sub">· ${esc(it.sub)}</span>` : "") +
+          `</span>` +
+        `</span>` +
+        `<span class="rank-item__count">${it.count} ${esc(unit)}</span>` +
+        `</div>`;
+    }
+
+    function rankListHTML(items, unit) {
+      if (!items.length) return "";
+      const max = items[0].count || 1;
+      return items.map((it, i) => rankItemHTML(it, i, max, unit)).join("");
+    }
+
     function renderRankList(gridId, emptyId, items, unit) {
       const grid  = $(gridId);
       const empty = $(emptyId);
       if (!grid) return;
-      grid.innerHTML = "";
-      if (!items.length) { if (empty) empty.hidden = false; return; }
+      if (!items.length) { grid.innerHTML = ""; if (empty) empty.hidden = false; return; }
       if (empty) empty.hidden = true;
-
-      const max = items[0].count || 1;
-      const frag = document.createDocumentFragment();
-      items.forEach((it, i) => {
-        const pct = Math.max(6, Math.round((it.count / max) * 100));
-        const row = document.createElement("div");
-        row.className = "rank-item";
-        row.innerHTML =
-          `<span class="rank-item__bar" style="width:${pct}%"></span>` +
-          `<span class="rank-item__main">` +
-            `<span class="rank-item__rank">${i + 1}</span>` +
-            `<span class="rank-item__label">${esc(it.label)}` +
-              (it.sub ? ` <span class="rank-item__sub">· ${esc(it.sub)}</span>` : "") +
-            `</span>` +
-          `</span>` +
-          `<span class="rank-item__count">${it.count} ${esc(unit)}</span>`;
-        frag.appendChild(row);
-      });
-      grid.appendChild(frag);
+      grid.innerHTML = rankListHTML(items, unit);
     }
 
-    function renderUsageStats(sessions) {
+    function computeGarmentStats(sessions) {
       const byGarment = new Map();
       for (const s of sessions) {
         const name = String(s.garment_name || "Unspecified garment").trim();
@@ -439,54 +502,118 @@
         if (!byGarment.has(key)) byGarment.set(key, { label: name, sub: type, count: 0 });
         byGarment.get(key).count += 1;
       }
-      const topGarments = [...byGarment.values()].sort((a, b) => b.count - a.count).slice(0, 5);
-      renderRankList("garmentsList", "garmentsEmpty", topGarments, "worn");
+      return [...byGarment.values()].sort((a, b) => b.count - a.count);
+    }
 
+    function computeSizeStats(sessions) {
       const bySize = new Map();
       for (const s of sessions) {
         const size = String(s.size || "").trim().toUpperCase();
         if (!size) continue;
         bySize.set(size, (bySize.get(size) || 0) + 1);
       }
-      const sizes = [...bySize.entries()]
+      return [...bySize.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([label, count]) => ({ label, sub: "", count }));
-      renderRankList("sizesList", "sizesEmpty", sizes, "requests");
     }
 
+    function renderUsageStats(sessions) {
+      renderRankList("garmentsList", "garmentsEmpty", computeGarmentStats(sessions).slice(0, 5), "worn");
+      renderRankList("sizesList", "sizesEmpty", computeSizeStats(sessions).slice(0, 5), "requests");
+    }
+
+    function userRowHTML(u) {
+      return `<tr>` +
+        `<td>${esc(u.name || "—")}</td>` +
+        `<td>${esc(u.email || "—")}</td>` +
+        `<td><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
+        `<td class="cell-time">${esc(timeCell(u.created_at))}</td>` +
+        `</tr>`;
+    }
+
+    const USERS_TABLE_HEAD = `<tr><th>Name</th><th>Email</th><th>Measurements</th><th>Joined</th></tr>`;
+
+    function usersTableHTML(users) {
+      if (!users.length) return `<p class="empty">No users registered yet.</p>`;
+      const rows = users.map(userRowHTML).join("");
+      return `<div class="table-scroll"><table class="data-table"><thead>${USERS_TABLE_HEAD}</thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    /* top 10 users, ranked by session_count descending */
     async function loadUsers() {
       const tbody = $("usersRows");
       if (!tbody) return;
 
       try {
-        const url = "/api/admin/users?_=" + Date.now();
-        const res = await authedFetch(url, { cache: "no-store" });
-        if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); return; }
-        const data = await res.json().catch(() => null);
-        if (!res.ok || !data || data.ok === false) {
-          throw new Error((data && (data.message || data.error)) || ("Server error " + res.status));
-        }
-        const users = Array.isArray(data.users) ? data.users : [];
+        const users = usersBySessionCount(await fetchAllUsers());
         const emptyEl = $("usersEmpty");
         tbody.innerHTML = "";
         if (!users.length) { if (emptyEl) emptyEl.hidden = false; return; }
         if (emptyEl) emptyEl.hidden = true;
-
-        const frag = document.createDocumentFragment();
-        for (const u of users) {
-          const tr = document.createElement("tr");
-          tr.innerHTML =
-            `<td>${esc(u.name || "—")}</td>` +
-            `<td>${esc(u.email || "—")}</td>` +
-            `<td><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
-            `<td class="cell-time">${esc(timeCell(u.created_at))}</td>`;
-          frag.appendChild(tr);
-        }
-        tbody.appendChild(frag);
+        tbody.innerHTML = users.slice(0, 10).map(userRowHTML).join("");
       } catch (err) {
         console.error("[admin] loadUsers failed:", err);
       }
     }
+
+    /* ── "הצג הכל" handlers — each fetches fresh data and opens the full-page
+       overlay with every item for that section (no limit). ─────────────── */
+    function fullPageErrorHTML(err) {
+      return `<p class="error" role="alert">${esc("Could not load data: " + (err.message || err))}</p>`;
+    }
+
+    async function showAllUsers() {
+      showFullPage("כל המשתמשים", `<p class="empty">טוען…</p>`);
+      try {
+        const users = usersBySessionCount(await fetchAllUsers());
+        $("fullPageContent").innerHTML = usersTableHTML(users);
+      } catch (err) {
+        $("fullPageContent").innerHTML = fullPageErrorHTML(err);
+      }
+    }
+
+    async function showAllSessions() {
+      showFullPage("כל הסשנים", `<p class="empty">טוען…</p>`);
+      try {
+        const sessions = await fetchAllSessions();
+        $("fullPageContent").innerHTML = sessionsTableHTML(sessions);
+      } catch (err) {
+        $("fullPageContent").innerHTML = fullPageErrorHTML(err);
+      }
+    }
+
+    async function showAllGarments() {
+      showFullPage("כל הפריטים הנלבשים", `<p class="empty">טוען…</p>`);
+      try {
+        const items = computeGarmentStats(await fetchAllSessions());
+        $("fullPageContent").innerHTML = items.length
+          ? `<div class="rank-list">${rankListHTML(items, "worn")}</div>`
+          : `<p class="empty">No garment data yet.</p>`;
+      } catch (err) {
+        $("fullPageContent").innerHTML = fullPageErrorHTML(err);
+      }
+    }
+
+    async function showAllSizes() {
+      showFullPage("כל המידות המבוקשות", `<p class="empty">טוען…</p>`);
+      try {
+        const items = computeSizeStats(await fetchAllSessions());
+        $("fullPageContent").innerHTML = items.length
+          ? `<div class="rank-list">${rankListHTML(items, "requests")}</div>`
+          : `<p class="empty">No size data yet.</p>`;
+      } catch (err) {
+        $("fullPageContent").innerHTML = fullPageErrorHTML(err);
+      }
+    }
+
+    const btnShowAllUsers    = $("btnShowAllUsers");
+    const btnShowAllSessions = $("btnShowAllSessions");
+    const btnShowAllGarments = $("btnShowAllGarments");
+    const btnShowAllSizes    = $("btnShowAllSizes");
+    if (btnShowAllUsers)    btnShowAllUsers.addEventListener("click", showAllUsers);
+    if (btnShowAllSessions) btnShowAllSessions.addEventListener("click", showAllSessions);
+    if (btnShowAllGarments) btnShowAllGarments.addEventListener("click", showAllGarments);
+    if (btnShowAllSizes)    btnShowAllSizes.addEventListener("click", showAllSizes);
 
     loadSessions();
   }
