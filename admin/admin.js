@@ -165,12 +165,12 @@
       <div class="section-card">
         <div class="averages-row">
           <div class="avg-card">
+            <span class="avg-label">ממוצע גובה משתמשים</span>
             <span class="avg-num" id="statAvgHeight">—</span>
-            <span class="avg-label">גובה משתמשים ממוצע</span>
           </div>
           <div class="avg-card">
+            <span class="avg-label">ממוצע משקל משתמשים</span>
             <span class="avg-num" id="statAvgWeight">—</span>
-            <span class="avg-label">משקל משתמשים ממוצע</span>
           </div>
         </div>
       </div>
