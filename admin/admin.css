@@ -387,6 +387,79 @@ h1, h2, h3, h4 {
   .dash-top { justify-content: space-between; }
 }
 
+/* ── All Sessions table → stacked cards on very small screens ─────────────
+   Scoped to the sessions table only (identified via its #sessionRows tbody)
+   so the Users table above keeps its normal row layout. ─────────────────── */
+@media (max-width: 480px) {
+  .table-scroll:has(#sessionRows) { overflow-x: visible; }
+
+  table:has(#sessionRows) thead { display: none; }
+  table:has(#sessionRows),
+  table:has(#sessionRows) tbody { display: block; width: 100%; }
+
+  table:has(#sessionRows) tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 14px;
+    margin-bottom: 12px;
+    padding: 14px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    background: var(--glass-soft);
+    box-shadow: var(--shadow-soft);
+  }
+  table:has(#sessionRows) tr:last-child { margin-bottom: 0; }
+
+  table:has(#sessionRows) td {
+    display: block;
+    padding: 0;
+    border: none;
+    font-size: .8rem;
+  }
+
+  table:has(#sessionRows) td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: .62rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+
+  /* Date/time — top, bold */
+  table:has(#sessionRows) td[data-label="Timestamp"] {
+    grid-column: 1 / -1;
+    order: -4;
+    font-weight: 800;
+    font-size: .92rem;
+    color: var(--ink);
+  }
+  table:has(#sessionRows) td[data-label="Timestamp"]::before { color: var(--pear-green); }
+
+  /* Garment name */
+  table:has(#sessionRows) td[data-label="Garment"] { grid-column: 1 / -1; order: -3; }
+
+  /* Recommended size */
+  table:has(#sessionRows) td[data-label="Recommended Size"] { grid-column: 1 / -1; order: -2; }
+
+  /* Height + Weight on the same line */
+  table:has(#sessionRows) td[data-label="Height"] { grid-column: 1; order: -1; }
+  table:has(#sessionRows) td[data-label="Weight"] { grid-column: 2; order: -1; }
+
+  /* Chest + Waist on the same line */
+  table:has(#sessionRows) td[data-label="Chest"] { grid-column: 1; order: 1; }
+  table:has(#sessionRows) td[data-label="Waist"] { grid-column: 2; order: 1; }
+
+  /* Anonymized visitor ID — least important, shown last */
+  table:has(#sessionRows) td[data-label="Anonymized ID"] {
+    grid-column: 1 / -1;
+    order: 2;
+    color: var(--muted-2);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
