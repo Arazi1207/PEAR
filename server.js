@@ -577,6 +577,95 @@ function publicUser(u) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   EMAIL OTP VERIFICATION — first-time visitors (no remembered device_id) must
+   verify their email with a 6-digit code before their user row is created.
+   Codes live in memory only (otpStore) — reset on server restart is an
+   accepted tradeoff (see fitting-room/app.js verifyOtp/resendOtp). Sending
+   goes through Resend (RESEND_API_KEY); returning visitors never hit this. */
+const otpStore = new Map();      // normalized email -> { code, expires }
+const otpAttempts = new Map();   // normalized email -> { count, windowStart }
+const OTP_TTL_MS = 60_000;
+const OTP_MAX_PER_HOUR = 3;
+
+function otpRateLimited(email) {
+  const now = Date.now();
+  const rec = otpAttempts.get(email);
+  if (!rec || now - rec.windowStart > 3_600_000) {
+    otpAttempts.set(email, { count: 1, windowStart: now });
+    return false;
+  }
+  if (rec.count >= OTP_MAX_PER_HOUR) return true;
+  rec.count += 1;
+  return false;
+}
+
+app.post("/api/send-otp", userLimiter, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const name  = String(req.body?.name || "").trim().slice(0, 80);
+  if (!email || !name) {
+    return res.status(400).json({ ok: false, error: "missing_fields", message: "email and name are required." });
+  }
+  if (otpRateLimited(email)) {
+    return res.status(429).json({ ok: false, error: "rate_limited", message: "יותר מדי בקשות — נסה שוב בעוד שעה." });
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000);
+  otpStore.set(email, { code, expires: Date.now() + OTP_TTL_MS });
+
+  try {
+    if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "PEAR Virtual Try-On <onboarding@resend.dev>",
+        to: email,
+        subject: `קוד האימות שלך: ${code}`,
+        html: `
+          <div dir="rtl" style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;">
+            <h2 style="color:#000;">PEAR Virtual Try-On</h2>
+            <p>הקוד שלך להתחברות:</p>
+            <div style="background:#f4f4f4;border-radius:8px;padding:24px;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px;color:#000;">
+              ${code}
+            </div>
+            <p style="color:#999;font-size:13px;margin-top:24px;">הקוד תקף לדקה אחת.</p>
+          </div>
+        `,
+      }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(`[send-otp] Resend ${resp.status}: ${text}`);
+      throw new Error(`Resend ${resp.status}`);
+    }
+    console.log(`[send-otp] code sent to ${email}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[send-otp] failed:", err?.message || err);
+    res.status(502).json({ ok: false, error: "send_failed", message: err?.message || "Could not send verification email." });
+  }
+});
+
+app.post("/api/verify-otp", userLimiter, (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const code  = String(req.body?.code || "").trim();
+  const rec   = otpStore.get(email);
+
+  if (!rec || Date.now() > rec.expires) {
+    otpStore.delete(email);
+    return res.json({ ok: false, error: "expired" });
+  }
+  if (String(rec.code) !== code) {
+    return res.json({ ok: false, error: "invalid" });
+  }
+  otpStore.delete(email);
+  res.json({ ok: true });
+});
+
 /* POST /api/users — identify (or create) a user by EMAIL. Email is the ONLY
    lookup key here — device_id is never consulted for identification, it is
    purely an audit field written/refreshed on the matched row. This is

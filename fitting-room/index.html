@@ -129,6 +129,22 @@
             </div>
         </form>
 
+        <!-- ░░ OTP verification screen — shown ONLY for first-time visitors (no
+             remembered device_id) after they submit name + email on the identity
+             gate above. Sits between the identity gate and #sizeForm; skipped
+             entirely for returning devices. ░░ -->
+        <div id="screen-otp" class="otp-card" hidden style="display:none">
+            <h2>אימות אימייל</h2>
+            <p id="otp-email-hint">שלחנו קוד ל: </p>
+            <input id="otpInput" type="text" inputmode="numeric"
+                   maxlength="6" pattern="[0-9]*"
+                   placeholder="הכנס קוד בן 6 ספרות" autocomplete="one-time-code">
+            <div id="otp-countdown">60 שניות נותרו</div>
+            <button id="btn-verify-otp" type="button" class="btn-primary">אמת קוד</button>
+            <button id="btn-resend-otp" type="button" class="btn-ghost">שלח קוד חדש</button>
+            <p id="otp-error" class="login-error" role="alert" hidden></p>
+        </div>
+
         <form id="sizeForm" autocomplete="off" hidden style="display:none">
             <!-- Monthly measurements-refresh nudge — shown only when a known,
                  30+ day-stale profile forces this form open (see routeUser/

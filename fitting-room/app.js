@@ -3588,6 +3588,12 @@ function stampMeasurementsDate() {
    Powers the profile button/dropdown (Feature 3) and the measurements PATCH. */
 let PEAR_USER = null;   // { id, name, email, height, weight } | null
 
+/* Pending first-time registration awaiting OTP verification (see
+   submitIdentity/verifyOtp below). Null whenever #screen-otp isn't showing. */
+let PEAR_OTP_PENDING = null;   // { deviceId, name, email } | null
+let otpCountdownTimer = null;
+const OTP_COUNTDOWN_SECONDS = 60;
+
 function hideAllScreen1Forms() {
   const idForm = $("identityForm"), sizeForm = $("sizeForm");
   if (idForm)   { idForm.hidden = true;   idForm.style.display = "none"; }
@@ -3862,7 +3868,181 @@ async function setupIdentityGate() {
   showIdentityGate();
 }
 
-/* Validate, create the user, persist the device id, then reveal measurements. */
+/* =============================================================================
+   EMAIL OTP VERIFICATION — inserted between the identity gate and the
+   measurement form for first-time visitors only (submitIdentity below only
+   ever runs when setupIdentityGate() decided this device has no usable
+   profile, so there's no separate "first-time" branch to gate here).
+   ============================================================================= */
+function stopOtpCountdown() {
+  if (otpCountdownTimer) { clearInterval(otpCountdownTimer); otpCountdownTimer = null; }
+}
+
+function startOtpCountdown() {
+  stopOtpCountdown();
+  let remaining = OTP_COUNTDOWN_SECONDS;
+  const el = $("otp-countdown");
+  const render = () => { if (el) el.textContent = remaining > 0 ? `${remaining} שניות נותרו` : "הקוד פג תוקף"; };
+  render();
+  otpCountdownTimer = setInterval(() => {
+    remaining -= 1;
+    render();
+    if (remaining <= 0) stopOtpCountdown();
+  }, 1000);
+}
+
+function showOtpScreen(email) {
+  const idForm  = $("identityForm");
+  const otpForm = $("screen-otp");
+  if (idForm)  { idForm.hidden = true; idForm.style.display = "none"; }
+  if (otpForm) { otpForm.hidden = false; otpForm.style.display = ""; }
+  const hint = $("otp-email-hint");
+  if (hint) hint.textContent = `שלחנו קוד ל: ${email}`;
+  const input = $("otpInput");
+  if (input) { input.value = ""; input.focus(); }
+  const errEl = $("otp-error");
+  if (errEl) errEl.hidden = true;
+  startOtpCountdown();
+}
+
+function hideOtpScreen() {
+  stopOtpCountdown();
+  const otpForm = $("screen-otp");
+  if (otpForm) { otpForm.hidden = true; otpForm.style.display = "none"; }
+  PEAR_OTP_PENDING = null;
+}
+
+/* Shared with submitIdentity's own INFRA-failure degrade path: create the
+   user (or accept an already-known one), remember the device, and route. */
+async function finishRegistration(deviceId, name, email) {
+  try {
+    const res = await fetch("/api/users", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ deviceId, name, email }),
+    });
+    const data = await res.json().catch(() => null);
+
+    if (res.ok && data?.ok) {
+      setDeviceId(deviceId);
+      console.log(
+        "[identity] " + (data.matched === "email" ? "auto-login (name+email)" : "registered") +
+        " user:", data.user?.name, "→", data.user?.id
+      );
+      hideOtpScreen();
+      routeUser(data.user);
+      return;
+    }
+
+    if (res.status === 409 || res.status === 400 || res.status === 422) {
+      const errEl = $("otp-error");
+      const msg = data?.error === "email_taken"
+        ? "כתובת אימייל זו כבר רשומה למשתמש אחר."
+        : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
+      if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+      return;
+    }
+
+    console.warn("[identity] save unavailable (status", res.status, ") — proceeding without server profile");
+    setDeviceId(deviceId);
+    hideOtpScreen();
+    showSizeForm();
+  } catch (err) {
+    console.warn("[identity] save failed, proceeding offline:", err?.message || err);
+    setDeviceId(deviceId);
+    hideOtpScreen();
+    showSizeForm();
+  }
+}
+
+async function verifyOtp(code) {
+  const errEl = $("otp-error");
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
+  if (!PEAR_OTP_PENDING) return showErr("משהו השתבש — נא לשלוח קוד חדש.");
+  if (!/^\d{6}$/.test(code)) return showErr("נא להזין קוד בן 6 ספרות.");
+
+  const btn = $("btn-verify-otp");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/verify-otp", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ email: PEAR_OTP_PENDING.email, code }),
+    });
+    const data = await res.json().catch(() => null);
+
+    if (data?.ok) {
+      const { deviceId, name, email } = PEAR_OTP_PENDING;
+      await finishRegistration(deviceId, name, email);
+      return;
+    }
+
+    if (data?.error === "expired") {
+      showErr("הקוד פג תוקף. שלח שוב");
+    } else {
+      showErr("קוד שגוי. נסה שוב");
+    }
+  } catch (err) {
+    console.warn("[otp] verify failed:", err?.message || err);
+    showErr("שגיאת רשת — נסה שוב.");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function resendOtp() {
+  if (!PEAR_OTP_PENDING) return;
+  const { name, email } = PEAR_OTP_PENDING;
+  const btn = $("btn-resend-otp");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/send-otp", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ email, name }),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.ok) {
+      startOtpCountdown();
+      const errEl = $("otp-error");
+      if (errEl) errEl.hidden = true;
+      toast("קוד חדש נשלח");
+    } else {
+      const errEl = $("otp-error");
+      if (errEl) { errEl.textContent = (data && (data.message || data.error)) || "שליחת הקוד נכשלה — נסה שוב."; errEl.hidden = false; }
+    }
+  } catch (err) {
+    console.warn("[otp] resend failed:", err?.message || err);
+    const errEl = $("otp-error");
+    if (errEl) { errEl.textContent = "שגיאת רשת — נסה שוב."; errEl.hidden = false; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setupOtpScreen() {
+  const verifyBtn = $("btn-verify-otp");
+  if (verifyBtn && !verifyBtn.dataset.wired) {
+    verifyBtn.dataset.wired = "1";
+    verifyBtn.addEventListener("click", () => verifyOtp(($("otpInput")?.value || "").trim()));
+  }
+  const resendBtn = $("btn-resend-otp");
+  if (resendBtn && !resendBtn.dataset.wired) {
+    resendBtn.dataset.wired = "1";
+    resendBtn.addEventListener("click", resendOtp);
+  }
+  const input = $("otpInput");
+  if (input && !input.dataset.wired) {
+    input.dataset.wired = "1";
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); verifyOtp((input.value || "").trim()); }
+    });
+  }
+}
+
+/* Validate, send the OTP, then reveal the verification screen. The user row
+   itself is only created once verifyOtp() confirms the code (see
+   finishRegistration above). */
 async function submitIdentity() {
   const nameEl  = $("userName");
   const emailEl = $("userEmail");
@@ -3883,48 +4063,29 @@ async function submitIdentity() {
   if (btn) btn.disabled = true;
 
   try {
-    const res = await fetch("/api/users", {
+    const res = await fetch("/api/send-otp", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ deviceId, name, email }),
+      body:    JSON.stringify({ email, name }),
     });
     const data = await res.json().catch(() => null);
 
-    // Saved, auto-logged-in (name+email match), or this device was already known →
-    // link the session, load any saved measurements, and continue.
     if (res.ok && data?.ok) {
-      setDeviceId(deviceId);                 // remember this browser from now on
-      console.log(
-        "[identity] " + (data.matched === "email" ? "auto-login (name+email)" : "registered") +
-        " user:", data.user?.name, "→", data.user?.id
-      );
-      routeUser(data.user);                  // profile/refresh routing (Feature 1/2)
+      if (btn) btn.disabled = false;
+      PEAR_OTP_PENDING = { deviceId, name, email };
+      setupOtpScreen();
+      showOtpScreen(email);
       return;
     }
 
-    // Fixable INPUT problem → the visitor can correct it, so surface a message and
-    // let them retry. This is the only case that stays on the gate:
-    //   • 409 email_taken — email already registered to a DIFFERENT name
-    //   • 400/422         — missing/invalid fields
-    if (res.status === 409 || res.status === 400 || res.status === 422) {
-      if (btn) btn.disabled = false;
-      const msg = data?.error === "email_taken"
-        ? "כתובת אימייל זו כבר רשומה למשתמש אחר."
-        : ((data && (data.message || data.error)) || "נא לבדוק את הפרטים ולנסות שוב.");
-      return showErr(msg);
-    }
-
-    // INFRA failure (503 storage_unconfigured, 5xx, …) must NOT trap the visitor on
-    // Screen 1 — mirror the graceful profile-lookup path: remember the device locally
-    // and proceed. The session simply won't be linked to a server profile.
-    console.warn("[identity] save unavailable (status", res.status, ") — proceeding without server profile");
-    setDeviceId(deviceId);
-    showSizeForm();
+    // Rate limited / bad input → surface it, let the visitor retry from the gate.
+    if (btn) btn.disabled = false;
+    return showErr((data && (data.message || data.error)) || "שליחת קוד האימות נכשלה — נסה שוב.");
   } catch (err) {
-    // Network error / API server down → same graceful degrade, never a dead end.
-    console.warn("[identity] save failed, proceeding offline:", err?.message || err);
-    setDeviceId(deviceId);
-    showSizeForm();
+    // Network error / API server down — never a dead end.
+    if (btn) btn.disabled = false;
+    console.warn("[identity] send-otp failed:", err?.message || err);
+    showErr("שגיאת רשת — נסה שוב.");
   }
 }
 
