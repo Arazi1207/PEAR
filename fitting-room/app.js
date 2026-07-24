@@ -3695,24 +3695,6 @@ async function onSizeFormContinue() {
   goToFitting();
 }
 
-/* Permanent "עדכון מדידות" action on the size screen: validate the current
- * form, PATCH it to the server (logged-in users) + a fresh admin-dashboard
- * session record, and confirm with a toast. Invalid → focus height and nudge. */
-async function updateMeasurementsNow() {
-  try { calculateSize(); } catch {}
-  const h = $("height") && $("height").value;
-  const w = $("weight") && $("weight").value;
-  if (!isSaneProfile(Number(h), Number(w))) {
-    setOptionalVisible(true);
-    if ($("height")) $("height").focus();
-    toast("נא למלא גובה ומשקל תקינים כדי לעדכן את המדידות");
-    return;
-  }
-  await persistMeasurementsIfLoggedIn(h, w);
-  logSessionMeasurements(null, currentUserSize);  // timestamped server record (user_id stamped)
-  toast("✓ המדידות שלך עודכנו");
-}
-
 /* =============================================================================
    PROFILE BUTTON (Feature 3) — top-right corner, always visible in the fitting
    room once a user is known. Click reveals name/email/height/weight + logout.
@@ -6560,10 +6542,8 @@ function init() {
   // secondary re-measure entry points stay unwired/hidden in that mode instead
   // of offering a way around the one-time limit within a single widget open.
   if (DEMO_GATE) {
-    const um = $("btn-update-measurements"); if (um) um.style.display = "none";
     const em = $("btn-edit-measurements");   if (em) em.style.display = "none";
   } else {
-    $("btn-update-measurements")?.addEventListener("click", updateMeasurementsNow);
     // "Edit Measurements" — always-visible Screen 2 CTA. A returning visitor whose
     // fresh profile skipped Screen 1 entirely may never have seen it; this brings
     // it up pre-filled.
