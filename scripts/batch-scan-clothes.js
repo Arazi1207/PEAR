@@ -33,20 +33,22 @@
    already flushed to disk. Skip this whole layer with --no-git, or keep the
    commit local (no push) with --no-push.
 
-   Test / dry-run mode: --test (alias --dry-run) classifies just 1-2 sample
-   images — by default two known-good samples baked into this file (one real
-   front, one real back, so you see both branches without needing the catalog
-   or a passing/failing guess) — prints Gemini's exact JSON response plus a
-   schema-validation checklist, and touches NOTHING else: clothes_metadata.json
-   is never read or written, errors.log is never written, and git is never
-   touched (no pull, no commit, no push). Use it to confirm your GEMINI_API_KEY
-   and model are working before spending quota on the full catalog.
+   Test / dry-run mode: --test (alias --dry-run) classifies exactly ONE sample
+   image by default — a known-good real "front" photo baked into this file, so
+   you get a real answer without needing the catalog or a passing/failing
+   guess — prints Gemini's exact JSON response plus a schema-validation
+   checklist, and touches NOTHING else: clothes_metadata.json is never read or
+   written, errors.log is never written, and git is never touched (no pull, no
+   commit, no push). Use it to confirm your GEMINI_API_KEY and model are
+   working before spending quota on the full catalog. Pass --test-limit=2 to
+   also see the baked-in "back" sample.
 
    Usage:
-     node scripts/batch-scan-clothes.js --test                       # 2 built-in known front/back samples
+     node scripts/batch-scan-clothes.js --test                       # 1 built-in known-front sample
      node scripts/batch-scan-clothes.js --test --test-url=<url>      # classify exactly one image, nothing else
-     node scripts/batch-scan-clothes.js --test --test-limit=3        # sample first 3 real catalog images
-     node scripts/batch-scan-clothes.js --test --test-expect=front,back  # assert against known answers
+     node scripts/batch-scan-clothes.js --test --test-limit=2        # both built-in samples (front + back)
+     node scripts/batch-scan-clothes.js --test --test-limit=3        # sample first 3 real catalog images instead
+     node scripts/batch-scan-clothes.js --test --test-expect=front   # assert against a known answer
 
      node scripts/batch-scan-clothes.js
      node scripts/batch-scan-clothes.js --limit=5        # smoke-test a few images first
@@ -57,11 +59,17 @@
      node scripts/batch-scan-clothes.js --catalog=./catalog.js --out=./clothes_metadata.json
 
    Requires GEMINI_API_KEY in .env (see .env.example). Optional GEMINI_MODEL
-   env var overrides the model (default: gemini-flash-latest — Google's rolling
-   alias to the current recommended Flash model, so it keeps working as pinned
-   preview names like gemini-2.0-flash/gemini-2.5-flash get retired for new
-   callers over time. Pin an explicit dated model instead if you need
-   reproducible results across runs).
+   env var overrides the model (default: gemini-flash-lite-latest — the Flash
+   LITE tier, for maximum speed/cost efficiency on a job that's just "front or
+   back", plus Google's rolling "-latest" alias so it keeps working as pinned
+   preview names get retired for new callers over time. On this project,
+   gemini-2.5-flash-lite came back 404 "no longer available to new users" and
+   gemini-2.0-flash-lite came back 429 with a 0 free-tier quota — both dead
+   ends despite being named in Google's docs; gemini-flash-lite-latest is the
+   one that actually resolves and serves requests today. Pin an explicit
+   dated model instead if you need reproducible results across runs, but
+   verify it against your own key first — model availability is clearly
+   shifting under new keys/projects).
    ============================================================================= */
 
 import "dotenv/config";
@@ -98,14 +106,16 @@ if (args.help || args.h) {
   --no-git           Skip git pull/commit/push entirely
   --no-push          Pull + commit locally, but don't push
 
-  --test, --dry-run  Classify 1-2 sample images only: print Gemini's JSON
-                      response + a schema-validation checklist. Never reads
-                      or writes clothes_metadata.json/errors.log, never
-                      touches git. Run this before a full scan.
+  --test, --dry-run  Classify exactly 1 sample image (a known-good built-in
+                      "front" photo): print Gemini's JSON response + a
+                      schema-validation checklist. Never reads or writes
+                      clothes_metadata.json/errors.log, never touches git.
+                      Run this before a full scan.
   --test-url=<url>   In --test mode, classify exactly this one image instead
-                      of the built-in samples (catalog.js not required)
-  --test-limit=<n>   In --test mode, sample the first N images from the real
-                      catalog instead of the built-in samples
+                      of the built-in sample (catalog.js not required)
+  --test-limit=<n>   In --test mode, use N samples instead of 1: 2 uses both
+                      built-in known samples (front + back); >2 falls through
+                      to the first N real catalog images instead
   --test-expect=<a,b># In --test mode, comma-separated expected detectedView
                       per sample (in order) to assert against, e.g. front,back
   -h, --help         Show this help
@@ -123,14 +133,14 @@ const NO_GIT = !!args["no-git"];
 const NO_PUSH = !!args["no-push"];
 const TEST_MODE = !!(args.test || args["dry-run"]);
 const TEST_URL = args["test-url"] || null;
-const TEST_LIMIT = args["test-limit"] ? parseInt(args["test-limit"], 10) : 2;
+const TEST_LIMIT = args["test-limit"] ? parseInt(args["test-limit"], 10) : 1;
 const TEST_EXPECT = args["test-expect"]
   ? String(args["test-expect"]).split(",").map((s) => s.trim().toLowerCase())
   : null;
 const DELAY_MS = Math.ceil(60000 / RPM);
 const MAX_RETRIES = 3;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+const MODEL = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
 
 /* Known-good defaults for --test with no other flags: one real front and one
    real back image from this catalog (confirmed by an earlier full scan), so
@@ -485,7 +495,9 @@ async function runTestMode() {
   let samples;
   if (TEST_URL) {
     samples = [{ itemId: "test", imageUrl: TEST_URL, expectedView: TEST_EXPECT?.[0] || null }];
-  } else if (args["test-limit"] !== undefined) {
+  } else if (TEST_LIMIT > DEFAULT_TEST_SAMPLES.length) {
+    // More samples requested than the built-in pair can cover — fall through
+    // to real catalog images instead (requires catalog.js).
     const { PRODUCTS, productImages } = loadCatalog(CATALOG_PATH);
     const targets = buildScanTargets(PRODUCTS, productImages).slice(0, TEST_LIMIT);
     if (targets.length === 0) {
@@ -493,7 +505,7 @@ async function runTestMode() {
     }
     samples = targets.map((t, i) => ({ ...t, expectedView: TEST_EXPECT?.[i] || null }));
   } else {
-    samples = DEFAULT_TEST_SAMPLES.map((s, i) => ({ ...s, expectedView: TEST_EXPECT?.[i] || s.expectedView }));
+    samples = DEFAULT_TEST_SAMPLES.slice(0, TEST_LIMIT).map((s, i) => ({ ...s, expectedView: TEST_EXPECT?.[i] || s.expectedView }));
   }
 
   console.log(`Sampling ${samples.length} image(s):\n`);
