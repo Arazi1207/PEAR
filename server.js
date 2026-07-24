@@ -962,8 +962,11 @@ app.post("/api/admin/check-auth", authLimiter, (req, res) => {
   const allowed = (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((e) => e.toLowerCase().trim());
+  console.log('[admin-auth] email received:', email);
+  console.log('[admin-auth] allowed emails:', allowed);
   const emailIndex = allowed.indexOf(email);
   if (emailIndex === -1) {
+    console.log('[admin-auth] match result:', false);
     return res.json({ allowed: false });
   }
   const passwords = (process.env.ADMIN_PASSWORDS || "")
@@ -971,8 +974,10 @@ app.post("/api/admin/check-auth", authLimiter, (req, res) => {
     .map((p) => p.trim());
   const correctPassword = passwords[emailIndex];
   if (!correctPassword || password !== correctPassword) {
+    console.log('[admin-auth] match result:', false);
     return res.json({ allowed: false });
   }
+  console.log('[admin-auth] match result:', true);
   res.json({ allowed: true });
 });
 

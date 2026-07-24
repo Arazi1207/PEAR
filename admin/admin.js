@@ -257,6 +257,7 @@
       });
 
       // Log status only — never the response body (may carry session material).
+      console.log('[admin-login] Supabase error:', error);
       if (error) {
         console.warn("[auth] magic-link request failed:", error?.status || "", error?.name || "error");
         showError("שגיאה בשליחת הקישור, נסה שוב");
