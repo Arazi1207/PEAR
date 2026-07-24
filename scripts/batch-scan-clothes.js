@@ -33,7 +33,21 @@
    already flushed to disk. Skip this whole layer with --no-git, or keep the
    commit local (no push) with --no-push.
 
+   Test / dry-run mode: --test (alias --dry-run) classifies just 1-2 sample
+   images — by default two known-good samples baked into this file (one real
+   front, one real back, so you see both branches without needing the catalog
+   or a passing/failing guess) — prints Gemini's exact JSON response plus a
+   schema-validation checklist, and touches NOTHING else: clothes_metadata.json
+   is never read or written, errors.log is never written, and git is never
+   touched (no pull, no commit, no push). Use it to confirm your GEMINI_API_KEY
+   and model are working before spending quota on the full catalog.
+
    Usage:
+     node scripts/batch-scan-clothes.js --test                       # 2 built-in known front/back samples
+     node scripts/batch-scan-clothes.js --test --test-url=<url>      # classify exactly one image, nothing else
+     node scripts/batch-scan-clothes.js --test --test-limit=3        # sample first 3 real catalog images
+     node scripts/batch-scan-clothes.js --test --test-expect=front,back  # assert against known answers
+
      node scripts/batch-scan-clothes.js
      node scripts/batch-scan-clothes.js --limit=5        # smoke-test a few images first
      node scripts/batch-scan-clothes.js --force           # ignore cache, reclassify everything
@@ -83,6 +97,17 @@ if (args.help || args.h) {
   --rpm=<n>          Requests per minute throttle (default 12)
   --no-git           Skip git pull/commit/push entirely
   --no-push          Pull + commit locally, but don't push
+
+  --test, --dry-run  Classify 1-2 sample images only: print Gemini's JSON
+                      response + a schema-validation checklist. Never reads
+                      or writes clothes_metadata.json/errors.log, never
+                      touches git. Run this before a full scan.
+  --test-url=<url>   In --test mode, classify exactly this one image instead
+                      of the built-in samples (catalog.js not required)
+  --test-limit=<n>   In --test mode, sample the first N images from the real
+                      catalog instead of the built-in samples
+  --test-expect=<a,b># In --test mode, comma-separated expected detectedView
+                      per sample (in order) to assert against, e.g. front,back
   -h, --help         Show this help
 `);
   process.exit(0);
@@ -96,19 +121,38 @@ const LIMIT = args.limit ? parseInt(args.limit, 10) : Infinity;
 const RPM = args.rpm ? parseInt(args.rpm, 10) : 12;
 const NO_GIT = !!args["no-git"];
 const NO_PUSH = !!args["no-push"];
+const TEST_MODE = !!(args.test || args["dry-run"]);
+const TEST_URL = args["test-url"] || null;
+const TEST_LIMIT = args["test-limit"] ? parseInt(args["test-limit"], 10) : 2;
+const TEST_EXPECT = args["test-expect"]
+  ? String(args["test-expect"]).split(",").map((s) => s.trim().toLowerCase())
+  : null;
 const DELAY_MS = Math.ceil(60000 / RPM);
 const MAX_RETRIES = 3;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
+/* Known-good defaults for --test with no other flags: one real front and one
+   real back image from this catalog (confirmed by an earlier full scan), so
+   the default smoke test exercises both branches with a real expected answer
+   — no catalog.js load required, so it also works if catalog.js is broken. */
+const DEFAULT_TEST_SAMPLES = [
+  {
+    itemId: "1",
+    imageUrl: "https://live.staticflickr.com/8726/17084787712_8905988312_b.jpg",
+    expectedView: "front",
+  },
+  {
+    itemId: "6",
+    imageUrl: "https://www.universalcolours.com/cdn/shop/files/LongSleeveTee-CharcoalBlack-3.jpg?v=1732626199&width=1024",
+    expectedView: "back",
+  },
+];
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 if (!GEMINI_API_KEY) {
   console.error("✗ GEMINI_API_KEY is not set — copy .env.example to .env and fill it in.");
   console.error("  Get / rotate a key at https://aistudio.google.com/apikey");
-  process.exit(1);
-}
-if (!fs.existsSync(CATALOG_PATH)) {
-  console.error(`✗ Catalog file not found: ${CATALOG_PATH}`);
   process.exit(1);
 }
 
@@ -166,6 +210,9 @@ function resumeKey(t) {
    productImages() out the other side reuses the exact same gallery logic
    the storefront renders from, instead of re-deriving it here. */
 function loadCatalog(catalogPath) {
+  if (!fs.existsSync(catalogPath)) {
+    throw new Error(`Catalog file not found: ${catalogPath}`);
+  }
   const code = fs.readFileSync(catalogPath, "utf8");
   const sandbox = {};
   vm.createContext(sandbox);
@@ -297,10 +344,15 @@ async function classifyImage(base64, mimeType) {
 
 /* Retries transient failures (network blips, 429s) with backoff. On final
    failure it throws — the caller logs to errors.log and leaves the item
-   unrecorded so the next run retries it automatically. */
-async function classifyWithRetry(target) {
+   unrecorded so the next run retries it automatically.
+
+   Backoff is tunable because test mode wants the opposite tradeoff from a
+   full run: a full run can afford to patiently wait out a per-minute rate
+   limit across a 20-minute job, but a "quick sanity check before spending
+   quota" should fail in seconds, not minutes, if the key/quota is broken. */
+async function classifyWithRetry(target, { maxRetries = MAX_RETRIES, rateLimitBackoffMs = 30000, otherBackoffMs = 3000 } = {}) {
   let lastErr;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const { base64, mimeType } = await fetchImageAsBase64(target.imageUrl);
       return await classifyImage(base64, mimeType);
@@ -308,8 +360,8 @@ async function classifyWithRetry(target) {
       lastErr = err;
       const msg = String(err?.message || err);
       const isRateLimit = /429|RESOURCE_EXHAUSTED|rate.?limit/i.test(msg);
-      if (attempt < MAX_RETRIES) {
-        const backoff = isRateLimit ? 30000 * attempt : 3000 * attempt;
+      if (attempt < maxRetries) {
+        const backoff = isRateLimit ? rateLimitBackoffMs * attempt : otherBackoffMs * attempt;
         console.warn(`  ⚠ attempt ${attempt} failed (${msg}) — retrying in ${Math.round(backoff / 1000)}s...`);
         await sleep(backoff);
       }
@@ -421,6 +473,86 @@ function gitCommitAndPush(outPath) {
   }
 }
 
+/* ── test / dry-run mode ──
+   Classifies 1-2 sample images and prints Gemini's exact response plus a
+   validation checklist. Deliberately never touches clothes_metadata.json,
+   errors.log, or git — safe to run any number of times while wiring up a
+   new API key or model. */
+async function runTestMode() {
+  console.log(`PEAR clothes batch-scan — TEST MODE (model ${MODEL})`);
+  console.log("Nothing will be saved: clothes_metadata.json/errors.log are not touched, and git is not touched.\n");
+
+  let samples;
+  if (TEST_URL) {
+    samples = [{ itemId: "test", imageUrl: TEST_URL, expectedView: TEST_EXPECT?.[0] || null }];
+  } else if (args["test-limit"] !== undefined) {
+    const { PRODUCTS, productImages } = loadCatalog(CATALOG_PATH);
+    const targets = buildScanTargets(PRODUCTS, productImages).slice(0, TEST_LIMIT);
+    if (targets.length === 0) {
+      throw new Error("No images found in the catalog to sample. Try --test-url=<image-url> instead.");
+    }
+    samples = targets.map((t, i) => ({ ...t, expectedView: TEST_EXPECT?.[i] || null }));
+  } else {
+    samples = DEFAULT_TEST_SAMPLES.map((s, i) => ({ ...s, expectedView: TEST_EXPECT?.[i] || s.expectedView }));
+  }
+
+  console.log(`Sampling ${samples.length} image(s):\n`);
+
+  let passed = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const target = samples[i];
+    console.log("─".repeat(70));
+    console.log(`[${i + 1}/${samples.length}] item ${target.itemId}`);
+    console.log(`imageUrl: ${target.imageUrl}`);
+
+    try {
+      const classification = await classifyWithRetry(target, {
+        maxRetries: 2,
+        rateLimitBackoffMs: 8000,
+        otherBackoffMs: 2000,
+      });
+      const entry = { itemId: target.itemId, imageUrl: target.imageUrl, ...classification };
+
+      console.log("\nGemini response:");
+      console.log(JSON.stringify(entry, null, 2));
+
+      const checks = [
+        [typeof entry.itemId === "string", "itemId is a string"],
+        [typeof entry.imageUrl === "string", "imageUrl is a string"],
+        [VALID_VIEWS.includes(entry.detectedView), `detectedView is one of ${VALID_VIEWS.join("/")}`],
+        [
+          typeof entry.confidenceScore === "number" && entry.confidenceScore >= 0 && entry.confidenceScore <= 1,
+          "confidenceScore is a number in [0, 1]",
+        ],
+        [typeof entry.garmentType === "string" && entry.garmentType.length > 0, "garmentType is a non-empty string"],
+        [typeof entry.notes === "string", "notes is a string"],
+      ];
+      if (target.expectedView) {
+        checks.push([entry.detectedView === target.expectedView, `detectedView matches expected "${target.expectedView}"`]);
+      }
+
+      console.log("\nValidation:");
+      let samplePassed = true;
+      for (const [passedCheck, label] of checks) {
+        console.log(`  ${passedCheck ? "✓" : "✗"} ${label}`);
+        if (!passedCheck) samplePassed = false;
+      }
+      if (samplePassed) passed++;
+      console.log(`\nResult: ${entry.detectedView.toUpperCase()} (confidence ${entry.confidenceScore})`);
+    } catch (err) {
+      console.error(`\n✗ Classification failed: ${err.message}`);
+    }
+    console.log("");
+
+    if (i < samples.length - 1) await sleep(DELAY_MS);
+  }
+
+  console.log("─".repeat(70));
+  console.log(`Test mode done. ${passed}/${samples.length} sample(s) passed validation.`);
+  console.log("clothes_metadata.json, errors.log, and git were not touched.");
+  console.log(passed === samples.length ? "Looks good — run without --test to scan the full catalog." : "Investigate before running the full scan.");
+}
+
 /* ── main ── */
 async function main() {
   console.log(`PEAR clothes batch-scan — model ${MODEL}, ~${RPM} req/min`);
@@ -494,7 +626,7 @@ async function main() {
   if (!NO_GIT) gitCommitAndPush(OUT_PATH);
 }
 
-main().catch((err) => {
+(TEST_MODE ? runTestMode() : main()).catch((err) => {
   console.error("✗ Fatal error:", err?.message || err);
   process.exit(1);
 });
