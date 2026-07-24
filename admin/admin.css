@@ -627,6 +627,7 @@ h1, h2, h3, h4 {
 }
 .avg-label {
     font-size: 0.8rem;
-    color: var(--text-muted);
+    color: var(--muted);
     line-height: 1.4;
+    margin-top: 2px;
 }
