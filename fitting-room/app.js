@@ -3896,6 +3896,11 @@ function showOtpScreen(email) {
   const otpForm = $("screen-otp");
   if (idForm)  { idForm.hidden = true; idForm.style.display = "none"; }
   if (otpForm) { otpForm.hidden = false; otpForm.style.display = ""; }
+  // The shared Screen-1 heading/subtitle (also used by the identity gate and
+  // measurement form) don't belong on the OTP step — hide them for its duration.
+  const heading = $("calcHeading"), subtitle = $("calcSubtitle");
+  if (heading)  heading.hidden = true;
+  if (subtitle) subtitle.hidden = true;
   const hint = $("otp-email-hint");
   if (hint) hint.textContent = `שלחנו קוד ל: ${email}`;
   const input = $("otpInput");
@@ -3909,6 +3914,9 @@ function hideOtpScreen() {
   stopOtpCountdown();
   const otpForm = $("screen-otp");
   if (otpForm) { otpForm.hidden = true; otpForm.style.display = "none"; }
+  const heading = $("calcHeading"), subtitle = $("calcSubtitle");
+  if (heading)  heading.hidden = false;
+  if (subtitle) subtitle.hidden = false;
   PEAR_OTP_PENDING = null;
 }
 
