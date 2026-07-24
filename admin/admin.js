@@ -147,8 +147,6 @@
                 <th>Recommended Size</th>
                 <th>Height</th>
                 <th>Weight</th>
-                <th>Chest</th>
-                <th>Waist</th>
                 <th>Garment</th>
                 <th>Date &amp; Time</th>
               </tr>
@@ -391,8 +389,6 @@
           `<td data-label="Recommended Size">${sizeBadge(s)}</td>` +
           `<td data-label="Height">${val(s.height, "cm")}</td>` +
           `<td data-label="Weight">${val(s.weight, "kg")}</td>` +
-          `<td data-label="Chest">${val(s.chest, "cm")}</td>` +
-          `<td data-label="Waist">${val(s.waist, "cm")}</td>` +
           `<td data-label="Garment">${garmentCell(s)}</td>` +
           `<td data-label="Timestamp" class="cell-time">${esc(timeCell(s.created_at))}</td>`;
         frag.appendChild(tr);
