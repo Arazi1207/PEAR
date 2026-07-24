@@ -104,14 +104,6 @@
             <span class="stat-card__num" id="statGarments">0</span>
             <span class="stat-card__label">Garments Sized</span>
           </div>
-          <div class="stat-card">
-            <span class="stat-card__num" id="statAvgHeight">—</span>
-            <span class="stat-card__label">גובה ממוצע</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-card__num" id="statAvgWeight">—</span>
-            <span class="stat-card__label">משקל ממוצע</span>
-          </div>
         </div>
       </section>
 
@@ -169,6 +161,20 @@
         <p id="emptyState" class="empty" hidden>No sessions logged yet.</p>
         <p id="dashError"  class="error" role="alert" hidden></p>
       </section>
+
+      <div class="section-card">
+        <div class="section-title">ממוצעי משתמשים</div>
+        <div class="averages-row">
+          <div class="avg-card">
+            <span class="avg-num" id="statAvgHeight">—</span>
+            <span class="avg-label">גובה משתמשים ממוצע</span>
+          </div>
+          <div class="avg-card">
+            <span class="avg-num" id="statAvgWeight">—</span>
+            <span class="avg-label">משקל משתמשים ממוצע</span>
+          </div>
+        </div>
+      </div>
 
     </main>
 
