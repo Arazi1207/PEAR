@@ -548,7 +548,7 @@
       return `<div class="table-scroll"><table class="data-table"><thead>${USERS_TABLE_HEAD}</thead><tbody>${rows}</tbody></table></div>`;
     }
 
-    /* top 10 users, ranked by session_count descending */
+    /* top 5 users, ranked by session_count descending */
     async function loadUsers() {
       const tbody = $("usersRows");
       if (!tbody) return;
