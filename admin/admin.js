@@ -550,7 +550,7 @@
         tbody.innerHTML = "";
         if (!users.length) { if (emptyEl) emptyEl.hidden = false; return; }
         if (emptyEl) emptyEl.hidden = true;
-        tbody.innerHTML = users.slice(0, 10).map(userRowHTML).join("");
+        tbody.innerHTML = users.slice(0, 5).map(userRowHTML).join("");
       } catch (err) {
         console.error("[admin] loadUsers failed:", err);
       }
