@@ -104,6 +104,14 @@
             <span class="stat-card__num" id="statGarments">0</span>
             <span class="stat-card__label">Garments Sized</span>
           </div>
+          <div class="stat-card">
+            <span class="stat-card__num" id="statAvgHeight">—</span>
+            <span class="stat-card__label">גובה ממוצע</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__num" id="statAvgWeight">—</span>
+            <span class="stat-card__label">משקל ממוצע</span>
+          </div>
         </div>
       </section>
 
@@ -373,6 +381,7 @@
         renderUsageStats(sessions);
         renderRows(sessions);
         loadUsers();
+        loadAverages();
       } catch (err) {
         console.error("[admin] loadSessions failed:", err);
         const errEl = $("dashError");
@@ -553,6 +562,23 @@
         tbody.innerHTML = users.slice(0, 5).map(userRowHTML).join("");
       } catch (err) {
         console.error("[admin] loadUsers failed:", err);
+      }
+    }
+
+    /* average height/weight across all users — GET /api/admin/stats/averages */
+    async function loadAverages() {
+      try {
+        const url = "/api/admin/stats/averages?_=" + Date.now();
+        const res = await authedFetch(url, { cache: "no-store" });
+        if (res.status === 401) { await adminSupabase.auth.signOut(); showLogin(); return; }
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data) return;
+        const heightEl = $("statAvgHeight");
+        const weightEl = $("statAvgWeight");
+        if (heightEl) heightEl.textContent = data.avgHeight != null ? `${data.avgHeight} ס"מ` : "—";
+        if (weightEl) weightEl.textContent = data.avgWeight != null ? `${data.avgWeight} ק"ג` : "—";
+      } catch (err) {
+        console.error("[admin] loadAverages failed:", err);
       }
     }
 

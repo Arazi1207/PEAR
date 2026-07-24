@@ -829,6 +829,41 @@ async function getUsersWithCounts(_req, res) {
   }
 }
 
+/* GET /api/admin/stats/averages — admin-only. Average height/weight across all
+   users that have both measurements set (users.height/weight, not sessions —
+   see publicUser comment: those columns are the single current-measurement
+   source of truth per user). */
+async function getAverageMeasurements(_req, res) {
+  if (storageUnavailable(res)) return;
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("height, weight")
+      .not("height", "is", null)
+      .not("weight", "is", null);
+    if (error) throw new Error(error.message);
+
+    if (!data.length) {
+      return res.json({ avgHeight: null, avgWeight: null, count: 0 });
+    }
+
+    const avgHeight = Math.round(
+      data.reduce((sum, u) => sum + u.height, 0) / data.length
+    );
+    const avgWeight = Math.round(
+      data.reduce((sum, u) => sum + u.weight, 0) / data.length
+    );
+
+    res.json({ avgHeight, avgWeight, count: data.length });
+  } catch (err) {
+    console.error("[admin/stats/averages] read failed:", err?.message);
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+}
+
+app.get("/api/admin/stats/averages", requireAdminAuth, getAverageMeasurements);
+
 /* ── POST: save a session → appends to sessions.json ─────────────────────── */
 async function saveSession(req, res) {
   if (storageUnavailable(res)) return;
