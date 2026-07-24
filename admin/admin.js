@@ -163,7 +163,6 @@
       </section>
 
       <div class="section-card">
-        <div class="section-title">ממוצעי משתמשים</div>
         <div class="averages-row">
           <div class="avg-card">
             <span class="avg-num" id="statAvgHeight">—</span>

@@ -605,25 +605,28 @@ h1, h2, h3, h4 {
 
 .averages-row {
     display: flex;
-    gap: 24px;
-    justify-content: center;
+    gap: 16px;
+    padding: 0 0 24px 0;
 }
 .avg-card {
     flex: 1;
-    text-align: center;
-    padding: 24px;
     background: var(--card-bg);
-    border-radius: 8px;
     border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 .avg-num {
     display: block;
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 800;
     color: var(--primary-color);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+    line-height: 1;
 }
 .avg-label {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
+    line-height: 1.4;
 }
