@@ -165,11 +165,11 @@
       <div class="section-card">
         <div class="averages-row">
           <div class="avg-card">
-            <span class="avg-num" id="statAvgHeight">-</span>
+            <span class="avg-num" id="statAvgHeight"></span>
             <span class="avg-label">AVERAGE HEIGHT</span>
           </div>
           <div class="avg-card">
-            <span class="avg-num" id="statAvgWeight">-</span>
+            <span class="avg-num" id="statAvgWeight"></span>
             <span class="avg-label">AVERAGE WEIGHT</span>
           </div>
         </div>
@@ -408,7 +408,7 @@
     }
 
     function val(v, unit) {
-      if (v === "" || v === null || v === undefined) return "-";
+      if (v === "" || v === null || v === undefined) return "";
       return esc(v) + (unit || "");
     }
 
@@ -416,17 +416,17 @@
       const size = (s.size || "").trim();
       return size
         ? `<span class="size-badge">${esc(size.toUpperCase())}</span>`
-        : `<span class="size-badge size-badge--none">-</span>`;
+        : `<span class="size-badge size-badge--none"></span>`;
     }
 
     function garmentCell(s) {
-      const name = s.garment_name || "-";
+      const name = s.garment_name || "";
       const id   = s.garment_id ? `<span class="garment-id">${esc(s.garment_id)}</span>` : "";
       return `<span class="garment-name">${esc(name)}</span>${id}`;
     }
 
     function timeCell(ts) {
-      if (!ts) return "-";
+      if (!ts) return "";
       const d = new Date(ts);
       if (isNaN(d)) return esc(ts);
       return d.toLocaleString(undefined, {
@@ -436,7 +436,7 @@
     }
 
     function shortId(id) {
-      if (!id) return "-";
+      if (!id) return "";
       return id.length > 14 ? id.slice(0, 8) + "…" + id.slice(-4) : id;
     }
 
@@ -539,8 +539,8 @@
 
     function userRowHTML(u) {
       return `<tr>` +
-        `<td>${esc(u.name || "-")}</td>` +
-        `<td>${esc(u.email || "-")}</td>` +
+        `<td>${esc(u.name || "")}</td>` +
+        `<td>${esc(u.email || "")}</td>` +
         `<td><span class="size-badge">${esc(String(u.session_count ?? 0))}</span></td>` +
         `<td class="cell-time">${esc(timeCell(u.created_at))}</td>` +
         `</tr>`;
@@ -581,8 +581,8 @@
         if (!res.ok || !data) return;
         const heightEl = $("statAvgHeight");
         const weightEl = $("statAvgWeight");
-        if (heightEl) heightEl.textContent = data.avgHeight != null ? `${data.avgHeight} ס"מ` : "-";
-        if (weightEl) weightEl.textContent = data.avgWeight != null ? `${data.avgWeight} ק"ג` : "-";
+        if (heightEl) heightEl.textContent = data.avgHeight != null ? `${data.avgHeight} ס"מ` : "";
+        if (weightEl) weightEl.textContent = data.avgWeight != null ? `${data.avgWeight} ק"ג` : "";
       } catch (err) {
         console.error("[admin] loadAverages failed:", err);
       }

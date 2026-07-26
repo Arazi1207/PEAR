@@ -928,7 +928,7 @@ function goToFitting(opts) {
         $("screen-calculator").classList.remove("active");
         $("screen-fitting").classList.add("active");
       } catch (_) {}
-      toast("שגיאה בטעינת חדר המדידה - " + (err?.message || "נסה לרענן את הדף"));
+      toast("שגיאה בטעינת חדר המדידה " + (err?.message || "נסה לרענן את הדף"));
     }
   };
 
@@ -1296,7 +1296,7 @@ function addToLook(piece) {
     toast(`לוק מלא: <b>${activeOutfit.top.name}</b> + <b>${activeOutfit.bottom.name}</b>`);
   } else {
     $("completeLook").classList.remove("is-complete");
-    toast(`נוסף ללוק: <b>${piece.name}</b> - הוסף/י פריט מהקטגוריה המשלימה ללוק מלא`);
+    toast(`נוסף ללוק: <b>${piece.name}</b> הוסף/י פריט מהקטגוריה המשלימה ללוק מלא`);
   }
 
   // Mid-session: restyle the live feed in place - the FULL look (both garments in
@@ -1423,7 +1423,7 @@ async function startCamera(facing = cameraFacing) {
       return true;
     } catch (err) {
       showCamError("לא ניתן לגשת למצלמה: " + (err && err.message ? err.message : err) +
-        " - ודא הרשאת מצלמה ושהאתר מוגש מ-localhost/https.");
+        " ודא הרשאת מצלמה ושהאתר מוגש מ-localhost/https.");
       return false;
     } finally {
       hidePearLoader();
@@ -3396,11 +3396,11 @@ function setSizeOverride(size) {
   if (!currentUserSize || baseIdx === -1) {
     toast(`מידה שנבחרה: <b>${size}</b>`);
   } else if (pickIdx < baseIdx) {
-    toast(`מידה <b>${size}</b> - הלבוש יראה הדוק יותר`);
+    toast(`מידה <b>${size}</b> הלבוש יראה הדוק יותר`);
   } else if (pickIdx > baseIdx) {
-    toast(`מידה <b>${size}</b> - הלבוש יראה גדול יותר`);
+    toast(`מידה <b>${size}</b> הלבוש יראה גדול יותר`);
   } else {
-    toast(`מידה <b>${size}</b> - התאמה מדויקת`);
+    toast(`מידה <b>${size}</b> התאמה מדויקת`);
   }
 }
 
@@ -3722,17 +3722,17 @@ function updateProfileButton() {
   if (avatar) avatar.textContent = initials;
 
   const nameEl = $("profileName"), emailEl = $("profileEmail");
-  if (nameEl) nameEl.textContent = PEAR_USER.name || "-";
-  if (emailEl) emailEl.textContent = PEAR_USER.email || "-";
+  if (nameEl) nameEl.textContent = PEAR_USER.name || "";
+  if (emailEl) emailEl.textContent = PEAR_USER.email || "";
 
   const heightEl = $("profileHeight"), weightEl = $("profileWeight");
-  if (heightEl) heightEl.textContent = PEAR_USER.height != null ? `${PEAR_USER.height} ס"מ` : "-";
-  if (weightEl) weightEl.textContent = PEAR_USER.weight != null ? `${PEAR_USER.weight} ק"ג` : "-";
+  if (heightEl) heightEl.textContent = PEAR_USER.height != null ? `${PEAR_USER.height} ס"מ` : "";
+  if (weightEl) weightEl.textContent = PEAR_USER.weight != null ? `${PEAR_USER.weight} ק"ג` : "";
 
   const sizeEl = $("profileSize");
   if (sizeEl) {
     const sizeText = $("final-size-text");
-    sizeEl.textContent = (sizeText && sizeText.innerText.trim()) || currentUserSize || "-";
+    sizeEl.textContent = (sizeText && sizeText.innerText.trim()) || currentUserSize || "";
   }
 }
 
@@ -3948,7 +3948,7 @@ async function finishRegistration(deviceId, name, email) {
 async function verifyOtp(code) {
   const errEl = $("otp-error");
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
-  if (!PEAR_OTP_PENDING) return showErr("משהו השתבש - נא לשלוח קוד חדש.");
+  if (!PEAR_OTP_PENDING) return showErr("משהו השתבש נא לשלוח קוד חדש.");
   if (!/^\d{6}$/.test(code)) return showErr("נא להזין קוד בן 6 ספרות.");
 
   const btn = $("btn-verify-otp");
@@ -3974,7 +3974,7 @@ async function verifyOtp(code) {
     }
   } catch (err) {
     console.warn("[otp] verify failed:", err?.message || err);
-    showErr("שגיאת רשת - נסה שוב.");
+    showErr("שגיאת רשת נסה שוב.");
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -3999,12 +3999,12 @@ async function resendOtp() {
       toast("קוד חדש נשלח");
     } else {
       const errEl = $("otp-error");
-      if (errEl) { errEl.textContent = (data && (data.message || data.error)) || "שליחת הקוד נכשלה - נסה שוב."; errEl.hidden = false; }
+      if (errEl) { errEl.textContent = (data && (data.message || data.error)) || "שליחת הקוד נכשלה נסה שוב."; errEl.hidden = false; }
     }
   } catch (err) {
     console.warn("[otp] resend failed:", err?.message || err);
     const errEl = $("otp-error");
-    if (errEl) { errEl.textContent = "שגיאת רשת - נסה שוב."; errEl.hidden = false; }
+    if (errEl) { errEl.textContent = "שגיאת רשת נסה שוב."; errEl.hidden = false; }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -4070,12 +4070,12 @@ async function submitIdentity() {
 
     // Rate limited / bad input → surface it, let the visitor retry from the gate.
     if (btn) btn.disabled = false;
-    return showErr((data && (data.message || data.error)) || "שליחת קוד האימות נכשלה - נסה שוב.");
+    return showErr((data && (data.message || data.error)) || "שליחת קוד האימות נכשלה נסה שוב.");
   } catch (err) {
     // Network error / API server down - never a dead end.
     if (btn) btn.disabled = false;
     console.warn("[identity] send-otp failed:", err?.message || err);
-    showErr("שגיאת רשת - נסה שוב.");
+    showErr("שגיאת רשת נסה שוב.");
   }
 }
 
@@ -4290,7 +4290,7 @@ async function goLive() {
     ensureOnline().then(online => {
       if (!online) {
         console.warn("[go-live] health probe returned offline - proceeding anyway");
-        toast("בדיקת קישוריות לא הצליחה - ממשיכים בניסיון חיבור");
+        toast("בדיקת קישוריות לא הצליחה ממשיכים בניסיון חיבור");
       }
     });
 
@@ -4307,7 +4307,7 @@ async function goLive() {
     if (await cameraLooksBlack()) {
       showCamError("זוהה מסך שחור. הפעל את המצלמה או הסר חסימה מהעדשה כדי להמשיך. " +
         "(Black screen detected. Please turn on your camera or remove any obstacles to proceed.)");
-      toast("📷 מסך שחור - המדידה לא הופעלה כדי לחסוך קרדיטים");
+      toast("📷 מסך שחור המדידה לא הופעלה כדי לחסוך קרדיטים");
       return;   // finally{} resets busy + the capture button; no billed session opened
     }
 
@@ -4370,7 +4370,7 @@ async function goLive() {
         stopScanTimer();                // model never became ready - retire the loading UI here
         $("scanOverlay").hidden = true;
         stopLive();
-        showCamError("החיבור לא הניב תמונה - נסה שוב.");
+        showCamError("החיבור לא הניב תמונה נסה שוב.");
         setConn("error");
       }, FIRST_FRAME_TIMEOUT_MS);
     }
@@ -4410,7 +4410,7 @@ function stopLive() {
   try {
     if (isLive()) {
       frozen = freezeFinalFrame();                 // paints #resultCanvas, returns its dataURL
-      const size = activeTryOnSize || currentUserSize || "-";
+      const size = activeTryOnSize || currentUserSize || "";
       lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                    activeItem && activeItem.id);
       if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
@@ -4440,7 +4440,7 @@ function beginFreezeHold() {
   let frozen = null;
   try {
     frozen = freezeFinalFrame();
-    const size = activeTryOnSize || currentUserSize || "-";
+    const size = activeTryOnSize || currentUserSize || "";
     lastFitTs = saveFitToGallery(frozen || captureLiveFrame(), currentLookName(), size,
                                  activeItem && activeItem.id);
     if (lastFitTs) lockDemoAfterFirstMeasurement();   // first successful save → one-time demo used
@@ -4968,7 +4968,7 @@ async function downloadRecording() {
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: "PEAR - מדידה וירטואלית",
+          title: "PEAR מדידה וירטואלית",
           text: "הלוק שלי מ-PEAR · PEAR virtual fitting",
         });
         return;                                   // saved/shared - done
@@ -5263,7 +5263,7 @@ function onGarmentFileChosen(e) {
  */
 function handleGarmentFile(file) {
   const U = CONFIG.UPLOAD;
-  if (!/^image\//i.test(file.type)) { toast("קובץ לא נתמך - בחר/י תמונה"); return; }
+  if (!/^image\//i.test(file.type)) { toast("קובץ לא נתמך בחר/י תמונה"); return; }
   if (file.size > U.MAX_BYTES) {
     toast(`התמונה גדולה מדי (מקסימום ${Math.round(U.MAX_BYTES / (1024 * 1024))}MB)`);
     return;
@@ -5274,7 +5274,7 @@ function handleGarmentFile(file) {
     const img = new Image();
     // Same-origin data URL → canvas stays untainted, so getImageData()/toDataURL() work.
     img.onload = () => runDetection(img);
-    img.onerror = () => toast("טעינת התמונה נכשלה - נסה/י תמונה אחרת");
+    img.onerror = () => toast("טעינת התמונה נכשלה נסה/י תמונה אחרת");
     img.src = String(reader.result);
   };
   reader.onerror = () => toast("קריאת הקובץ נכשלה");
@@ -5494,7 +5494,7 @@ function selectDetectedGarment(index) {
       closeGarmentDetect();
       uploadTarget = "front";
       setActiveItem(customFrontItem);                  // re-render: Back tab is now a REAL view (no AI badge)
-      toast(`נוספה תמונת גב · back view added - <b>Front + Back</b> מוכן`);
+      toast(`נוספה תמונת גב · back view added <b>Front + Back</b> מוכן`);
     }, CONFIG.UPLOAD.PICK_ANIM_MS);
     return;
   }
@@ -5520,7 +5520,7 @@ function selectDetectedGarment(index) {
     setActiveItem(item);                               // fills its slot, paints chip, resets to live
     const cc = $("cameraCard");
     if (cc) cc.scrollIntoView({ behavior: "smooth", block: "center" });
-    toast(`נבחר בגד מותאם - הוסף/י <b>תמונת גב</b> או שנשלים אותה ב־AI`);
+    toast(`נבחר בגד מותאם הוסף/י <b>תמונת גב</b> או שנשלים אותה ב־AI`);
   }, CONFIG.UPLOAD.PICK_ANIM_MS);
 }
 
@@ -6111,7 +6111,7 @@ function saveFitToGallery(imageSrc, garmentName, size, itemId) {
   const arr = readGallery();
   // itemId lets the gallery modal's "Try again live" restore the exact garment
   // and open a fresh 5s session. null when the look isn't a single catalog item.
-  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "-", ts,
+  arr.push({ img: imageSrc, name: garmentName || "Look", size: size || "", ts,
              itemId: (itemId == null ? null : itemId) });
   while (arr.length > GALLERY_MAX) { const old = arr.shift(); dropClip(old.ts); }
   writeGallery(arr);
@@ -6126,7 +6126,7 @@ function saveFitToGallery(imageSrc, garmentName, size, itemId) {
 function addFitFromLive() {
   const img = captureLiveFrame();
   if (!img) return;
-  const size = activeTryOnSize || currentUserSize || "-";
+  const size = activeTryOnSize || currentUserSize || "";
   lastFitTs = saveFitToGallery(img, currentLookName(), size);
 }
 
@@ -6507,7 +6507,7 @@ function init() {
 
   if (handoff) {
     const hint = $("focusCalcHint");
-    if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> - מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
+    if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
   }
 
   // Identity gate - ALWAYS Step 0 for the main app / a real merchant embed

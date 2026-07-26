@@ -114,7 +114,7 @@ function rateLimit({ windowMs, max }) {
     }
     if (arr.length > max) {
       res.set("Retry-After", String(Math.ceil(windowMs / 1000)));
-      return res.status(429).json({ error: "rate_limited", message: "Too many requests - slow down." });
+      return res.status(429).json({ error: "rate_limited", message: "Too many requests slow down." });
     }
     next();
   };
@@ -607,7 +607,7 @@ app.post("/api/send-otp", userLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: "missing_fields", message: "email and name are required." });
   }
   if (otpRateLimited(email)) {
-    return res.status(429).json({ ok: false, error: "rate_limited", message: "יותר מדי בקשות - נסה שוב בעוד שעה." });
+    return res.status(429).json({ ok: false, error: "rate_limited", message: "יותר מדי בקשות נסה שוב בעוד שעה." });
   }
 
   const code = Math.floor(100000 + Math.random() * 900000);

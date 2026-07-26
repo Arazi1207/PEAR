@@ -1007,7 +1007,7 @@
       showToast(isHebrewPage() ? "הפריט נוסף לסל!" : "Added to cart!");
     }).catch(function (err) {
       console.warn("[PEAR widget] /cart/add.js failed:", err && err.message);
-      showToast(isHebrewPage() ? "לא הצלחנו להוסיף לסל אוטומטית - נסה/י ידנית" : "Couldn't add to cart automatically - please add it manually");
+      showToast(isHebrewPage() ? "לא הצלחנו להוסיף לסל אוטומטית נסה/י ידנית" : "Couldn't add to cart automatically please add it manually");
     });
   });
 
