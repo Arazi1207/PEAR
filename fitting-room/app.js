@@ -596,6 +596,17 @@ const ADULT_PANTS_SIZE_CHART = [
   { size: "36", minHeight: 188, maxHeight: 210, minWeight: 95, maxWeight: 115 },
 ];
 
+/* Keywords that conclusively identify a garment as pants/jeans even when the
+   Supabase category fetch is still in-flight or unavailable. Checked against
+   the product name/title (Tier 2 of isPantsProduct()). Includes Hebrew variants
+   with both regular apostrophe U+0027 and geresh U+05F3 for "jeans". */
+const PANTS_KEYWORDS = [
+  "ג'ינס",   // jeans - regular apostrophe
+  "ג׳ינס", // jeans - geresh (׳)
+  "מכנס",    // pants/trousers (covers מכנסיים, מכנסי, etc. via includes())
+  "jeans", "pants", "trousers", "leggings", "shorts",
+];
+
 /* Ordered size scale - full range used by the override selector and delta math. */
 const SIZE_SCALE = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
 
@@ -637,13 +648,46 @@ async function fetchAndSetGarmentCategory(imageUrl) {
 }
 
 /* Returns true if the current product should use the numeric pants size chart.
-   Priority: Supabase-fetched category > local activeItem.type > URL handoff type. */
+   Four-tier priority — earlier tiers are synchronous and require zero network:
+
+   Tier 1 — Available sizes: if the product exposes purely numeric sizes all in
+     the waist range 24-48 (e.g. ["26","28","30","32","34","36","38","40"]) it is
+     mathematically impossible for this to be a shirt → always pants.
+     Source: garment_sizes URL param forwarded by pear-widget.js.
+
+   Tier 2 — Product title keyword match: scans the name/title for Hebrew and
+     English jeans/pants terms. Handles external stores where garment_type was
+     mis-detected by the widget's keyword heuristic.
+
+   Tier 3 — Supabase/Gemini category: backend-authoritative, async, cached.
+
+   Tier 4 — Local catalog type / URL handoff type: covers PEAR_CATALOG items
+     (already typed correctly) and widget handoffs whose keyword detection worked. */
 function isPantsProduct() {
+  // ── Tier 1: numeric available sizes in waist range ───────────────────────────
+  const _handoffForSizes = parseHandoff();
+  const _sizes = (activeItem && activeItem.availableSizes) ||
+                 (_handoffForSizes && _handoffForSizes.availableSizes) || null;
+  if (_sizes && _sizes.length >= 2) {
+    const waistNums = _sizes.filter((s) => /^\d+$/.test(s) && +s >= 24 && +s <= 48);
+    if (waistNums.length >= 2) return true;
+  }
+
+  // ── Tier 2: product title keyword match ──────────────────────────────────────
+  const _name = (activeItem && activeItem.name) ||
+                (_handoffForSizes && _handoffForSizes.name) || "";
+  if (_name) {
+    const lower = _name.toLowerCase();
+    if (PANTS_KEYWORDS.some((kw) => lower.includes(kw.toLowerCase()))) return true;
+  }
+
+  // ── Tier 3: Supabase/Gemini backend category ─────────────────────────────────
   if (currentGarmentCategory === "pants") return true;
   if (currentGarmentCategory !== null) return false;  // Supabase says top/other
+
+  // ── Tier 4: local catalog type or URL handoff type ───────────────────────────
   if (activeItem) return activeItem.type === "pants";
-  const handoff = parseHandoff();
-  return handoff ? handoff.type === "pants" : false;
+  return _handoffForSizes ? _handoffForSizes.type === "pants" : false;
 }
 
 /**
@@ -853,6 +897,16 @@ function parseHandoff() {
         .filter((u) => /^https?:\/\//i.test(u));
       if (!pearImages.length) pearImages = undefined;
     }
+    // Available sizes scraped from the host store by pear-widget.js (comma-joined,
+    // each URI-encoded). Used by isPantsProduct() Tier 1.
+    const sizesRaw = q.get("garment_sizes");
+    let availableSizes;
+    if (sizesRaw) {
+      availableSizes = sizesRaw.split(",")
+        .map((s) => { try { return decodeURIComponent(s).trim(); } catch (_) { return s.trim(); } })
+        .filter(Boolean);
+      if (!availableSizes.length) availableSizes = undefined;
+    }
     const result = {
       id: null, custom: true,
       name: q.get("garment_name") || "Garment",
@@ -872,6 +926,9 @@ function parseHandoff() {
       // carried through so the "הוסף לסל" button here can hand it back to the
       // storefront's own /cart/add.js call (see pear-widget.js's PEAR_ADD_TO_CART listener).
       variantId: q.get("garment_variant_id") || undefined,
+      // Sizes scraped from the host store DOM/Shopify metadata by pear-widget.js.
+      // isPantsProduct() Tier 1 uses this to detect pants without any network call.
+      availableSizes,
       angle: readAngle(),
     };
     console.log("[PEAR] parseHandoff() - widget embed garment:", result);

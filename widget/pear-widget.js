@@ -236,6 +236,56 @@
     return DEFAULT_CATEGORY;
   }
 
+  /* Scrape the product's available size options from the host-store DOM/Shopify
+     metadata. Used by isPantsProduct() Tier 1 in the fitting room: if ALL returned
+     sizes are purely numeric and fall in the 24-48 waist range, the item is
+     unambiguously pants regardless of what the garment_type keyword heuristic says.
+
+     Three-tier lookup, falls back gracefully when a tier yields nothing:
+       1. Shopify JavaScript product metadata  (ShopifyAnalytics.meta / window.meta)
+       2. Native <select> for size (Shopify default theme, WooCommerce)
+       3. Radio-button / swatch data attributes (custom Shopify themes)              */
+  function scrapeAvailableSizes() {
+    var sizes = [];
+    function add(v) {
+      v = (v || "").toString().trim();
+      if (v && sizes.indexOf(v) === -1) sizes.push(v);
+    }
+    // Priority 1: Shopify JS product metadata
+    try {
+      var sp = (w.ShopifyAnalytics && w.ShopifyAnalytics.meta && w.ShopifyAnalytics.meta.product) ||
+               (w.meta && w.meta.product);
+      if (sp && sp.variants) {
+        for (var vi = 0; vi < sp.variants.length; vi++) {
+          add(sp.variants[vi].option1 || sp.variants[vi].title || "");
+        }
+        if (sizes.length) return sizes;
+      }
+    } catch (_) {}
+    // Priority 2: native <select> element for size
+    var sel = d.querySelector(
+      'select[name="Size"], select[id*="size" i], ' +
+      'select[aria-label*="size" i], select[aria-label*="מידה"]'
+    );
+    if (sel) {
+      for (var si = 0; si < sel.options.length; si++) {
+        add(sel.options[si].value || sel.options[si].text);
+      }
+      if (sizes.length) return sizes;
+    }
+    // Priority 3: radio inputs / swatch data attributes
+    var swatches = d.querySelectorAll(
+      'input[type="radio"][name*="size" i], input[type="radio"][name*="Size"], ' +
+      '[data-value][class*="swatch"], [data-size]'
+    );
+    for (var wi = 0; wi < swatches.length; wi++) {
+      add(swatches[wi].getAttribute("data-value") ||
+          swatches[wi].getAttribute("data-size") ||
+          swatches[wi].value || "");
+    }
+    return sizes;
+  }
+
   function isExcludedSrc(src) {
     var s = (src || "").toLowerCase();
     for (var i = 0; i < EXCLUDE_SRC.length; i++) {
@@ -582,6 +632,11 @@
          switcher. Sent only when there's more than one distinct image. */
       (garment.images && garment.images.length > 1
         ? "&garment_images=" + garment.images.map(encodeURIComponent).join(",") : "") +
+      /* Available product sizes scraped from the host store. The fitting room uses
+         this as Tier 1 of isPantsProduct(): purely numeric values in the 24-48 waist
+         range are an unambiguous signal this is a pants product, needing no network. */
+      (garment.sizes && garment.sizes.length
+        ? "&garment_sizes=" + garment.sizes.map(encodeURIComponent).join(",") : "") +
       (garment.variantId ? "&garment_variant_id=" + encodeURIComponent(garment.variantId) : "") +
       (REQUIRE_BOTH_VIEWS ? "&require_both_views=1" : "") +
       (DEMO_GATE ? "&demo_gate=1" : "") +
@@ -771,6 +826,7 @@
         images: pgImages,
         name: pgName,
         category: detectCategory(pgName),
+        sizes: scrapeAvailableSizes(),
         variantId: extractVariantId(btn)
       };
     }
@@ -791,6 +847,7 @@
             images: cardImages,
             name: name,
             category: detectCategory(name),
+            sizes: scrapeAvailableSizes(),
             variantId: extractVariantId(btn)
           };
         }
@@ -806,6 +863,7 @@
         url: primary.url, back: primary.back,
         images: fallbackImages,
         name: pname, category: detectCategory(pname),
+        sizes: scrapeAvailableSizes(),
         variantId: extractVariantId(btn)
       };
     }
@@ -899,11 +957,11 @@
           btn.textContent = originalText;
           var sorted = sortByFrontBack(imgs, results);
           var resolved = resolveFrontBack(imgs, results);
-          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted, variantId: garment.variantId });
+          openModal({ url: resolved.front, type: garment.category, name: garment.name, back: resolved.back, images: sorted, sizes: garment.sizes, variantId: garment.variantId });
         }).catch(function (err) {
           console.warn("[PEAR widget] classify-images failed, using DOM order as-is:", err && err.message);
           btn.textContent = originalText;
-          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs, variantId: garment.variantId });
+          openModal({ url: imgs[0], type: garment.category, name: garment.name, back: imgs[1], images: imgs, sizes: garment.sizes, variantId: garment.variantId });
         });
       });
     }
@@ -943,6 +1001,7 @@
       url: primary.url, back: primary.back,
       images: collectGalleryImages(primary.url, d),
       name: name, category: detectCategory(name),
+      sizes: scrapeAvailableSizes(),
       variantId: extractVariantId(null)
     });
     var h1 = d.querySelector("h1");
