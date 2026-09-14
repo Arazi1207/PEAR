@@ -164,7 +164,7 @@
   var CATEGORY_KEYWORDS = {
     shirt: ["חולצה", "טישרט", "גופייה", "shirt", "tee", "top",
             "blouse", "sweater", "hoodie", "crop"],
-    pants: ["מכנסיים", "ג׳ינס", "pants", "jeans", "trousers",
+    pants: ["מכנסיים", "ג׳ינס", "ג'ינס", "pants", "jeans", "trousers",
             "shorts", "leggings", "skirt"],
     dress: ["שמלה", "חצאית", "dress", "jumpsuit", "romper"],
     outerwear: ["מעיל", "ג׳קט", "coat", "jacket", "blazer", "cardigan"]
@@ -226,11 +226,13 @@
   }
 
   function detectCategory(name) {
-    var haystack = ((name || "") + " " + (d.title || "")).toLowerCase();
+    // Normalize apostrophe-like chars so U+0027/U+2018/U+2019/U+05F3 all match.
+    var normApos = function(s) { return (s || "").replace(/['''׳]/g, "'"); };
+    var haystack = normApos((name || "") + " " + (d.title || "")).toLowerCase();
     for (var cat in CATEGORY_KEYWORDS) {
       var words = CATEGORY_KEYWORDS[cat];
       for (var i = 0; i < words.length; i++) {
-        if (haystack.indexOf(words[i].toLowerCase()) !== -1) return cat;
+        if (haystack.indexOf(normApos(words[i]).toLowerCase()) !== -1) return cat;
       }
     }
     return DEFAULT_CATEGORY;

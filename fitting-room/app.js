@@ -601,9 +601,11 @@ const ADULT_PANTS_SIZE_CHART = [
    the product name/title (Tier 2 of isPantsProduct()). Includes Hebrew variants
    with both regular apostrophe U+0027 and geresh U+05F3 for "jeans". */
 const PANTS_KEYWORDS = [
-  "ג'ינס",   // jeans - regular apostrophe
-  "ג׳ינס", // jeans - geresh (׳)
-  "מכנס",    // pants/trousers (covers מכנסיים, מכנסי, etc. via includes())
+  "ג'ינס",       // jeans - regular apostrophe U+0027
+  "ג’ינס",  // jeans - right single quotation mark U+2019 (common on Hebrew sites)
+  "ג‘ינס",  // jeans - left single quotation mark U+2018
+  "ג׳ינס",      // jeans - geresh U+05F3
+  "מכנס",        // pants/trousers (covers מכנסיים, מכנסי, etc. via includes())
   "jeans", "pants", "trousers", "leggings", "shorts",
 ];
 
@@ -674,11 +676,33 @@ function isPantsProduct() {
   }
 
   // ── Tier 2: product title keyword match ──────────────────────────────────────
-  const _name = (activeItem && activeItem.name) ||
-                (_handoffForSizes && _handoffForSizes.name) || "";
-  if (_name) {
-    const lower = _name.toLowerCase();
-    if (PANTS_KEYWORDS.some((kw) => lower.includes(kw.toLowerCase()))) return true;
+  // Normalize apostrophe-like Unicode characters before comparison so U+0027,
+  // U+2018, U+2019, and U+05F3 (geresh) all match the same keyword entry.
+  // Hebrew product names vary by site/font; FOX uses U+2019 in its titles.
+  const _normApos = (s) => (s || "").replace(/['‘’׳]/g, "'");
+  const _normalizedKws = PANTS_KEYWORDS.map((kw) => _normApos(kw).toLowerCase());
+
+  // Collect every available name source; raw URL read last as ultimate fallback
+  // (also handles diagnostic test URLs that use garment_title without garment_url).
+  const _nameSources = [];
+  if (activeItem) {
+    if (activeItem.title) _nameSources.push(activeItem.title);
+    if (activeItem.name)  _nameSources.push(activeItem.name);
+  }
+  if (_handoffForSizes) {
+    if (_handoffForSizes.title) _nameSources.push(_handoffForSizes.title);
+    if (_handoffForSizes.name)  _nameSources.push(_handoffForSizes.name);
+  }
+  try {
+    const _qr = new URLSearchParams(location.search);
+    const _raw = _qr.get("garment_name") || _qr.get("garment_title") || "";
+    if (_raw) _nameSources.push(_raw);
+  } catch (_) {}
+
+  for (const _n of _nameSources) {
+    if (!_n) continue;
+    const lower = _normApos(_n).toLowerCase();
+    if (_normalizedKws.some((kw) => lower.includes(kw))) return true;
   }
 
   // ── Tier 3: Supabase/Gemini backend category ─────────────────────────────────
@@ -909,7 +933,9 @@ function parseHandoff() {
     }
     const result = {
       id: null, custom: true,
-      name: q.get("garment_name") || "Garment",
+      name: q.get("garment_name") || q.get("garment_title") || "Garment",
+      // Expose as .title too so isPantsProduct() Tier 2 can find it under either key.
+      title: q.get("garment_name") || q.get("garment_title") || "",
       type: isPants ? "pants" : "shirt",   // toItem() → garmentType (lower_body|upper_body)
       subType: "",                          // no catalog subType → generic custom prompt
       color: "#8a8f98",                     // neutral placeholder; the image is the reference
