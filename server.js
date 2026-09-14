@@ -1106,11 +1106,14 @@ app.get("/api/img-proxy", proxyLimiter, async (req, res) => {
   }
 });
 
-/* ── Garment front/back classification (Gemini + Supabase cache) ────────────────
-   Classifies a garment product photo as depicting the front or back of the item.
-   Backed by the garment_cache table (see supabase_setup_v5.sql) so the same CDN
-   image is never re-classified - shared with scanner/scan-store.js, which writes
-   to the same table during a bulk store crawl.
+/* ── Garment classification (Gemini + Supabase cache) ────────────────────────
+   Single Gemini call per image URL classifies TWO things at once:
+     • front/back  - which side of the garment faces the camera
+     • garmentCategory - "pants" | "top" | "other"
+   Both results are stored in garment_cache (see supabase_setup_v5.sql +
+   supabase_setup_v8.sql) so the same CDN image is never re-sent to Gemini.
+   garment_category is the backend source of truth for the size-chart routing in
+   fitting-room/app.js: "pants" → ADULT_PANTS_SIZE_CHART (numeric), else ZARA_SIZE_CHART.
    Requires GEMINI_API_KEY (https://aistudio.google.com/apikey) in .env.        */
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_CLASSIFY_URL =
@@ -1124,19 +1127,27 @@ async function fetchImageAsBase64(imageUrl) {
   return { base64: buffer.toString("base64"), mimeType: contentType };
 }
 
-async function classifyFrontBack(imageUrl) {
-  const secureUrl = imageUrl.replace(/^http:\/\//, 'https://');
+/* Single Gemini call that classifies BOTH orientation and garment type.
+   Returns { frontBack: "front"|"back", garmentCategory: "pants"|"top"|"other" }.
+   The JSON prompt is more reliable than a one-word answer for two simultaneous
+   decisions; falls back gracefully if the model returns non-JSON. */
+async function classifyGarmentFull(imageUrl) {
+  const secureUrl = imageUrl.replace(/^http:\/\//, "https://");
   const { base64, mimeType } = await fetchImageAsBase64(secureUrl);
+
+  const prompt = `You are analysing a garment product photo for an e-commerce catalogue.
+Return a JSON object with exactly two fields (no other text):
+{
+  "frontBack": "front" or "back" (which side of the garment faces the camera),
+  "garmentCategory": "pants" if this is jeans, trousers, shorts, leggings or any legwear; "top" if this is a shirt, t-shirt, blouse, sweater, hoodie, jacket or any upper-body garment; "other" for dresses, shoes, accessories, bags, etc.
+}
+Respond ONLY with valid JSON. Example: {"frontBack":"front","garmentCategory":"top"}`;
+
   const resp = await fetch(GEMINI_CLASSIFY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: "Is this the front or the back of the garment? Answer with exactly one word: front or back" },
-          { inline_data: { mime_type: mimeType, data: base64 } },
-        ],
-      }],
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
     }),
   });
   if (!resp.ok) {
@@ -1144,41 +1155,60 @@ async function classifyFrontBack(imageUrl) {
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const answer = text.trim().toLowerCase();
-  return answer.includes("back") ? "back" : "front";
+  const raw = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+
+  // Parse structured JSON; fall back to heuristic if the model returned plain text.
+  let frontBack = "front";
+  let garmentCategory = "top";
+  try {
+    const parsed = JSON.parse(raw);
+    const fb = String(parsed.frontBack || "").toLowerCase();
+    frontBack = fb.includes("back") ? "back" : "front";
+    const gc = String(parsed.garmentCategory || "").toLowerCase();
+    garmentCategory = gc === "pants" ? "pants" : gc === "other" ? "other" : "top";
+  } catch {
+    // Plain-text fallback (model ignored the JSON instruction).
+    const lower = raw.toLowerCase();
+    frontBack = lower.includes("back") ? "back" : "front";
+    garmentCategory = (lower.includes("pant") || lower.includes("jean") || lower.includes("trouser")) ? "pants" : "top";
+  }
+  return { frontBack, garmentCategory };
+}
+
+/* Backward-compat wrapper so the classify-images handler keeps its original interface. */
+async function classifyFrontBack(imageUrl) {
+  const { frontBack } = await classifyGarmentFull(imageUrl);
+  return frontBack;
 }
 
 async function getCachedClassification(imageUrl) {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("garment_cache")
-    .select("classification")
+    .select("classification, garment_category")
     .eq("image_url", imageUrl)
     .maybeSingle();
   if (error) { console.warn("[garment_cache] read failed:", error.message); return null; }
-  return data ? data.classification : null;
+  return data || null;
 }
 
-async function saveClassification(imageUrl, classification) {
+async function saveClassification(imageUrl, classification, garmentCategory) {
   if (!supabase) return;
+  const row = { image_url: imageUrl, classification };
+  if (garmentCategory) row.garment_category = garmentCategory;
   const { data, error } = await supabase
     .from("garment_cache")
-    .upsert([{ image_url: imageUrl, classification }], { onConflict: "image_url" });
-  console.log('[classify] Supabase save result:', data, error);
+    .upsert([row], { onConflict: "image_url" });
+  console.log("[classify] Supabase save result:", data, error);
   if (error) console.warn("[garment_cache] write failed:", error.message);
 }
 
 /* POST /api/classify-images - { images: string[] } → { results: ("front"|"back")[] },
    one result per input URL, in order. Cache-first; uncached images are classified via
-   Gemini and written back to garment_cache. A single image's classification failure
-   falls back to "front" rather than failing the whole batch. */
+   Gemini (classifyGarmentFull) and both classification + garment_category are written
+   back to garment_cache. A single image's failure falls back to "front". */
 app.post("/api/classify-images", classifyLimiter, async (req, res) => {
-  console.log('[classify] Received images:', req.body.images);
-  // Belt-and-suspenders alongside the PUBLIC_API_PATHS bypass in the shared /api
-  // CORS middleware above (which already sets these for this path) - explicit
-  // here too so this endpoint's cross-origin behavior doesn't silently depend on
-  // that middleware never changing.
+  console.log("[classify] Received images:", req.body.images);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -1193,26 +1223,61 @@ app.post("/api/classify-images", classifyLimiter, async (req, res) => {
     return res.status(503).json({ error: "gemini_unconfigured", message: "GEMINI_API_KEY not set." });
   }
 
-  const uniqueUrls = [...new Map(
-      images.map(url => [url.split('?')[0], url])
-  ).values()];
+  const uniqueUrls = [...new Map(images.map((url) => [url.split("?")[0], url])).values()];
 
   const results = [];
   for (const url of uniqueUrls) {
     try {
-      let classification = await getCachedClassification(url);
-      if (!classification) {
-        classification = await classifyFrontBack(url);
-        await saveClassification(url, classification);
+      const cached = await getCachedClassification(url);
+      if (cached && cached.classification) {
+        results.push(cached.classification);
+      } else {
+        const { frontBack, garmentCategory } = await classifyGarmentFull(url);
+        await saveClassification(url, frontBack, garmentCategory);
+        results.push(frontBack);
         await new Promise((r) => setTimeout(r, 1100)); // stay under Gemini's 60 RPM
       }
-      results.push(classification);
     } catch (err) {
       console.error(`[classify-images] failed for ${url}:`, err?.message || err);
       results.push("front");
     }
   }
   res.json({ results });
+});
+
+/* GET /api/garment-category?url=<encoded-image-url>
+   Returns the garment_category ("pants"|"top"|"other"|null) for a given image URL.
+   This is the backend source of truth that fitting-room/app.js reads to decide
+   which size chart to use. Cache-first: if the row exists in garment_cache the
+   result is instant. If not, Gemini classifies the image and caches the result.
+   Returns { garment_category: string|null } — never errors on a missing Supabase
+   config (returns null so the frontend falls back to its local type field). */
+app.get("/api/garment-category", classifyLimiter, async (req, res) => {
+  const imageUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+  if (!imageUrl) {
+    return res.status(400).json({ error: "missing_url", message: "url query param is required." });
+  }
+  if (!supabase) {
+    return res.json({ garment_category: null });
+  }
+
+  try {
+    const cached = await getCachedClassification(imageUrl);
+    if (cached && cached.garment_category) {
+      return res.json({ garment_category: cached.garment_category });
+    }
+
+    // Not cached (or garment_category not yet populated for this row) — classify now.
+    if (!GEMINI_API_KEY) {
+      return res.json({ garment_category: null });
+    }
+    const { frontBack, garmentCategory } = await classifyGarmentFull(imageUrl);
+    await saveClassification(imageUrl, cached?.classification || frontBack, garmentCategory);
+    return res.json({ garment_category: garmentCategory });
+  } catch (err) {
+    console.error("[garment-category] classification failed:", err?.message || err);
+    return res.json({ garment_category: null });
+  }
 });
 
 /* POST /api/store-catalog - { domain, type } → { items: [{ image_url, classification }] }

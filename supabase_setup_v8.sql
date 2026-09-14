@@ -1,0 +1,37 @@
+-- =============================================================================
+-- PEAR · Supabase Setup V8 — garment_category on garment_cache
+-- =============================================================================
+--
+-- WHY THIS MIGRATION EXISTS
+-- ─────────────────────────
+-- The backend Gemini classification pipeline previously recorded only whether a
+-- garment photo shows the front or the back of the item (the `classification`
+-- column: "front" | "back"). The size calculator in fitting-room/app.js needs to
+-- know the GARMENT TYPE (pants vs top) so it can route the user's measurements
+-- to the correct size chart:
+--
+--   pants / jeans  → ADULT_PANTS_SIZE_CHART  → numeric waist sizes  (28/30/32/34/36)
+--   top / shirt    → ZARA_SIZE_CHART          → letter sizes         (S/M/L/XL)
+--
+-- Storing this in Supabase (rather than relying on a local type field in the
+-- frontend catalog) makes the classification backend-authoritative: widget
+-- garments from external stores (which have no local catalog entry) are correctly
+-- typed once Gemini has analysed their image, and the result is cached so the
+-- same image is never re-analysed.
+--
+-- WHAT THIS DOES (safe to run on a live database)
+-- ─────────────────────────────────────────────────
+--   Adds `garment_category` column to `garment_cache`.
+--   Values: "top" | "pants" | "other" | NULL (null = not yet classified by this pipeline)
+--   Existing rows keep classification = "front"|"back" unchanged; garment_category
+--   starts as NULL and is backfilled lazily the next time each image URL is requested.
+--
+-- HOW TO RUN
+-- ──────────
+-- 1. Open https://supabase.com → your project → SQL Editor → New query.
+-- 2. Paste this ENTIRE file.
+-- 3. Click Run (Cmd/Ctrl + Enter).
+-- =============================================================================
+
+ALTER TABLE garment_cache
+  ADD COLUMN IF NOT EXISTS garment_category TEXT DEFAULT NULL;

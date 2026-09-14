@@ -488,6 +488,10 @@ let currentUserSize = null;
 let activeTryOnSize = null;   // size the user has selected in the Screen 2 override selector
 let activeItem = null;
 let focusMode = false;
+/* Backend-authoritative garment classification fetched from Supabase via
+   /api/garment-category. "pants" | "top" | "other" | null (null = not yet fetched
+   or Supabase unavailable; calculateSize() falls back to activeItem.type). */
+let currentGarmentCategory = null;
 
 /* Multi-Image Product Gallery Sync - which product angle the live engine is warping.
    The SINGLE rtClient session is reused across switches: changing the angle only
@@ -575,6 +579,23 @@ const ZARA_SIZE_CHART = [
   { size: "XL", minHeight: 184, maxHeight: 195, minWeight: 85, maxWeight: 100, minChest: 110, maxChest: 118, minWaist: 96, maxWaist: 106, minLegs: 106, maxLegs: 112 },
 ];
 
+/* Numeric waist sizes (US inches) for jeans/trousers.
+   Calibrated so 185cm/82kg → "32":
+     28 | 155-172cm / 50-65kg
+     30 | 163-180cm / 60-75kg
+     32 | 174-188cm / 69-86kg  ← 185/82 lands here (penalty 0)
+     34 | 182-196cm / 83-98kg
+     36 | 188-210cm / 95-115kg
+   Penalty scoring is the same algorithm as ZARA_SIZE_CHART (height+weight only;
+   chest/waist/legs optional fields are not used for pants). */
+const ADULT_PANTS_SIZE_CHART = [
+  { size: "28", minHeight: 155, maxHeight: 172, minWeight: 50, maxWeight: 65  },
+  { size: "30", minHeight: 163, maxHeight: 180, minWeight: 60, maxWeight: 75  },
+  { size: "32", minHeight: 174, maxHeight: 188, minWeight: 69, maxWeight: 86  },
+  { size: "34", minHeight: 182, maxHeight: 196, minWeight: 83, maxWeight: 98  },
+  { size: "36", minHeight: 188, maxHeight: 210, minWeight: 95, maxWeight: 115 },
+];
+
 /* Ordered size scale - full range used by the override selector and delta math. */
 const SIZE_SCALE = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
 
@@ -597,8 +618,41 @@ function setOptionalVisible(show) {
   }
 }
 
+/* Fetch the backend-authoritative garment category for imageUrl and update
+   currentGarmentCategory, then re-run calculateSize() so the size result
+   immediately reflects the correct chart. Fire-and-forget: errors are silently
+   swallowed so a Supabase/network hiccup never blocks the user. */
+async function fetchAndSetGarmentCategory(imageUrl) {
+  if (!imageUrl || imageUrl.startsWith("data:")) return;  // data URLs are local crops, not classifiable
+  try {
+    const res = await fetch(`/api/garment-category?url=${encodeURIComponent(imageUrl)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const cat = data && data.garment_category;
+    if (cat && cat !== currentGarmentCategory) {
+      currentGarmentCategory = cat;
+      calculateSize();  // re-run with authoritative category now known
+    }
+  } catch (_) {}
+}
+
+/* Returns true if the current product should use the numeric pants size chart.
+   Priority: Supabase-fetched category > local activeItem.type > URL handoff type. */
+function isPantsProduct() {
+  if (currentGarmentCategory === "pants") return true;
+  if (currentGarmentCategory !== null) return false;  // Supabase says top/other
+  if (activeItem) return activeItem.type === "pants";
+  const handoff = parseHandoff();
+  return handoff ? handoff.type === "pants" : false;
+}
+
 /**
- * Recompute the recommended size from the form inputs (Zara chart, penalty-scored).
+ * Recompute the recommended size from the form inputs.
+ * Pants/jeans are routed to ADULT_PANTS_SIZE_CHART (numeric: 28/30/32/34/36).
+ * All other garments use ZARA_SIZE_CHART (letter: S/M/L/XL).
+ * The chart used is locked by isPantsProduct() which treats Supabase as the
+ * primary source of truth; local type is the fallback so PEAR_CATALOG items
+ * always route correctly even before the async Supabase fetch resolves.
  * Drives the result box, the "continue" button enabled-state, and - via
  * setOptionalVisible - the conditional reveal of the optional measurement fields.
  * Re-run on every input event. Pure UI/state; no network.
@@ -639,17 +693,40 @@ function calculateSize() {
   let bestSize = "מידה מחוץ לטווח", minPenalty = Infinity;
   const MAX_ALLOWED_PENALTY = 35;
 
-  ZARA_SIZE_CHART.forEach((row) => {
-    let pen = 0;
-    if (height < row.minHeight) pen += (row.minHeight - height) * 2;
-    if (height > row.maxHeight) pen += (height - row.maxHeight) * 2;
-    if (weight < row.minWeight) pen += (row.minWeight - weight) * 2;
-    if (weight > row.maxWeight) pen += (weight - row.maxWeight) * 2;
-    if (chest) { if (chest < row.minChest) pen += (row.minChest - chest) * 0.5; if (chest > row.maxChest) pen += (chest - row.maxChest) * 0.5; }
-    if (waist) { if (waist < row.minWaist) pen += (row.minWaist - waist) * 0.5; if (waist > row.maxWaist) pen += (waist - row.maxWaist) * 0.5; }
-    if (legs)  { if (legs  < row.minLegs)  pen += (row.minLegs  - legs)  * 0.5; if (legs  > row.maxLegs)  pen += (legs  - row.maxLegs)  * 0.5; }
-    if (pen < minPenalty) { minPenalty = pen; bestSize = row.size; }
-  });
+  if (isPantsProduct()) {
+    // Pants/jeans: numeric waist size chart. Chest/waist/legs optional fields
+    // are irrelevant for pants sizing (waist inference from height+weight is
+    // already baked into the chart calibration).
+    ADULT_PANTS_SIZE_CHART.forEach((row) => {
+      let pen = 0;
+      if (height < row.minHeight) pen += (row.minHeight - height) * 2;
+      if (height > row.maxHeight) pen += (height - row.maxHeight) * 2;
+      if (weight < row.minWeight) pen += (row.minWeight - weight) * 2;
+      if (weight > row.maxWeight) pen += (weight - row.maxWeight) * 2;
+      if (pen < minPenalty) { minPenalty = pen; bestSize = row.size; }
+    });
+  } else {
+    ZARA_SIZE_CHART.forEach((row) => {
+      let pen = 0;
+      if (height < row.minHeight) pen += (row.minHeight - height) * 2;
+      if (height > row.maxHeight) pen += (height - row.maxHeight) * 2;
+      if (weight < row.minWeight) pen += (row.minWeight - weight) * 2;
+      if (weight > row.maxWeight) pen += (weight - row.maxWeight) * 2;
+      if (chest) { if (chest < row.minChest) pen += (row.minChest - chest) * 0.5; if (chest > row.maxChest) pen += (chest - row.maxChest) * 0.5; }
+      if (waist) { if (waist < row.minWaist) pen += (row.minWaist - waist) * 0.5; if (waist > row.maxWaist) pen += (waist - row.maxWaist) * 0.5; }
+      if (legs)  { if (legs  < row.minLegs)  pen += (row.minLegs  - legs)  * 0.5; if (legs  > row.maxLegs)  pen += (legs  - row.maxLegs)  * 0.5; }
+      if (pen < minPenalty) { minPenalty = pen; bestSize = row.size; }
+    });
+  }
+
+  // UI rendering lock: if the database (or local type) flags this as pants, bestSize
+  // MUST be numeric. The isPantsProduct() branch above guarantees this structurally
+  // (ADULT_PANTS_SIZE_CHART only emits "28"/"30"/"32"/"34"/"36"), but this guard
+  // makes the invariant explicit: a letter size can NEVER reach the DOM for a pants item.
+  if (isPantsProduct() && !/^\d+$/.test(bestSize)) {
+    console.error("[PEAR] size-chart invariant violated: pants item received letter size", bestSize, "- forcing ADULT_PANTS_SIZE_CHART re-run");
+    bestSize = "32";   // safe fallback; should never happen with correct chart data
+  }
 
   if (minPenalty > MAX_ALLOWED_PENALTY) {
     // Measurements don't match any chart row exactly, but we still let the user
@@ -1050,6 +1127,14 @@ function setActiveItem(item, opts = {}) {
   // Reset the active colour to the new item's first variant (null when it has none) so
   // the swatch strip + gallery always resolve to a valid colour for THIS product.
   activeColor = colorsOf(item)[0] || null;
+
+  // Reset garment category so calculateSize() doesn't use a stale value from the
+  // previous product while the new fetch is in flight. The local type field acts as
+  // the immediate fallback until Supabase responds.
+  currentGarmentCategory = null;
+  // Fire-and-forget: fetch the backend-authoritative garment category. On success
+  // it updates currentGarmentCategory and re-runs calculateSize() automatically.
+  fetchAndSetGarmentCategory(item.img || "");
 
   // ADDITIVE write: fill ONLY this garment's slot (top|bottom) and leave the
   // opposite slot untouched. Picking a different shirt replaces the top; adding
@@ -6508,6 +6593,15 @@ function init() {
   if (handoff) {
     const hint = $("focusCalcHint");
     if (hint) { hint.hidden = false; hint.innerHTML = `נבחר הפריט <strong>${handoff.name}</strong> מלא מידות כדי להמשיך למדידה הוירטואלית.`; }
+    // Kick off the Supabase garment-category fetch early so the size chart is
+    // correct by the time the user finishes entering height/weight on Screen 1.
+    // For widget/focus-mode items the type comes from the URL; fetchAndSetGarmentCategory
+    // will confirm or override it with the backend-authoritative Supabase value.
+    fetchAndSetGarmentCategory(handoff.img || "");
+  } else {
+    // Catalog mode: pre-fetch for the first catalog item so the chart is ready
+    // before the user interacts with measurements.
+    fetchAndSetGarmentCategory((PEAR_CATALOG[0] && PEAR_CATALOG[0].img) || "");
   }
 
   // Identity gate - ALWAYS Step 0 for the main app / a real merchant embed
