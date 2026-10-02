@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PEAR - מחשבון תמחור ומכירה</title>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --pear:#5f8a00; --pear-deep:#3f5c00; --pear-soft:rgba(95,138,0,.10); --pear-ring:rgba(95,138,0,.28);
+  --ink:#12130f; --text:#1d1f18; --muted:#5c5f56; --muted-2:#8a8d82;
+  --bg:#f3f4ee; --card:#fff; --line:rgba(20,22,14,.11);
+  --good:#2f7d32; --good-bg:#e8f4e8; --warn:#a36200; --warn-bg:#fff3dc; --bad:#b3261e; --bad-bg:#fdeceb;
+  --radius:16px; --shadow:0 4px 18px rgba(20,22,14,.07);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{font-family:'Assistant','Segoe UI',Arial,sans-serif;color:var(--text);background:var(--bg);line-height:1.5;-webkit-font-smoothing:antialiased;}
+h1,h2,h3,h4,p{margin:0;}
+.wrap{max-width:1280px;margin:0 auto;padding:0 18px;}
+.num{direction:ltr;unicode-bidi:isolate;display:inline-block;}
+
+header.top{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;}
+.top-in{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 0;}
+.brand{display:flex;align-items:center;gap:12px;}
+.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--pear-deep),var(--pear));color:#fff;display:grid;place-items:center;font-weight:800;font-family:Didot,'Bodoni MT',Georgia,serif;font-size:1.2rem;}
+.brand h1{font-size:1.1rem;font-weight:800;}
+.brand p{font-size:.78rem;color:var(--muted);}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{font-family:inherit;font-weight:700;font-size:.85rem;border-radius:999px;padding:9px 16px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);}
+.btn:hover{border-color:var(--pear);color:var(--pear-deep);}
+.btn.primary{background:var(--pear);color:#fff;border-color:var(--pear);}
+.btn.primary:hover{background:var(--pear-deep);color:#fff;}
+
+.layout{display:grid;grid-template-columns:1fr;gap:20px;padding:20px 0 28px;align-items:start;}
+@media(min-width:1000px){.layout{grid-template-columns:minmax(0,5fr) minmax(0,6fr);}}
+.results{order:-1;}
+@media(min-width:1000px){.results{order:0;position:sticky;top:76px;max-height:calc(100vh - 92px);overflow:auto;padding-inline-end:4px;}}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;}
+.card + .card{margin-top:14px;}
+.card h2{font-size:1rem;font-weight:800;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.card .sub{font-size:.8rem;color:var(--muted);margin-bottom:12px;}
+
+details.sec{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:12px;}
+details.sec > summary{list-style:none;cursor:pointer;padding:14px 18px;font-weight:800;font-size:.95rem;display:flex;justify-content:space-between;align-items:center;}
+details.sec > summary::-webkit-details-marker{display:none;}
+details.sec > summary::after{content:"▾";color:var(--muted);transition:transform .2s;}
+details.sec[open] > summary::after{transform:rotate(180deg);}
+details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-top:14px;}
+.sec-hint{font-size:.78rem;color:var(--muted);margin-bottom:12px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;}
+@media(max-width:520px){.grid2{grid-template-columns:1fr;}}
+.field label{display:block;font-size:.76rem;font-weight:700;color:var(--muted);margin-bottom:4px;}
+.field .hint{display:block;font-size:.7rem;color:var(--muted-2);margin-top:3px;line-height:1.35;}
+.inp{position:relative;}
+.inp input[type=number],.inp select,.inp input[type=text]{width:100%;padding:9px 12px;padding-inline-end:46px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:.9rem;color:var(--ink);background:#fff;}
+.inp select{padding-inline-end:12px;}
+.inp input:focus,.inp select:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
+.inp .unit{position:absolute;inset-inline-end:10px;top:50%;transform:translateY(-50%);font-size:.72rem;color:var(--muted-2);pointer-events:none;}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:.82rem;font-weight:600;color:var(--text);padding-top:4px;}
+.check input{margin-top:3px;accent-color:var(--pear);}
+.full{grid-column:1/-1;}
+
+/* results */
+.banner{border-radius:var(--radius);padding:14px 16px;border:1px solid;display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;}
+.banner .ic{font-size:1.4rem;line-height:1;}
+.banner h3{font-size:.98rem;font-weight:800;margin-bottom:2px;}
+.banner p{font-size:.84rem;}
+.banner.good{background:var(--good-bg);border-color:rgba(47,125,50,.35);color:#1d4d20;}
+.banner.warn{background:var(--warn-bg);border-color:rgba(163,98,0,.35);color:#6b4100;}
+.banner.bad{background:var(--bad-bg);border-color:rgba(179,38,30,.35);color:#7a1812;}
+
+.plans{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+@media(max-width:560px){.plans{grid-template-columns:1fr;}}
+.plan{border:1.5px solid var(--line);border-radius:var(--radius);padding:16px;background:#fff;position:relative;}
+.plan.best{border-color:var(--pear);background:linear-gradient(160deg,var(--pear-soft),#fff 60%);box-shadow:0 8px 26px rgba(95,138,0,.16);}
+.plan .tag{position:absolute;top:-10px;inset-inline-start:14px;background:var(--pear);color:#fff;font-size:.68rem;font-weight:800;padding:2px 10px;border-radius:999px;}
+.plan .pname{font-size:.78rem;font-weight:800;color:var(--pear-deep);letter-spacing:.02em;}
+.plan .pprice{font-size:clamp(1.7rem,3.2vw,2.3rem);font-weight:800;color:var(--ink);line-height:1.1;margin:4px 0 2px;}
+.plan .psub{font-size:.78rem;color:var(--muted);margin-bottom:10px;}
+.plan ul{list-style:none;margin:0;padding:0;font-size:.82rem;}
+.plan li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);}
+.plan li span:first-child{color:var(--muted);}
+.plan li b{font-weight:800;text-align:end;}
+
+.kv{width:100%;border-collapse:collapse;font-size:.85rem;}
+.kv td{padding:8px 4px;border-bottom:1px solid var(--line);vertical-align:top;}
+.kv tr:last-child td{border-bottom:none;}
+.kv td:first-child{color:var(--muted);}
+.kv td:last-child{text-align:end;font-weight:800;color:var(--ink);white-space:nowrap;}
+.kv .small{display:block;font-weight:500;font-size:.72rem;color:var(--muted-2);white-space:normal;}
+.kv tr.total td{border-top:2px solid var(--line);font-weight:800;}
+.neg{color:var(--bad)!important;} .pos{color:var(--good)!important;}
+
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;}
+.metric{background:var(--bg);border-radius:12px;padding:10px 12px;}
+.metric .l{font-size:.72rem;color:var(--muted);font-weight:600;}
+.metric .v{font-size:1.15rem;font-weight:800;color:var(--ink);}
+.metric .s{font-size:.68rem;color:var(--muted-2);}
+
+.ladder{display:flex;flex-direction:column;gap:6px;}
+.rung{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 12px;border-radius:10px;background:var(--bg);font-size:.84rem;align-items:center;}
+.rung .n small{display:block;font-size:.7rem;color:var(--muted-2);}
+.rung b{font-weight:800;}
+.rung.rec{background:var(--pear-soft);border:1.5px solid var(--pear);}
+
+.alerts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.alerts li{font-size:.82rem;border-radius:10px;padding:8px 12px;border:1px solid;}
+.alerts li.bad{background:var(--bad-bg);border-color:rgba(179,38,30,.3);color:#7a1812;}
+.alerts li.warn{background:var(--warn-bg);border-color:rgba(163,98,0,.3);color:#6b4100;}
+.alerts li.info{background:#eef3fb;border-color:rgba(40,90,170,.25);color:#1f3f73;}
+.alerts li.good{background:var(--good-bg);border-color:rgba(47,125,50,.3);color:#1d4d20;}
+
+.tablewrap{overflow-x:auto;}
+table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:760px;}
+table.all th{font-size:.7rem;color:var(--muted);text-align:start;padding:8px 10px;background:var(--bg);position:sticky;top:0;white-space:nowrap;}
+table.all td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+table.all tbody tr{cursor:pointer;}
+table.all tbody tr:hover{background:var(--pear-soft);}
+table.all tbody tr.sel{background:var(--pear-soft);outline:1.5px solid var(--pear);outline-offset:-1.5px;}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:6px;}
+.dot.good{background:var(--good);} .dot.warn{background:#e0a100;} .dot.bad{background:var(--bad);}
+.note{font-size:.76rem;color:var(--muted);margin-top:10px;}
+footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:center;}
+.toast{position:fixed;bottom:22px;inset-inline-start:50%;transform:translateX(50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:.85rem;font-weight:700;opacity:0;pointer-events:none;transition:opacity .25s;z-index:60;}
+.toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <h1>PEAR - מחשבון תמחור ומכירה</h1>
+        <p>כמה למכור, חודשי או שנתי, וכמה לקחת מהחברה</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button type="button" class="btn" id="resetBtn">איפוס ברירות מחדל</button>
+      <button type="button" class="btn primary" id="copyBtn">העתק הצעת מחיר ללקוח</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="layout">
+    <section id="inputs" aria-label="נתוני קלט"></section>
+    <aside id="results" class="results" aria-live="polite" aria-label="תוצאות"></aside>
+  </div>
+
+  <section class="card" id="allCard">
+    <h2>כל החברות במחיר אחד (לפי ההגדרות הנוכחיות)</h2>
+    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה וחשיפה) ועם עלויות ומדיניות התמחור שהגדרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
+    <div class="tablewrap">
+      <table class="all">
+        <thead><tr>
+          <th>מותג</th><th>סוג</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
+          <th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th>
+        </tr></thead>
+        <tbody id="allBody"></tbody>
+      </table>
+    </div>
+    <p class="note">נתוני המותגים הם הערכות מתוך הסימולטור הקיים ולא נתונים מאומתים. החליפו בנתונים אמיתיים מהלקוח לפני הצעת מחיר.</p>
+  </section>
+</main>
+
+<footer>PEAR Virtual Try-On - מחשבון פנימי. המחשבון נותן הערכה על בסיס ההנחות שהוזנו, ולא התחייבות.</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================================
+   מודל החישוב (פונקציה טהורה, ללא תלות ב-DOM)
+============================================================================ */
+function computeModel(i) {
+  const orders = i.traffic * i.conv / 100;
+  const revenue = orders * i.aov;
+  const netProfit = revenue * i.cMargin / 100;
+  const cap = netProfit * i.maxShare / 100;
+
+  const costPerTry = i.sec * i.usdPerSec * (1 + i.buffer / 100) * i.fx;
+  const costPerUser = costPerTry * i.tries + i.otherPerUser;
+  const F = i.fixed;
+  const m = Math.min(i.targetMargin / 100, 0.95);
+  const mMin = Math.min(i.minMargin / 100, m);
+  const setupCost = i.onboardHours * i.hourRate;
+
+  const e0 = i.engagement / 100;
+  const varCostAt = e => i.traffic * e * costPerUser;
+  const floorAt = e => Math.max(i.minPrice, (varCostAt(e) + F) / (1 - m));
+
+  let e = e0, optimized = false;
+  if (floorAt(e0) > cap) {
+    optimized = true;
+    const denom = i.traffic * costPerUser;
+    const eMax = denom > 0 ? (cap * (1 - m) - F) / denom : e0;
+    e = Math.max(0, Math.min(e0, eMax));
+  }
+
+  const users = i.traffic * e;
+  const tries = users * i.tries;
+  const varCost = varCostAt(e);
+  const decartCost = users * costPerTry * i.tries;
+  const C = varCost + F;
+
+  const convExposed = Math.min(0.5, i.conv / 100 * i.lift);
+  const expOrders = Math.min(orders, users * convExposed);
+  const returnSavings = expOrders * i.returnRate / 100 * i.costPerReturn * i.returnReduction / 100;
+  const upliftOrders = expOrders * i.uplift / 100;
+  const upliftProfit = upliftOrders * i.aov * i.gMargin / 100;
+  const value = returnSavings + upliftProfit;
+
+  const targetPrice = floorAt(e);
+  const floor = Math.max(i.minPrice, C / (1 - mMin));
+  const valuePrice = i.targetROI > 0 ? value / i.targetROI : 0;
+  const raw = Math.min(cap, Math.max(floor, valuePrice));
+  const stepFor = x => x < 3000 ? 50 : x < 30000 ? 100 : 500;
+  let price = Math.round(raw / stepFor(raw)) * stepFor(raw);
+  if (price < floor && floor <= cap * 1.05) price = Math.ceil(floor / stepFor(floor)) * stepFor(floor);
+  if (!(price > 0)) price = 0;
+
+  const margin = price > 0 ? (price - C) / price : 0;
+  const roi = price > 0 ? value / price : 0;
+
+  const disc = i.annualDiscount / 100;
+  let annualTotal = price * 12 * (1 - disc);
+  const stepA = annualTotal < 30000 ? 100 : 500;
+  annualTotal = Math.round(annualTotal / stepA) * stepA;
+  const annualEff = annualTotal / 12;
+  const annualSaving = price * 12 - annualTotal;
+  const annualCost = C * 12;
+  const setupRevAnnual = i.waiveSetup ? 0 : i.setupFee;
+  const annualProfit = annualTotal - annualCost + setupRevAnnual - setupCost;
+  const annualMargin = annualTotal > 0 ? (annualTotal - annualCost) / annualTotal : 0;
+
+  const c = i.churn / 100;
+  const f = c > 0 ? (1 - Math.pow(1 - c, 12)) / c : 12;
+  const monthlyRev12 = price * f;
+  const monthlyCost12 = C * f;
+  const monthlyProfit12 = monthlyRev12 - monthlyCost12 + i.setupFee - setupCost;
+  const lifetimeMonths = c > 0 ? 1 / c : Infinity;
+
+  const maxSafeDisc = price > 0 ? Math.max(0, 1 - floor / price) : 0;
+
+  const overageRaw = tries > 0 ? (costPerUser / i.tries) / (1 - m) : costPerTry / (1 - m);
+  const overage = Math.ceil(overageRaw / 0.05) * 0.05;
+
+  const marginAtROI = valuePrice > 0 ? (valuePrice - C) / valuePrice : 0;
+  const upliftDenom = expOrders * i.aov * i.gMargin / 100;
+  const reqUpliftROI = upliftDenom > 0 ? Math.max(0, (price * i.targetROI - returnSavings) / upliftDenom * 100) : null;
+  const reqUplift1x = upliftDenom > 0 ? Math.max(0, (price - returnSavings) / upliftDenom * 100) : null;
+
+  return {
+    orders, revenue, netProfit, cap, costPerTry, costPerUser, setupCost,
+    e0, e, optimized, users, tries, varCost, decartCost, fixed: F, C,
+    expOrders, returnSavings, upliftOrders, upliftProfit, value,
+    targetPrice, valuePrice, floor, raw, price, margin, roi,
+    annualTotal, annualEff, annualSaving, annualCost, annualProfit, annualMargin,
+    monthlyRev12, monthlyCost12, monthlyProfit12, lifetimeMonths, f,
+    maxSafeDisc, overage, marginAtROI, reqUpliftROI, reqUplift1x,
+    shareOfProfit: netProfit > 0 ? price / netProfit : 0,
+    shareOfSales: revenue > 0 ? price / revenue : 0,
+    unviable: e < 0.001 || price <= 0,
+  };
+}
+
+/* ============================================================================
+   נתוני מותגים (הערכות מתוך הסימולטור הקיים: "price clac/index.html")
+============================================================================ */
+const GROUP_LABELS = {1:'ענקיות ופלטפורמות', 2:'רשתות אופנה', 3:'D2C ובוטיקים'};
+const BRANDS = [
+  {"key":"terminal-x","name":"Terminal X","tag":"מפלצת איקומרס","group":1,"traffic":7500000,"conv":2.1,"aov":300,"cMargin":5.6,"maxShare":10,"engagement":12},
+  {"key":"shoesonline","name":"ShoesOnline","tag":"מרקטפלייס נעליים","group":1,"traffic":1100000,"conv":3.1,"aov":350,"cMargin":5.8,"maxShare":10,"engagement":12},
+  {"key":"one-project","name":"One Project","tag":"קניון דיגיטלי (עזריאלי)","group":1,"traffic":650000,"conv":3.1,"aov":320,"cMargin":6.9,"maxShare":10,"engagement":15},
+  {"key":"platin-express","name":"Platin Express","tag":"פרימיום וסטריטוול","group":1,"traffic":400000,"conv":2.5,"aov":420,"cMargin":8.3,"maxShare":10,"engagement":15},
+  {"key":"step-in","name":"Step In","tag":"מולטי-ברנד נעליים","group":1,"traffic":350000,"conv":2.5,"aov":350,"cMargin":6.8,"maxShare":10,"engagement":15},
+  {"key":"story-online","name":"Story Online","tag":"אופנת יבוא פרימיום","group":1,"traffic":280000,"conv":2.6,"aov":400,"cMargin":9,"maxShare":10,"engagement":15},
+  {"key":"delta","name":"Delta","tag":"מותג ענק","group":2,"traffic":2100000,"conv":2.9,"aov":360,"cMargin":8.2,"maxShare":10,"engagement":12},
+  {"key":"castro","name":"Castro","tag":"רשת אופנה","group":2,"traffic":1400000,"conv":2.7,"aov":300,"cMargin":4.3,"maxShare":10,"engagement":12},
+  {"key":"renuar","name":"Renuar","tag":"רשת אופנה","group":2,"traffic":950000,"conv":2.8,"aov":320,"cMargin":6.5,"maxShare":10,"engagement":15},
+  {"key":"hoodies","name":"Hoodies","tag":"קז'ואל ובייסיק","group":2,"traffic":750000,"conv":2.9,"aov":290,"cMargin":7.7,"maxShare":10,"engagement":15},
+  {"key":"urbanica","name":"Urbanica","tag":"Value Fashion","group":2,"traffic":700000,"conv":3.6,"aov":220,"cMargin":6,"maxShare":10,"engagement":15},
+  {"key":"weshoes","name":"WeShoes","tag":"נעלי נוחות","group":2,"traffic":600000,"conv":2.5,"aov":340,"cMargin":7.7,"maxShare":10,"engagement":15},
+  {"key":"golf-online","name":"Golf Online","tag":"גולף ואינטימה","group":2,"traffic":550000,"conv":2.7,"aov":300,"cMargin":4.9,"maxShare":10,"engagement":15},
+  {"key":"fox-online","name":"Fox Online","tag":"רשת אופנה","group":2,"traffic":500000,"conv":2.9,"aov":280,"cMargin":6,"maxShare":10,"engagement":15},
+  {"key":"twentyfourseven","name":"Twentyfourseven","tag":"אופנת דור Z","group":2,"traffic":480000,"conv":2.9,"aov":270,"cMargin":6.8,"maxShare":10,"engagement":15},
+  {"key":"hamashbir365","name":"המשביר 365","tag":"כלבו דיגיטלי","group":2,"traffic":420000,"conv":2.8,"aov":300,"cMargin":5.1,"maxShare":10,"engagement":15},
+  {"key":"tamnoon","name":"תמנון","tag":"רשת דיסקאונט","group":2,"traffic":380000,"conv":2.8,"aov":260,"cMargin":5,"maxShare":12,"engagement":15},
+  {"key":"golbary","name":"גולברי","tag":"אופנה לקהל מבוגר","group":2,"traffic":350000,"conv":2.3,"aov":400,"cMargin":8.8,"maxShare":12,"engagement":15},
+  {"key":"crazy-line","name":"Crazy Line","tag":"נאמנות לקוחות גבוהה","group":2,"traffic":300000,"conv":3,"aov":320,"cMargin":8.6,"maxShare":12,"engagement":15},
+  {"key":"honigman-kids","name":"Honigman Kids","tag":"בגדי ילדים","group":2,"traffic":240000,"conv":2.5,"aov":350,"cMargin":8.6,"maxShare":12,"engagement":18},
+  {"key":"kiwi-kids","name":"Kiwi Kids","tag":"דיסקאונט לילדים","group":2,"traffic":210000,"conv":3.1,"aov":280,"cMargin":7.2,"maxShare":12,"engagement":18},
+  {"key":"intima","name":"Intima","tag":"הלבשה תחתונה","group":2,"traffic":190000,"conv":3,"aov":280,"cMargin":8.8,"maxShare":15,"engagement":18},
+  {"key":"jack-kuba","name":"Jack Kuba","tag":"יוקרה - הלבשה תחתונה","group":2,"traffic":150000,"conv":3.3,"aov":450,"cMargin":14.1,"maxShare":15,"engagement":20},
+  {"key":"itay-brands","name":"Itay Brands","tag":"D2C מוביל","group":3,"traffic":380000,"conv":2.8,"aov":400,"cMargin":11,"maxShare":12,"engagement":15},
+  {"key":"adika","name":"Adika אונליין","tag":"אופנת צעירות","group":3,"traffic":300000,"conv":3.4,"aov":300,"cMargin":7.1,"maxShare":12,"engagement":15},
+  {"key":"rockglam","name":"Rockglam","tag":"בוטיק D2C","group":3,"traffic":220000,"conv":3.4,"aov":290,"cMargin":8.2,"maxShare":15,"engagement":18},
+  {"key":"strongful","name":"Strongful","tag":"אקטיבוול","group":3,"traffic":180000,"conv":3.5,"aov":300,"cMargin":11.1,"maxShare":15,"engagement":18},
+  {"key":"galita","name":"גליתא","tag":"אופנת ערב","group":3,"traffic":160000,"conv":2.6,"aov":380,"cMargin":7.5,"maxShare":15,"engagement":20},
+  {"key":"s-wear","name":"S.Wear","tag":"בייסיק איכותי","group":3,"traffic":140000,"conv":3.1,"aov":320,"cMargin":8.6,"maxShare":15,"engagement":20},
+  {"key":"shlomit-ofir","name":"שלומית אופיר","tag":"מעצבים ואקססוריז","group":3,"traffic":110000,"conv":2.9,"aov":350,"cMargin":11.8,"maxShare":15,"engagement":20},
+  {"key":"meduza","name":"Meduza","tag":"תיקים ואקססוריז","group":3,"traffic":90000,"conv":3.4,"aov":280,"cMargin":11.2,"maxShare":15,"engagement":20},
+  {"key":"nunuforme","name":"Nunuforme","tag":"בגדי ילדים מעוצבים","group":3,"traffic":85000,"conv":3.4,"aov":310,"cMargin":11.1,"maxShare":15,"engagement":20},
+  {"key":"bare","name":"Bare","tag":"לאונג'וור D2C","group":3,"traffic":80000,"conv":3.8,"aov":250,"cMargin":10.7,"maxShare":15,"engagement":20}
+];
+
+/* ============================================================================
+   הגדרת שדות הקלט
+============================================================================ */
+const FIELDS = [
+  { sec:'client', title:'1. נתוני הלקוח (החברה)', open:true,
+    hint:'בחר חברה מוכנה או הזן נתונים אמיתיים שקיבלת מהלקוח.',
+    fields:[
+      {id:'name',  label:'שם החברה', type:'text', def:''},
+      {id:'traffic', label:'כניסות חודשיות לאתר', def:500000, step:1000, unit:'ביקורים', client:true},
+      {id:'conv', label:'אחוז המרה', def:2.8, step:0.1, unit:'%', client:true},
+      {id:'aov', label:'סל קנייה ממוצע', def:300, step:10, unit:'₪', client:true},
+      {id:'cMargin', label:'רווח נקי של המותג', def:6, step:0.1, unit:'%', client:true},
+      {id:'gMargin', label:'רווח גולמי של המותג', def:55, step:1, unit:'%', hint:'משמש לחישוב הרווח מהמכירות הנוספות'},
+      {id:'maxShare', label:'תקרת תקציב: % מהרווח הנקי', def:10, step:1, unit:'%', client:true, hint:'כמה מהרווח הנקי החברה מוכנה לשלם לתוכנה'},
+      {id:'engagement', label:'חשיפה: % מהמבקרים שרואים את הכפתור', def:15, step:0.5, unit:'%', client:true, hint:'הכפתור מוצג רק למבקרים החמים'},
+    ]},
+  { sec:'value', title:'2. ההנחות על הערך ללקוח (ROI)', open:false,
+    hint:'אלה הנחות, לא נתונים מוכחים. יש לאמת אותן בפיילוט A/B לפני שמבטיחים ללקוח תוצאות.',
+    fields:[
+      {id:'lift', label:'מכפיל טירגוט', def:3, step:0.5, unit:'פי', hint:'כמה פי סביר שמבקר חם יקנה לעומת מבקר ממוצע'},
+      {id:'uplift', label:'עלייה יחסית בהמרה בזכות PEAR', def:10, step:1, unit:'%', hint:'ההנחה הרגישה ביותר במודל'},
+      {id:'returnRate', label:'שיעור החזרות בבגדים', def:24.5, step:0.5, unit:'%'},
+      {id:'costPerReturn', label:'עלות החזרה אחת ללקוח', def:40, step:5, unit:'₪'},
+      {id:'returnReduction', label:'צמצום החזרות בזכות PEAR', def:20, step:1, unit:'%'},
+    ]},
+  { sec:'cost', title:'3. העלויות שלך', open:false,
+    hint:'עלות Decart נלקחה מהקוד: 5 שניות למדידה, $0.01 לשנייה. השאר הערכות.',
+    fields:[
+      {id:'sec', label:'משך מדידה מחויב', def:5, step:0.5, unit:'שניות'},
+      {id:'usdPerSec', label:'עלות Decart לשנייה', def:0.01, step:0.001, unit:'$'},
+      {id:'tries', label:'מדידות למשתמש פעיל', def:4, step:1, unit:'מדידות', hint:'המנוף החזק ביותר להורדת עלות'},
+      {id:'buffer', label:'באפר חריגה', def:10, step:1, unit:'%'},
+      {id:'fx', label:'שער דולר-שקל', def:3.65, step:0.01, unit:'₪'},
+      {id:'otherPerUser', label:'עלות משתנה אחרת למשתמש', def:0.02, step:0.01, unit:'₪', hint:'מייל אימות, מסד נתונים, סיווג תמונות'},
+      {id:'fixed', label:'עלות קבועה חודשית ללקוח', def:400, step:50, unit:'₪', hint:'אחסון, תמיכה, תחזוקה (הערכה)'},
+      {id:'onboardHours', label:'שעות עבודה בהקמה', def:10, step:1, unit:'שעות'},
+      {id:'hourRate', label:'עלות שעת עבודה', def:250, step:10, unit:'₪'},
+    ]},
+  { sec:'policy', title:'4. מדיניות תמחור', open:true,
+    hint:'כאן קובעים כמה לקחת: רווחיות, הנחת שנתי, דמי הקמה ויעד תשואה ללקוח.',
+    fields:[
+      {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%', hint:'קובעת את גודל החבילה (חשיפה)'},
+      {id:'minMargin', label:'רווחיות מינימום (רצפה)', def:60, step:1, unit:'%', hint:'מתחתיה לא מוכרים'},
+      {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי', hint:'המחיר = הערך שהלקוח מקבל / יעד התשואה'},
+      {id:'minPrice', label:'מחיר חודשי מינימלי', def:1000, step:100, unit:'₪'},
+      {id:'annualDiscount', label:'הנחה על תשלום שנתי מראש', def:15, step:1, unit:'%'},
+      {id:'setupFee', label:'דמי הקמה חד-פעמיים', def:3000, step:100, unit:'₪'},
+      {id:'waiveSetup', label:'לוותר על דמי הקמה בחוזה שנתי', type:'check', def:true},
+      {id:'churn', label:'נטישה חודשית במסלול חודשי', def:6, step:1, unit:'%', hint:'משפיע על ההשוואה חודשי מול שנתי'},
+    ]},
+];
+
+const ALL_FIELDS = FIELDS.flatMap(s => s.fields);
+const FIELD_BY_ID = Object.fromEntries(ALL_FIELDS.map(f => [f.id, f]));
+const STORE_KEY = 'pearPricingCalc.v1';
+const DEFAULT_BRAND = 'renuar';
+
+/* ============================================================================
+   עזרי תצוגה
+============================================================================ */
+const nf = new Intl.NumberFormat('he-IL');
+const ils  = n => (n < 0 ? '-' : '') + '₪' + nf.format(Math.round(Math.abs(n)));
+const ils2 = n => '₪' + n.toFixed(2);
+const usd  = n => '$' + nf.format(Math.round(n));
+const pct  = (x, d = 0) => (x * 100).toFixed(d) + '%';
+const num  = s => '<span class="num">' + s + '</span>';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ============================================================================
+   בניית טופס הקלט
+============================================================================ */
+function renderInputs() {
+  let html = `
+  <details class="sec" open>
+    <summary>בחירת חברה</summary>
+    <div class="body">
+      <div class="field full">
+        <label for="preset">חברה מוכנה (ממלא אוטומטית את נתוני הלקוח)</label>
+        <div class="inp"><select id="preset"></select></div>
+      </div>
+    </div>
+  </details>`;
+  FIELDS.forEach(s => {
+    html += `<details class="sec" ${s.open ? 'open' : ''}><summary>${s.title}</summary><div class="body">`;
+    if (s.hint) html += `<p class="sec-hint">${s.hint}</p>`;
+    html += `<div class="grid2">`;
+    s.fields.forEach(f => {
+      if (f.type === 'check') {
+        html += `<div class="field full"><label class="check"><input type="checkbox" id="${f.id}" ${f.def ? 'checked' : ''}> <span>${f.label}</span></label></div>`;
+      } else if (f.type === 'text') {
+        html += `<div class="field full"><label for="${f.id}">${f.label}</label><div class="inp"><input type="text" id="${f.id}" value="${esc(f.def)}" placeholder="לדוגמה: החברה שלי"></div></div>`;
+      } else {
+        html += `<div class="field"><label for="${f.id}">${f.label}</label><div class="inp"><input type="number" inputmode="decimal" id="${f.id}" value="${f.def}" step="${f.step}" min="0"><span class="unit">${f.unit || ''}</span></div>${f.hint ? `<span class="hint">${f.hint}</span>` : ''}</div>`;
+      }
+    });
+    html += `</div></div></details>`;
+  });
+  $('inputs').innerHTML = html;
+
+  const sel = $('preset');
+  let opts = `<option value="custom">מותאם אישית</option>`;
+  [1, 2, 3].forEach(g => {
+    opts += `<optgroup label="${GROUP_LABELS[g]}">` +
+      BRANDS.filter(b => b.group === g).map(b => `<option value="${b.key}">${esc(b.name)} - ${esc(b.tag)}</option>`).join('') + `</optgroup>`;
+  });
+  sel.innerHTML = opts;
+}
+
+function readInputs() {
+  const out = {};
+  ALL_FIELDS.forEach(f => {
+    const el = $(f.id);
+    if (f.type === 'check') out[f.id] = el.checked;
+    else if (f.type === 'text') out[f.id] = el.value.trim();
+    else {
+      const v = parseFloat(el.value);
+      out[f.id] = Number.isFinite(v) && v >= 0 ? v : f.def;
+    }
+  });
+  return out;
+}
+
+function applyPreset(key) {
+  const b = BRANDS.find(x => x.key === key);
+  if (!b) return;
+  ['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].forEach(id => { $(id).value = b[id]; });
+  $('name').value = b.name;
+}
+
+function saveState() {
+  try {
+    const s = { preset: $('preset').value };
+    ALL_FIELDS.forEach(f => { s[f.id] = f.type === 'check' ? $(f.id).checked : $(f.id).value; });
+    localStorage.setItem(STORE_KEY, JSON.stringify(s));
+  } catch (e) { /* storage may be blocked; the calculator still works */ }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    ALL_FIELDS.forEach(f => {
+      if (!(f.id in s)) return;
+      if (f.type === 'check') $(f.id).checked = !!s[f.id]; else $(f.id).value = s[f.id];
+    });
+    if (s.preset) $('preset').value = s.preset;
+    return true;
+  } catch (e) { return false; }
+}
+
+function resetAll() {
+  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  ALL_FIELDS.forEach(f => {
+    if (f.type === 'check') $(f.id).checked = f.def; else $(f.id).value = f.def;
+  });
+  $('preset').value = DEFAULT_BRAND;
+  applyPreset(DEFAULT_BRAND);
+  update();
+  toast('הוחזרו ברירות המחדל');
+}
+
+/* ============================================================================
+   סטטוס ואזהרות
+============================================================================ */
+function statusOf(r, inp) {
+  if (r.unviable) return 'bad';
+  if (r.margin < inp.minMargin / 100 - 0.005) return 'bad';
+  if (r.roi < 1) return 'bad';
+  if (r.roi < inp.targetROI) return 'warn';
+  return 'good';
+}
+
+function buildAlerts(r, inp) {
+  const a = [];
+  if (r.unviable) {
+    a.push(['bad', 'גם בחשיפה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
+    return a;
+  }
+  if (r.optimized) {
+    a.push(['info', `החשיפה הוקטנה מ-${(r.e0 * 100).toFixed(1)}% ל-${(r.e * 100).toFixed(2)}% כדי שהעלות תישאר בתוך תקרת התקציב של הלקוח (${inp.maxShare}% מהרווח הנקי) ובמקביל תשמור על רווחיות יעד של ${inp.targetMargin}%.`]);
+  }
+  if (r.price < r.floor - 1) {
+    a.push(['bad', `המחיר חתוך בתקרת התקציב של הלקוח (${ils(r.cap)}) ולכן הרווחיות שלך נמוכה מהרצפה שהגדרת (${inp.minMargin}%).`]);
+  }
+  if (r.roi < 1) {
+    a.push(['bad', `לפי ההנחות, הלקוח משלם יותר ממה שהוא מרוויח (ROI ${r.roi.toFixed(2)}). קשה למכור כך. נסה: פחות מדידות למשתמש, טירגוט חד יותר, או אימות ההנחות בפיילוט.`]);
+  } else if (r.roi < inp.targetROI) {
+    a.push(['warn', `ROI ללקוח הוא ${r.roi.toFixed(2)}, מתחת ליעד (${inp.targetROI}). ניתן למכור, אך צריך פיילוט שמוכיח את התוצאה.`]);
+  } else {
+    a.push(['good', `ROI ללקוח הוא ${r.roi.toFixed(1)} פי המחיר: מכירה קלה יחסית.`]);
+  }
+  if (r.reqUpliftROI !== null) {
+    a.push(['info', `כדי שהלקוח יראה ROI של ${inp.targetROI} פי במחיר הזה, צריך שיפור יחסי בהמרה של ${r.reqUpliftROI.toFixed(0)}% (ההנחה הנוכחית: ${inp.uplift}%).`]);
+  }
+  const diff = r.annualProfit - r.monthlyProfit12;
+  a.push([diff >= 0 ? 'good' : 'warn',
+    diff >= 0
+      ? `שנתי עדיף על חודשי ב-${ils(diff)} רווח צפוי ב-12 חודשים (בהנחת נטישה של ${inp.churn}% בחודש במסלול החודשי).`
+      : `חודשי עדיף על שנתי ב-${ils(-diff)} רווח צפוי ב-12 חודשים. כדאי להקטין את ההנחה על השנתי.`]);
+  if (inp.annualDiscount / 100 > r.maxSafeDisc + 0.0005) {
+    a.push(['bad', `הנחת השנתי (${inp.annualDiscount}%) גבוהה מההנחה המקסימלית שמשאירה לך רווחיות מינימום (${(r.maxSafeDisc * 100).toFixed(0)}%).`]);
+  }
+  if (r.price === inp.minPrice || r.price < inp.minPrice) {
+    a.push(['info', 'המחיר נקבע לפי המחיר החודשי המינימלי שהגדרת.']);
+  }
+  return a;
+}
+
+/* ============================================================================
+   הצגת התוצאות
+============================================================================ */
+let LAST = null;
+
+function renderResults(r, inp) {
+  const st = statusOf(r, inp);
+  const stText = {
+    good: ['✅', 'עסקה בריאה', `הלקוח מקבל ערך של ${r.roi.toFixed(1)} פי המחיר, ואתה ברווחיות ${pct(r.margin)}.`],
+    warn: ['⚠️', 'ניתן למכור, אך צריך להוכיח ערך', `התשואה ללקוח (${r.roi.toFixed(2)} פי) מתחת ליעד של ${inp.targetROI} פי. הרווחיות שלך ${pct(r.margin)}.`],
+    bad:  ['⛔', 'עסקה בעייתית בהנחות הנוכחיות',
+      r.unviable ? 'אין מחיר שמחזיק. ראה אזהרות למטה.'
+      : (r.margin < inp.minMargin / 100 - 0.005
+          ? `המחיר שהלקוח יכול לשלם נמוך מהעלות שלך: הרווחיות ${pct(r.margin)}, מתחת לרצפה (${inp.minMargin}%).`
+          : `הלקוח משלם יותר ממה שהוא מרוויח (ROI ${r.roi.toFixed(2)} פי), לפי ההנחות. הרווחיות שלך ${pct(r.margin)}. ראה אזהרות למטה.`)],
+  }[st];
+
+  const annualBetter = r.annualProfit >= r.monthlyProfit12;
+  const eff = r.annualEff;
+  const perUser = r.users > 0 ? r.price / r.users : 0;
+  const perTry = r.tries > 0 ? r.price / r.tries : 0;
+
+  const ladder = [
+    ['רצפה', `רווחיות ${inp.minMargin}% על העלות`, r.floor, false],
+    ['מחיר מומלץ', 'הערך ללקוח, בין הרצפה לתקרת התקציב', r.price, true],
+    ['מחיר לפי ערך', `ערך ללקוח חלקי ${inp.targetROI} (יעד תשואה)`, r.valuePrice, false],
+    ['מחיר לפי רווחיות יעד', `רווחיות ${inp.targetMargin}% על העלות`, r.targetPrice, false],
+    ['תקרת תקציב', `${inp.maxShare}% מהרווח הנקי של הלקוח`, r.cap, false],
+  ].sort((x, y) => x[2] - y[2]);
+
+  const html = `
+  <div class="banner ${st}">
+    <div class="ic">${stText[0]}</div>
+    <div><h3>${esc(inp.name || 'החברה')}: ${stText[1]}</h3><p>${stText[2]}</p></div>
+  </div>
+
+  <div class="plans">
+    <div class="plan ${annualBetter ? '' : 'best'}">
+      ${annualBetter ? '' : '<span class="tag">עדיף</span>'}
+      <div class="pname">מסלול חודשי</div>
+      <div class="pprice">${num(ils(r.price))}</div>
+      <div class="psub">לחודש, ללא התחייבות · ${num(usd(r.price / inp.fx))}</div>
+      <ul>
+        <li><span>דמי הקמה</span><b>${num(ils(inp.setupFee))}</b></li>
+        <li><span>שנה ראשונה (עם נטישה)</span><b>${num(ils(r.monthlyRev12))}</b></li>
+        <li><span>רווח צפוי ב-12 חודשים</span><b class="${r.monthlyProfit12 < 0 ? 'neg' : ''}">${num(ils(r.monthlyProfit12))}</b></li>
+        <li><span>חיי לקוח צפויים</span><b>${isFinite(r.lifetimeMonths) ? r.lifetimeMonths.toFixed(0) + ' חודשים' : 'ללא נטישה'}</b></li>
+      </ul>
+    </div>
+    <div class="plan ${annualBetter ? 'best' : ''}">
+      ${annualBetter ? '<span class="tag">עדיף</span>' : ''}
+      <div class="pname">מסלול שנתי (תשלום מראש)</div>
+      <div class="pprice">${num(ils(r.annualTotal))}</div>
+      <div class="psub">לשנה · ${num(ils(eff))} לחודש בפועל · ${num(usd(r.annualTotal / inp.fx))}</div>
+      <ul>
+        <li><span>חיסכון ללקוח (${inp.annualDiscount}%)</span><b>${num(ils(r.annualSaving))}</b></li>
+        <li><span>דמי הקמה</span><b>${inp.waiveSetup ? 'ללא עלות' : num(ils(inp.setupFee))}</b></li>
+        <li><span>רווח ב-12 חודשים</span><b class="${r.annualProfit < 0 ? 'neg' : ''}">${num(ils(r.annualProfit))}</b></li>
+        <li><span>הנחה מקסימלית בטוחה</span><b>${(r.maxSafeDisc * 100).toFixed(0)}%</b></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>כמה לקחת מהחברה</h2>
+    <p class="sub">המחיר החודשי המומלץ ביחס לחברה ולשימוש.</p>
+    <div class="metrics">
+      <div class="metric"><div class="l">מהרווח הנקי שלה</div><div class="v">${pct(r.shareOfProfit, 1)}</div><div class="s">תקרה ${inp.maxShare}%</div></div>
+      <div class="metric"><div class="l">מהמחזור שלה</div><div class="v">${pct(r.shareOfSales, 2)}</div><div class="s">מחזור ${num(ils(r.revenue))}</div></div>
+      <div class="metric"><div class="l">למשתמש פעיל</div><div class="v">${num(ils2(perUser))}</div><div class="s">עלות שלך ${num(ils2(r.costPerUser))}</div></div>
+      <div class="metric"><div class="l">למדידה</div><div class="v">${num(ils2(perTry))}</div><div class="s">עלות שלך ${num(ils2(r.costPerTry))}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>מדרגות מחיר</h2>
+    <p class="sub">כל המחירים החודשיים שהמודל מחשב, מהנמוך לגבוה.</p>
+    <div class="ladder">
+      ${ladder.map(x => `<div class="rung ${x[3] ? 'rec' : ''}"><div class="n">${x[0]}<small>${x[1]}</small></div><b>${num(ils(x[2]))}</b></div>`).join('')}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>מה כלול בחבילה</h2>
+    <p class="sub">החבילה נקבעת כך שהעלות תתאים לתקרת התקציב של הלקוח.</p>
+    <table class="kv">
+      <tr><td>חשיפה (מבקרים שרואים את הכפתור)<span class="small">ברירת מחדל של המותג: ${(r.e0 * 100).toFixed(1)}%</span></td><td>${(r.e * 100).toFixed(2)}%</td></tr>
+      <tr><td>משתמשים פעילים בחודש</td><td>${num(nf.format(Math.round(r.users)))}</td></tr>
+      <tr><td>מדידות כלולות בחודש</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
+      <tr><td>מחיר מדידה חריגה<span class="small">מעבר לחבילה, לפי רווחיות יעד</span></td><td>${num(ils2(r.overage))}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>הערך ללקוח (ROI)</h2>
+    <p class="sub">הערכה חודשית על בסיס ההנחות. לא להבטיח ללקוח לפני פיילוט.</p>
+    <table class="kv">
+      <tr><td>הזמנות של משתמשים שנחשפו</td><td>${num(nf.format(Math.round(r.expOrders)))}</td></tr>
+      <tr><td>חיסכון מהחזרות</td><td>${num(ils(r.returnSavings))}</td></tr>
+      <tr><td>רווח ממכירות נוספות (${inp.uplift}% עלייה)</td><td>${num(ils(r.upliftProfit))}</td></tr>
+      <tr class="total"><td>סך הערך החודשי ללקוח</td><td>${num(ils(r.value))}</td></tr>
+      <tr><td>תשואה ללקוח (ערך / מחיר)</td><td class="${r.roi < 1 ? 'neg' : 'pos'}">${r.roi.toFixed(2)} פי</td></tr>
+      <tr><td>הרווחיות שלך אם תמכור במחיר לפי ערך<span class="small">מחיר ${num(ils(r.valuePrice))} (יעד ${inp.targetROI} פי)</span></td><td class="${r.marginAtROI < 0 ? 'neg' : ''}">${pct(r.marginAtROI)}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>העלויות והרווח שלך (חודשי)</h2>
+    <table class="kv">
+      <tr><td>Decart (מדידות)</td><td>${num(ils(r.decartCost))}</td></tr>
+      <tr><td>עלות משתנה אחרת</td><td>${num(ils(r.varCost - r.decartCost))}</td></tr>
+      <tr><td>עלות קבועה</td><td>${num(ils(r.fixed))}</td></tr>
+      <tr class="total"><td>סך עלויות</td><td>${num(ils(r.C))}</td></tr>
+      <tr><td>רווח חודשי</td><td class="${r.price - r.C < 0 ? 'neg' : 'pos'}">${num(ils(r.price - r.C))}</td></tr>
+      <tr><td>רווחיות</td><td>${pct(r.margin)}</td></tr>
+      <tr><td>עלות הקמה חד-פעמית</td><td>${num(ils(r.setupCost))}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>אזהרות ותובנות</h2>
+    <ul class="alerts">${buildAlerts(r, inp).map(x => `<li class="${x[0]}">${x[1]}</li>`).join('')}</ul>
+  </div>`;
+  $('results').innerHTML = html;
+}
+
+function renderTable(inp) {
+  const cur = $('preset').value;
+  const rows = BRANDS.map(b => {
+    const r = computeModel({ ...inp, ...b });
+    return { b, r, st: statusOf(r, { ...inp, ...b }) };
+  }).sort((x, y) => y.r.price - x.r.price);
+  $('allBody').innerHTML = rows.map(({ b, r, st }) => `
+    <tr data-key="${b.key}" class="${b.key === cur ? 'sel' : ''}">
+      <td><b>${esc(b.name)}</b></td>
+      <td>${esc(b.tag)}</td>
+      <td>${num(ils(r.price))}</td>
+      <td>${num(ils(r.annualTotal))}</td>
+      <td>${pct(r.shareOfProfit, 1)}</td>
+      <td>${(r.e * 100).toFixed(1)}%</td>
+      <td>${pct(r.margin)}</td>
+      <td>${r.roi.toFixed(2)}</td>
+      <td><span class="dot ${st}"></span>${{good:'בריא', warn:'דורש הוכחה', bad:'בעייתי'}[st]}</td>
+    </tr>`).join('');
+}
+
+function update() {
+  const inp = readInputs();
+  const r = computeModel(inp);
+  LAST = { r, inp };
+  renderResults(r, inp);
+  renderTable(inp);
+  saveState();
+}
+
+/* ============================================================================
+   הצעת מחיר ללקוח (טקסט להעתקה, בלי נתוני רווחיות פנימיים)
+============================================================================ */
+function offerText() {
+  const { r, inp } = LAST;
+  const name = inp.name || 'החברה';
+  const L = [];
+  L.push(`הצעת מחיר - PEAR Virtual Try-On | ${name}`);
+  L.push('');
+  L.push('מדידה וירטואלית מבוססת AI באתר שלכם: הלקוחות מודדים בגדים על עצמם לפני הקנייה.');
+  L.push('');
+  L.push(`מסלול חודשי: ${ils(r.price)} לחודש, ללא התחייבות.${inp.setupFee > 0 ? ` דמי הקמה חד-פעמיים: ${ils(inp.setupFee)}.` : ''}`);
+  L.push(`מסלול שנתי: ${ils(r.annualTotal)} לשנה בתשלום מראש (${ils(r.annualEff)} לחודש, חיסכון של ${ils(r.annualSaving)})${inp.waiveSetup ? ', ללא דמי הקמה' : ''}.`);
+  L.push('');
+  L.push(`כלול בחבילה: עד ${nf.format(Math.round(r.tries))} מדידות בחודש. מדידה נוספת: ${ils2(r.overage)}.`);
+  if (r.value > r.price) {
+    L.push(`הערכת הערך החודשי לחנות: כ-${ils(r.value)} (חיסכון מהחזרות ומכירות נוספות), בכפוף לפיילוט.`);
+  }
+  return L.join('\n');
+}
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy') ? resolve() : reject(); } catch (e) { reject(e); }
+    document.body.removeChild(ta);
+  });
+}
+
+/* ============================================================================
+   אתחול
+============================================================================ */
+renderInputs();
+const restored = loadState();
+if (!restored) { $('preset').value = DEFAULT_BRAND; applyPreset(DEFAULT_BRAND); }
+
+$('inputs').addEventListener('input', e => {
+  if (e.target.id === 'preset') return;
+  if (['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].includes(e.target.id)) $('preset').value = 'custom';
+  update();
+});
+$('preset').addEventListener('change', e => {
+  if (e.target.value !== 'custom') applyPreset(e.target.value);
+  update();
+});
+$('allBody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-key]');
+  if (!tr) return;
+  $('preset').value = tr.dataset.key;
+  applyPreset(tr.dataset.key);
+  update();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+$('resetBtn').addEventListener('click', resetAll);
+$('copyBtn').addEventListener('click', () => {
+  copyText(offerText()).then(() => toast('הצעת המחיר הועתקה'), () => toast('ההעתקה נכשלה'));
+});
+
+update();
+</script>
+</body>
+</html>
