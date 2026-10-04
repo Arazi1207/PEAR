@@ -113,6 +113,42 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .rung .cust{width:120px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-weight:800;color:var(--ink);background:var(--card);direction:ltr;text-align:end;}
 .rung .cust:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
 .chosen{font-size:.82rem;color:var(--muted);margin-bottom:10px;}
+.livebar{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:10px 12px;margin-bottom:12px;}
+.lb-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.lb-st{font-size:.85rem;color:var(--ink);}
+.lb-sub{font-size:.74rem;color:var(--muted);margin-top:6px;line-height:1.5;}
+.lb-btn{padding:6px 14px;font-size:.8rem;}
+.ldot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--muted-2);margin-inline-end:6px;}
+.ldot.on{background:var(--good);box-shadow:0 0 0 3px var(--good-bg);}
+.ldot.bad{background:var(--bad);}
+.cc{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;background:var(--card);}
+.cc-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;}
+.cc-head b{font-size:1rem;color:var(--ink);}
+.tagx{font-size:.68rem;font-weight:700;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted);}
+.cc-about{font-size:.84rem;color:var(--text);margin-bottom:6px;line-height:1.5;}
+a.site{font-size:.82rem;font-weight:800;color:var(--pear-deep);text-decoration:none;}
+a.site:hover{text-decoration:underline;}
+a.site-i{font-size:.75rem;text-decoration:none;color:var(--pear-deep);margin-inline-start:4px;}
+.q{font-size:.64rem;font-weight:800;border-radius:999px;padding:1px 7px;margin-inline-start:4px;border:1px solid;vertical-align:middle;}
+.q-m{background:var(--good-bg);border-color:var(--good-line);color:var(--good-ink);}
+.q-e{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink);}
+.meter{margin:4px 0 12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);}
+.meter-ends{display:flex;justify-content:space-between;gap:8px;font-size:.82rem;font-weight:800;color:var(--ink);}
+.meter-sub{display:flex;justify-content:space-between;gap:8px;font-size:.7rem;color:var(--muted-2);}
+.meter input[type=range]{width:100%;height:30px;margin:4px 0;accent-color:var(--pear);cursor:pointer;}
+.meter-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;}
+.meter-cols .mc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0;}
+.meter-cols .mc b{display:block;font-size:.72rem;color:var(--muted);font-weight:700;}
+.meter-cols .mc .p{font-size:1.05rem;font-weight:800;color:var(--ink);}
+.meter-now{margin-top:8px;font-size:.82rem;color:var(--text);}
+.meter-now b{font-size:1rem;color:var(--ink);}
+.meter-read{margin-bottom:12px;}
+.mr-price{font-size:1.9rem;font-weight:800;color:var(--ink);line-height:1.1;}
+.mr-price small{font-size:.8rem;font-weight:600;color:var(--muted);}
+.split{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--line);margin:10px 0 4px;}
+.split .c{background:var(--good);}
+.split .u{background:var(--warn);}
+.split-l{display:flex;justify-content:space-between;gap:8px;font-size:.72rem;color:var(--muted);}
 .btn.wide{width:100%;margin-top:14px;padding:12px 16px;}
 .card.prop{border:1.5px solid var(--pear);}
 .card.prop h2{justify-content:space-between;}
@@ -155,7 +191,7 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .alerts li.good{background:var(--good-bg);border-color:rgba(47,125,50,.3);color:#1d4d20;}
 
 .tablewrap{overflow-x:auto;}
-table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:1040px;}
+table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:1300px;}
 table.all th{font-size:.7rem;color:var(--muted);text-align:start;padding:8px 10px;background:var(--bg);position:sticky;top:0;white-space:nowrap;}
 table.all td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
 table.all tbody tr{cursor:pointer;}
@@ -190,7 +226,7 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
 <main class="wrap">
   <div class="layout">
     <section id="inputs" aria-label="נתוני קלט"></section>
-    <aside id="results" class="results" aria-live="polite" aria-label="תוצאות"></aside>
+    <aside id="results" class="results" aria-live="polite" aria-label="תוצאות"><div id="resTop"></div><div id="propHost"></div><div id="resRest"></div></aside>
   </div>
 
   <section class="card" id="allCard">
@@ -199,12 +235,13 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
     <div class="tablewrap">
       <table class="all">
         <thead><tr>
-          <th>מותג</th><th>סוג</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
-          <th>מדידות למשתמש</th><th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th>
+          <th>מותג</th><th>סוג</th><th>מיקום</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
+          <th>מדידות למשתמש</th><th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th><th>נתון</th><th>עודכן</th>
         </tr></thead>
         <tbody id="allBody"></tbody>
       </table>
     </div>
+    <p class="note" id="allCount"></p>
     <p class="note">נתוני המותגים הם הערכות מתוך הסימולטור הקיים ולא נתונים מאומתים. החליפו בנתונים אמיתיים מהלקוח לפני הצעת מחיר.</p>
   </section>
 </main>
@@ -322,58 +359,203 @@ function computeModel(i) {
 /* ============================================================================
    נתוני מותגים (הערכות מתוך הסימולטור הקיים: "price clac/index.html")
 ============================================================================ */
-const GROUP_LABELS = {1:'ענקיות ופלטפורמות', 2:'רשתות אופנה', 3:'D2C ובוטיקים', 4:'חברות מחו״ל'};
+const LOCS = ["ישראל", "עולמי", "צפון אמריקה", "אירופה", "המזרח התיכון", "אסיה", "אוקיינוס", "אמריקה הלטינית", "אפריקה"];   // base order; unknown locations from live data are appended
+const CATS = ["חולצות ומכנסיים", "מעילים וג׳קטים", "ג׳ינס", "שמלות ואופנת נשים", "חליפות וחולצות מכופתרות", "בייסיק וקז׳ואל", "ספורט ואקטיבוור", "ילדים", "פלטפורמות וכלבו", "תיקים ואקססוריז"];   // main garment category
+let F_LOC = 'הכול', F_CAT = 'הכול';   // company filters
+const brandMatches = b => (F_LOC === 'הכול' || b.loc === F_LOC) && (F_CAT === 'הכול' || b.cat === F_CAT);
+const allLocs = () => [...LOCS, ...new Set(BRANDS.map(b => b.loc).filter(l => l && !LOCS.includes(l)))];
+const allCats = () => [...CATS, ...new Set(BRANDS.map(b => b.cat).filter(c => c && !CATS.includes(c)))];
+const SNAPSHOT_AT = '2026-10-04T03:18:14Z';   // when the embedded snapshot was generated
+const SNAPSHOT_FX = { rate: 3.06, at: '2026-10-04T03:18:14Z', src: 'חיפוש ברשת' };   // USD/ILS
 const BRANDS = [
-  {"key": "terminal-x", "name": "Terminal X", "tag": "מפלצת איקומרס", "group": 1, "traffic": 7500000, "conv": 2.1, "aov": 300, "cMargin": 5.6, "maxShare": 10, "engagement": 12},
-  {"key": "one-project", "name": "One Project", "tag": "קניון דיגיטלי (עזריאלי)", "group": 1, "traffic": 650000, "conv": 3.1, "aov": 320, "cMargin": 6.9, "maxShare": 10, "engagement": 15},
-  {"key": "platin-express", "name": "Platin Express", "tag": "פרימיום וסטריטוול", "group": 1, "traffic": 400000, "conv": 2.5, "aov": 420, "cMargin": 8.3, "maxShare": 10, "engagement": 15},
-  {"key": "story-online", "name": "Story Online", "tag": "אופנת יבוא פרימיום", "group": 1, "traffic": 280000, "conv": 2.6, "aov": 400, "cMargin": 9, "maxShare": 10, "engagement": 15},
-  {"key": "delta", "name": "Delta", "tag": "מותג ענק", "group": 2, "traffic": 2100000, "conv": 2.9, "aov": 360, "cMargin": 8.2, "maxShare": 10, "engagement": 12},
-  {"key": "castro", "name": "Castro", "tag": "רשת אופנה", "group": 2, "traffic": 1400000, "conv": 2.7, "aov": 300, "cMargin": 4.3, "maxShare": 10, "engagement": 12},
-  {"key": "renuar", "name": "Renuar", "tag": "רשת אופנה", "group": 2, "traffic": 950000, "conv": 2.8, "aov": 320, "cMargin": 6.5, "maxShare": 10, "engagement": 15},
-  {"key": "hoodies", "name": "Hoodies", "tag": "קז'ואל ובייסיק", "group": 2, "traffic": 750000, "conv": 2.9, "aov": 290, "cMargin": 7.7, "maxShare": 10, "engagement": 15},
-  {"key": "urbanica", "name": "Urbanica", "tag": "Value Fashion", "group": 2, "traffic": 700000, "conv": 3.6, "aov": 220, "cMargin": 6, "maxShare": 10, "engagement": 15},
-  {"key": "golf-online", "name": "Golf Online", "tag": "רשת אופנה", "group": 2, "traffic": 550000, "conv": 2.7, "aov": 300, "cMargin": 4.9, "maxShare": 10, "engagement": 15},
-  {"key": "fox-online", "name": "Fox Online", "tag": "רשת אופנה", "group": 2, "traffic": 500000, "conv": 2.9, "aov": 280, "cMargin": 6, "maxShare": 10, "engagement": 15},
-  {"key": "twentyfourseven", "name": "Twentyfourseven", "tag": "אופנת דור Z", "group": 2, "traffic": 480000, "conv": 2.9, "aov": 270, "cMargin": 6.8, "maxShare": 10, "engagement": 15},
-  {"key": "hamashbir365", "name": "המשביר 365", "tag": "כלבו דיגיטלי", "group": 2, "traffic": 420000, "conv": 2.8, "aov": 300, "cMargin": 5.1, "maxShare": 10, "engagement": 15},
-  {"key": "tamnoon", "name": "תמנון", "tag": "רשת דיסקאונט", "group": 2, "traffic": 380000, "conv": 2.8, "aov": 260, "cMargin": 5, "maxShare": 12, "engagement": 15},
-  {"key": "golbary", "name": "גולברי", "tag": "אופנה לקהל מבוגר", "group": 2, "traffic": 350000, "conv": 2.3, "aov": 400, "cMargin": 8.8, "maxShare": 12, "engagement": 15},
-  {"key": "crazy-line", "name": "Crazy Line", "tag": "נאמנות לקוחות גבוהה", "group": 2, "traffic": 300000, "conv": 3, "aov": 320, "cMargin": 8.6, "maxShare": 12, "engagement": 15},
-  {"key": "honigman-kids", "name": "Honigman Kids", "tag": "בגדי ילדים", "group": 2, "traffic": 240000, "conv": 2.5, "aov": 350, "cMargin": 8.6, "maxShare": 12, "engagement": 18},
-  {"key": "kiwi-kids", "name": "Kiwi Kids", "tag": "דיסקאונט לילדים", "group": 2, "traffic": 210000, "conv": 3.1, "aov": 280, "cMargin": 7.2, "maxShare": 12, "engagement": 18},
-  {"key": "itay-brands", "name": "Itay Brands", "tag": "D2C מוביל", "group": 3, "traffic": 380000, "conv": 2.8, "aov": 400, "cMargin": 11, "maxShare": 12, "engagement": 15},
-  {"key": "adika", "name": "Adika אונליין", "tag": "אופנת צעירות", "group": 3, "traffic": 300000, "conv": 3.4, "aov": 300, "cMargin": 7.1, "maxShare": 12, "engagement": 15},
-  {"key": "rockglam", "name": "Rockglam", "tag": "בוטיק D2C", "group": 3, "traffic": 220000, "conv": 3.4, "aov": 290, "cMargin": 8.2, "maxShare": 15, "engagement": 18},
-  {"key": "strongful", "name": "Strongful", "tag": "אקטיבוול", "group": 3, "traffic": 180000, "conv": 3.5, "aov": 300, "cMargin": 11.1, "maxShare": 15, "engagement": 18},
-  {"key": "galita", "name": "גליתא", "tag": "אופנת ערב", "group": 3, "traffic": 160000, "conv": 2.6, "aov": 380, "cMargin": 7.5, "maxShare": 15, "engagement": 20},
-  {"key": "s-wear", "name": "S.Wear", "tag": "בייסיק איכותי", "group": 3, "traffic": 140000, "conv": 3.1, "aov": 320, "cMargin": 8.6, "maxShare": 15, "engagement": 20},
-  {"key": "shlomit-ofir", "name": "שלומית אופיר", "tag": "מעצבים ואקססוריז", "group": 3, "traffic": 110000, "conv": 2.9, "aov": 350, "cMargin": 11.8, "maxShare": 15, "engagement": 20},
-  {"key": "meduza", "name": "Meduza", "tag": "תיקים ואקססוריז", "group": 3, "traffic": 90000, "conv": 3.4, "aov": 280, "cMargin": 11.2, "maxShare": 15, "engagement": 20},
-  {"key": "nunuforme", "name": "Nunuforme", "tag": "בגדי ילדים מעוצבים", "group": 3, "traffic": 85000, "conv": 3.4, "aov": 310, "cMargin": 11.1, "maxShare": 15, "engagement": 20},
-  {"key": "bare", "name": "Bare", "tag": "לאונג'וור D2C", "group": 3, "traffic": 80000, "conv": 3.8, "aov": 250, "cMargin": 10.7, "maxShare": 15, "engagement": 20},
-  {"key": "shilav", "name": "Shilav (שילב)", "tag": "חולצות, מכנסיים וחליפות", "group": 2, "traffic": 260000, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 12, "engagement": 15},
-  {"key": "alembika", "name": "Alembika (אלמביקה)", "tag": "אופנת נשים: חולצות ושמלות", "group": 3, "traffic": 190000, "conv": 2.8, "aov": 420, "cMargin": 9.0, "maxShare": 15, "engagement": 18},
-  {"key": "studio-pasha", "name": "Studio Pasha", "tag": "אופנת נשים מעוצבת", "group": 3, "traffic": 120000, "conv": 2.6, "aov": 460, "cMargin": 10.5, "maxShare": 15, "engagement": 20},
-  {"key": "dorin-frankfurt", "name": "Dorin Frankfurt", "tag": "מעצבת: חליפות ומעילים", "group": 3, "traffic": 70000, "conv": 2.2, "aov": 700, "cMargin": 12.0, "maxShare": 15, "engagement": 20},
-  {"key": "ronen-chen", "name": "Ronen Chen", "tag": "מעצב: שמלות ומעילים", "group": 3, "traffic": 60000, "conv": 2.0, "aov": 800, "cMargin": 12.0, "maxShare": 15, "engagement": 20},
-  {"key": "dodo-bar-or", "name": "Dodo Bar Or", "tag": "מעצבת: סריגים וחולצות", "group": 3, "traffic": 150000, "conv": 2.7, "aov": 520, "cMargin": 11.0, "maxShare": 15, "engagement": 20},
-  {"key": "zara", "name": "Zara", "tag": "חולצות, מכנסיים, ג׳קטים ומעילים", "group": 4, "traffic": 130000000, "conv": 2.4, "aov": 330, "cMargin": 14.0, "maxShare": 10, "engagement": 10},
-  {"key": "hm", "name": "H&M", "tag": "בגדי בייסיק וצעירים", "group": 4, "traffic": 110000000, "conv": 2.2, "aov": 280, "cMargin": 6.0, "maxShare": 10, "engagement": 10},
-  {"key": "shein", "name": "Shein", "tag": "אופנה מהירה", "group": 4, "traffic": 600000000, "conv": 2.0, "aov": 190, "cMargin": 8.0, "maxShare": 10, "engagement": 10},
-  {"key": "uniqlo", "name": "Uniqlo", "tag": "בייסיק, ג׳קטים ופליז", "group": 4, "traffic": 80000000, "conv": 2.5, "aov": 300, "cMargin": 12.0, "maxShare": 10, "engagement": 10},
-  {"key": "asos", "name": "ASOS", "tag": "פלטפורמת אופנה", "group": 4, "traffic": 70000000, "conv": 2.3, "aov": 320, "cMargin": 2.0, "maxShare": 10, "engagement": 10},
-  {"key": "mango", "name": "Mango", "tag": "חולצות, מכנסיים ומעילים", "group": 4, "traffic": 45000000, "conv": 2.3, "aov": 350, "cMargin": 8.0, "maxShare": 10, "engagement": 10},
-  {"key": "levis", "name": "Levi's", "tag": "ג׳ינס, חולצות וג׳קטים", "group": 4, "traffic": 30000000, "conv": 2.6, "aov": 380, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
-  {"key": "gap", "name": "Gap", "tag": "חולצות, מכנסיים וג׳קטים", "group": 4, "traffic": 25000000, "conv": 2.2, "aov": 320, "cMargin": 4.0, "maxShare": 10, "engagement": 12},
-  {"key": "polo-rl", "name": "Ralph Lauren", "tag": "חולצות, מעילים וחליפות", "group": 4, "traffic": 20000000, "conv": 1.8, "aov": 650, "cMargin": 10.0, "maxShare": 10, "engagement": 12},
-  {"key": "abercrombie", "name": "Abercrombie & Fitch", "tag": "חולצות, ג׳ינס ומעילים", "group": 4, "traffic": 20000000, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 10, "engagement": 12},
-  {"key": "north-face", "name": "The North Face", "tag": "מעילים וג׳קטים", "group": 4, "traffic": 18000000, "conv": 2.0, "aov": 750, "cMargin": 10.0, "maxShare": 10, "engagement": 12},
-  {"key": "tommy", "name": "Tommy Hilfiger", "tag": "חולצות, מכנסיים ומעילים", "group": 4, "traffic": 15000000, "conv": 2.0, "aov": 550, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
-  {"key": "lacoste", "name": "Lacoste", "tag": "חולצות פולו ובייסיק", "group": 4, "traffic": 12000000, "conv": 1.9, "aov": 520, "cMargin": 12.0, "maxShare": 10, "engagement": 12},
-  {"key": "columbia", "name": "Columbia", "tag": "מעילים וביגוד טיולים", "group": 4, "traffic": 8000000, "conv": 2.1, "aov": 600, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
-  {"key": "everlane", "name": "Everlane", "tag": "בייסיק D2C", "group": 4, "traffic": 4000000, "conv": 2.3, "aov": 420, "cMargin": 5.0, "maxShare": 12, "engagement": 15},
-  {"key": "reformation", "name": "Reformation", "tag": "אופנת נשים D2C", "group": 4, "traffic": 3000000, "conv": 2.5, "aov": 800, "cMargin": 6.0, "maxShare": 12, "engagement": 15}
+  {"key": "terminal-x", "name": "Terminal X", "tag": "מפלצת איקומרס", "traffic": 2200000, "conv": 2.1, "aov": 300, "cMargin": 5.6, "maxShare": 10, "engagement": 12, "loc": "ישראל", "cat": "פלטפורמות וכלבו", "url": "https://www.terminalx.com", "about": "פלטפורמת אופנה ישראלית מקוונת עם מותגים רבים ומותג בית. אחד האתרים הנצפים ביותר בישראל בתחום האופנה.", "dq": "measured", "src": "Semrush, אוק׳ 2025", "dataDate": "2025-10", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "one-project", "name": "One Project", "tag": "קניון דיגיטלי (עזריאלי)", "traffic": 228000, "conv": 3.1, "aov": 320, "cMargin": 6.9, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "פלטפורמות וכלבו", "url": null, "about": "קניון דיגיטלי ישראלי (עזריאלי) עם מותגי אופנה רבים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "platin-express", "name": "Platin Express", "tag": "פרימיום וסטריטוול", "traffic": 140000, "conv": 2.5, "aov": 420, "cMargin": 8.3, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": null, "about": "רשת אופנה ישראלית בסגנון פרימיום וסטריטוור.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "story-online", "name": "Story Online", "tag": "אופנת יבוא פרימיום", "traffic": 280930, "conv": 2.6, "aov": 400, "cMargin": 9, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.storyonline.co.il", "about": "חנות אופנה מקוונת ישראלית למותגי יבוא פרימיום.", "dq": "measured", "src": "Semrush, יוני (שנה לא צוינה)", "dataDate": null, "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "delta", "name": "Delta", "tag": "מותג ענק", "traffic": 333700, "conv": 2.9, "aov": 360, "cMargin": 8.2, "maxShare": 10, "engagement": 12, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": "https://www.delta.co.il", "about": "מותג ישראלי רחב לבגדי בייסיק ולבגדי בית.", "dq": "measured", "src": "Semrush, אפר׳ 2025", "dataDate": "2025-04", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "castro", "name": "Castro", "tag": "רשת אופנה", "traffic": 383890, "conv": 2.7, "aov": 300, "cMargin": 4.3, "maxShare": 10, "engagement": 12, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.castro.com", "about": "מותג אופנה ישראלי לנשים וגברים. נוסד ב-1933, מטה בבת ים.", "dq": "measured", "src": "Semrush, אפר׳ 2025", "dataDate": "2025-04", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "renuar", "name": "Renuar", "tag": "רשת אופנה", "traffic": 271300, "conv": 2.8, "aov": 320, "cMargin": 6.5, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": "https://www.renuar.co.il", "about": "רשת אופנה ישראלית לנשים, חלק מקבוצת רנואר שמפעילה גם את Twentyfourseven.", "dq": "measured", "src": "Semrush, ספט׳ 2025", "dataDate": "2025-09", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "hoodies", "name": "Hoodies", "tag": "קז'ואל ובייסיק", "traffic": 187330, "conv": 2.9, "aov": 290, "cMargin": 7.7, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": "https://www.hoodies.co.il", "about": "מותג בייסיק ישראלי צעיר עם בגדים קז׳ואל.", "dq": "measured", "src": "Semrush, אוק׳ 2025", "dataDate": "2025-10", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "urbanica", "name": "Urbanica", "tag": "Value Fashion", "traffic": 490230, "conv": 3.6, "aov": 220, "cMargin": 6, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.urbanica-wh.com", "about": "רשת אופנה ישראלית במחירי ערך.", "dq": "measured", "src": "Semrush, אפריל (שנה לא צוינה)", "dataDate": null, "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "golf-online", "name": "Golf Online", "tag": "רשת אופנה", "traffic": 254640, "conv": 2.7, "aov": 300, "cMargin": 4.9, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.golfco.co.il", "about": "רשת אופנה ישראלית, חלק מקבוצת Golf&Co שפועלת באופנה ובעיצוב הבית.", "dq": "measured", "src": "Semrush, ספט׳ 2025 (golfco.co.il)", "dataDate": "2025-09", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "fox-online", "name": "Fox Online", "tag": "רשת אופנה", "traffic": 287290, "conv": 2.9, "aov": 280, "cMargin": 6, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.fox.co.il", "about": "רשת אופנה ישראלית גדולה לגברים, נשים וילדים.", "dq": "measured", "src": "Semrush, אוק׳ 2025", "dataDate": "2025-10", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "twentyfourseven", "name": "Twentyfourseven", "tag": "אופנת דור Z", "traffic": 168000, "conv": 2.9, "aov": 270, "cMargin": 6.8, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": null, "about": "מותג אופנה ישראלי לצעירות, מקבוצת רנואר.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "hamashbir365", "name": "המשביר 365", "tag": "כלבו דיגיטלי", "traffic": 147000, "conv": 2.8, "aov": 300, "cMargin": 5.1, "maxShare": 10, "engagement": 15, "loc": "ישראל", "cat": "פלטפורמות וכלבו", "url": null, "about": "כלבו דיגיטלי ישראלי עם אופנה ומוצרים נוספים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "tamnoon", "name": "תמנון", "tag": "רשת דיסקאונט", "traffic": 133000, "conv": 2.8, "aov": 260, "cMargin": 5, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": null, "about": "רשת אופנה ישראלית במחירי דיסקאונט.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "golbary", "name": "גולברי", "tag": "אופנה לקהל מבוגר", "traffic": 122000, "conv": 2.3, "aov": 400, "cMargin": 8.8, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.golbary.co.il", "about": "מותג אופנה ישראלי לקהל בוגר.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "crazy-line", "name": "Crazy Line", "tag": "נאמנות לקוחות גבוהה", "traffic": 151050, "conv": 3, "aov": 320, "cMargin": 8.6, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.crazyline.com", "about": "רשת אופנה ישראלית לנשים עם קהל לקוחות נאמן.", "dq": "measured", "src": "Semrush, ינו׳ 2026", "dataDate": "2026-01", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "honigman-kids", "name": "Honigman Kids", "tag": "בגדי ילדים", "traffic": 84000, "conv": 2.5, "aov": 350, "cMargin": 8.6, "maxShare": 12, "engagement": 18, "loc": "ישראל", "cat": "ילדים", "url": null, "about": "רשת בגדי ילדים ישראלית.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "kiwi-kids", "name": "Kiwi Kids", "tag": "דיסקאונט לילדים", "traffic": 74000, "conv": 3.1, "aov": 280, "cMargin": 7.2, "maxShare": 12, "engagement": 18, "loc": "ישראל", "cat": "ילדים", "url": null, "about": "רשת בגדי ילדים ישראלית במחירי דיסקאונט.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "itay-brands", "name": "Itay Brands", "tag": "D2C מוביל", "traffic": 133000, "conv": 2.8, "aov": 400, "cMargin": 11, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": null, "about": "קבוצת מותגי אופנה ישראלית עם נוכחות דיגיטלית חזקה.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "adika", "name": "Adika אונליין", "tag": "אופנת צעירות", "traffic": 105000, "conv": 3.4, "aov": 300, "cMargin": 7.1, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מותג אופנה ישראלי לצעירות.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "rockglam", "name": "Rockglam", "tag": "בוטיק D2C", "traffic": 77000, "conv": 3.4, "aov": 290, "cMargin": 8.2, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "בוטיק אופנה ישראלי מקוון לנשים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "strongful", "name": "Strongful", "tag": "אקטיבוול", "traffic": 63000, "conv": 3.5, "aov": 300, "cMargin": 11.1, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "ספורט ואקטיבוור", "url": null, "about": "מותג ישראלי לבגדי אקטיב ואימון.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "galita", "name": "גליתא", "tag": "אופנת ערב", "traffic": 56000, "conv": 2.6, "aov": 380, "cMargin": 7.5, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מותג ישראלי לאופנת ערב.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "s-wear", "name": "S.Wear", "tag": "בייסיק איכותי", "traffic": 49000, "conv": 3.1, "aov": 320, "cMargin": 8.6, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": null, "about": "מותג ישראלי לבגדי בייסיק איכותיים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "shlomit-ofir", "name": "שלומית אופיר", "tag": "מעצבים ואקססוריז", "traffic": 38000, "conv": 2.9, "aov": 350, "cMargin": 11.8, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מעצבת אופנה ישראלית ואקססוריז.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "meduza", "name": "Meduza", "tag": "תיקים ואקססוריז", "traffic": 31000, "conv": 3.4, "aov": 280, "cMargin": 11.2, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "תיקים ואקססוריז", "url": null, "about": "מותג ישראלי לתיקים ואקססוריז (לא בגדים, ניתן להסיר).", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "nunuforme", "name": "Nunuforme", "tag": "בגדי ילדים מעוצבים", "traffic": 30000, "conv": 3.4, "aov": 310, "cMargin": 11.1, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "ילדים", "url": null, "about": "מותג ישראלי לבגדי ילדים מעוצבים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "bare", "name": "Bare", "tag": "לאונג'וור D2C", "traffic": 28000, "conv": 3.8, "aov": 250, "cMargin": 10.7, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": null, "about": "מותג ישראלי ללאונג׳וור ובגדי בית.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "shilav", "name": "Shilav (שילב)", "tag": "חולצות, מכנסיים וחליפות", "traffic": 362984, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.shilav.co.il", "about": "רשת אופנה ישראלית לחולצות, מכנסיים וחליפות.", "dq": "measured", "src": "Semrush, ספט׳ 2025", "dataDate": "2025-09", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "alembika", "name": "Alembika (אלמביקה)", "tag": "אופנת נשים: חולצות ושמלות", "traffic": 66000, "conv": 2.8, "aov": 420, "cMargin": 9.0, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "רשת אופנת נשים ישראלית.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "studio-pasha", "name": "Studio Pasha", "tag": "אופנת נשים מעוצבת", "traffic": 42000, "conv": 2.6, "aov": 460, "cMargin": 10.5, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מותג אופנת נשים ישראלי מעוצב.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "dorin-frankfurt", "name": "Dorin Frankfurt", "tag": "מעצבת: חליפות ומעילים", "traffic": 24000, "conv": 2.2, "aov": 700, "cMargin": 12.0, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "חליפות וחולצות מכופתרות", "url": null, "about": "מעצבת אופנה ישראלית, חליפות ומעילים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "ronen-chen", "name": "Ronen Chen", "tag": "מעצב: שמלות ומעילים", "traffic": 21000, "conv": 2.0, "aov": 800, "cMargin": 12.0, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מעצב אופנה ישראלי, שמלות ומעילים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "dodo-bar-or", "name": "Dodo Bar Or", "tag": "מעצבת: סריגים וחולצות", "traffic": 52000, "conv": 2.7, "aov": 520, "cMargin": 11.0, "maxShare": 15, "engagement": 20, "loc": "ישראל", "cat": "שמלות ואופנת נשים", "url": null, "about": "מעצבת אופנה ישראלית, סריגים וחולצות.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "zara", "name": "Zara עולמי", "tag": "חולצות, מכנסיים, ג׳קטים ומעילים", "traffic": 92670000, "conv": 2.4, "aov": 330, "cMargin": 14.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.zara.com", "about": "מותג אופנה ספרדי מקבוצת Inditex, אחד הגדולים בעולם.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "hm", "name": "H&M עולמי", "tag": "בגדי בייסיק וצעירים", "traffic": 96200000, "conv": 2.2, "aov": 280, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "בייסיק וקז׳ואל", "url": "https://www.hm.com", "about": "רשת אופנה שוודית בינלאומית.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "shein", "name": "Shein עולמי", "tag": "אופנה מהירה", "traffic": 336930000, "conv": 2.0, "aov": 190, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.shein.com", "about": "פלטפורמת אופנה מהירה מקוונת בינלאומית, האתר הנצפה ביותר בתחום.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "uniqlo", "name": "Uniqlo עולמי", "tag": "בייסיק, ג׳קטים ופליז", "traffic": 78480000, "conv": 2.5, "aov": 300, "cMargin": 12.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "בייסיק וקז׳ואל", "url": "https://www.uniqlo.com", "about": "מותג בגדי בייסיק יפני בינלאומי.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "asos", "name": "ASOS עולמי", "tag": "פלטפורמת אופנה", "traffic": 47440000, "conv": 2.3, "aov": 320, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "פלטפורמות וכלבו", "url": "https://www.asos.com", "about": "פלטפורמת אופנה מקוונת בריטית.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "mango", "name": "Mango עולמי", "tag": "חולצות, מכנסיים ומעילים", "traffic": 29840000, "conv": 2.3, "aov": 350, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.mango.com", "about": "רשת אופנה ספרדית בינלאומית.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "levis", "name": "Levi's עולמי", "tag": "ג׳ינס, חולצות וג׳קטים", "traffic": 17780000, "conv": 2.6, "aov": 380, "cMargin": 9.0, "maxShare": 10, "engagement": 12, "loc": "עולמי", "cat": "ג׳ינס", "url": "https://www.levi.com", "about": "מותג ג׳ינס אמריקאי היסטורי.", "dq": "measured", "src": "Semrush, דצמ׳ 2025 (levi.com)", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "gap", "name": "Gap", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 56360000, "conv": 2.2, "aov": 320, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.gap.com", "about": "רשת בגדים אמריקאית.", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "polo-rl", "name": "Ralph Lauren", "tag": "חולצות, מעילים וחליפות", "traffic": 20000000, "conv": 1.8, "aov": 650, "cMargin": 10.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.ralphlauren.com", "about": "מותג אופנה אמריקאי, חולצות, מעילים וחליפות.", "dq": "estimate", "dataDate": null, "src": "הערכה", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "abercrombie", "name": "Abercrombie & Fitch", "tag": "חולצות, ג׳ינס ומעילים", "traffic": 20000000, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.abercrombie.com", "about": "מותג בגדים אמריקאי.", "dq": "estimate", "dataDate": null, "src": "הערכה", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "north-face", "name": "The North Face עולמי", "tag": "מעילים וג׳קטים", "traffic": 12600000, "conv": 2.0, "aov": 750, "cMargin": 10.0, "maxShare": 10, "engagement": 12, "loc": "עולמי", "cat": "מעילים וג׳קטים", "url": "https://www.thenorthface.com", "about": "מותג מעילים וביגוד טיולים אמריקאי.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "tommy", "name": "Tommy Hilfiger עולמי", "tag": "חולצות, מכנסיים ומעילים", "traffic": 10500000, "conv": 2.0, "aov": 550, "cMargin": 9.0, "maxShare": 10, "engagement": 12, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.tommy.com", "about": "מותג אופנה בינלאומי מקבוצת PVH.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "lacoste", "name": "Lacoste עולמי", "tag": "חולצות פולו ובייסיק", "traffic": 8400000, "conv": 1.9, "aov": 520, "cMargin": 12.0, "maxShare": 10, "engagement": 12, "loc": "עולמי", "cat": "בייסיק וקז׳ואל", "url": "https://www.lacoste.com", "about": "מותג אופנה צרפתי, ידוע בחולצות פולו.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "columbia", "name": "Columbia עולמי", "tag": "מעילים וביגוד טיולים", "traffic": 5600000, "conv": 2.1, "aov": 600, "cMargin": 9.0, "maxShare": 10, "engagement": 12, "loc": "עולמי", "cat": "מעילים וג׳קטים", "url": "https://www.columbia.com", "about": "מותג מעילים וביגוד טיולים אמריקאי.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "everlane", "name": "Everlane", "tag": "בייסיק D2C", "traffic": 4000000, "conv": 2.3, "aov": 420, "cMargin": 5.0, "maxShare": 12, "engagement": 15, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://www.everlane.com", "about": "מותג בייסיק אמריקאי המכור ישירות לצרכן.", "dq": "estimate", "dataDate": null, "src": "הערכה", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "reformation", "name": "Reformation", "tag": "אופנת נשים D2C", "traffic": 3000000, "conv": 2.5, "aov": 800, "cMargin": 6.0, "maxShare": 12, "engagement": 15, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.thereformation.com", "about": "מותג אופנת נשים אמריקאי המכור ישירות לצרכן.", "dq": "estimate", "dataDate": null, "src": "הערכה", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "zara-il", "name": "Zara ישראל", "tag": "חולצות, מכנסיים, ג׳קטים ומעילים", "traffic": 790130, "conv": 2.6, "aov": 360, "cMargin": 9.0, "maxShare": 10, "engagement": 12, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.zara.com/il/", "about": "האתר של Zara בישראל. המדד הוא כניסות מישראל לאתר.", "dq": "measured", "src": "Semrush, דצמ׳ 2025 (כניסות מישראל ל-zara.com)", "dataDate": "2025-12", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "hm-il", "name": "H&M ישראל", "tag": "בגדי בייסיק וצעירים", "traffic": 637790, "conv": 2.4, "aov": 300, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": "https://www.hm.com", "about": "האתר של H&M בישראל. המדד הוא כניסות מישראל לאתר.", "dq": "measured", "src": "Semrush, יוני 2026 (כניסות מישראל ל-hm.com)", "dataDate": "2026-06", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "mango-il", "name": "Mango ישראל", "tag": "חולצות, מכנסיים ומעילים", "traffic": 315000, "conv": 2.5, "aov": 380, "cMargin": 7.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://shop.mango.com/il", "about": "האתר של Mango בישראל.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "pull-bear-il", "name": "Pull&Bear ישראל", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 228000, "conv": 2.7, "aov": 260, "cMargin": 7.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.pullandbear.com/il/", "about": "האתר של Pull&Bear בישראל.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "bershka-il", "name": "Bershka ישראל", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 192000, "conv": 2.7, "aov": 240, "cMargin": 7.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.bershka.com/il/", "about": "האתר של Bershka בישראל.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "massimo-il", "name": "Massimo Dutti ישראל", "tag": "חליפות, חולצות ומעילים", "traffic": 105000, "conv": 2.2, "aov": 520, "cMargin": 9.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.massimodutti.com/il/", "about": "האתר של Massimo Dutti בישראל.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "levis-il", "name": "Levi's ישראל", "tag": "ג׳ינס, חולצות וג׳קטים", "traffic": 122000, "conv": 2.8, "aov": 380, "cMargin": 9.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "ג׳ינס", "url": "https://www.levi.com", "about": "ג׳ינס Levi's לשוק הישראלי.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "tommy-il", "name": "Tommy Hilfiger ישראל", "tag": "חולצות, מכנסיים ומעילים", "traffic": 91000, "conv": 2.2, "aov": 520, "cMargin": 8.0, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.tommy.com", "about": "Tommy Hilfiger לשוק הישראלי.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "lacoste-il", "name": "Lacoste ישראל", "tag": "חולצות פולו ובייסיק", "traffic": 70000, "conv": 2.1, "aov": 480, "cMargin": 10.0, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "בייסיק וקז׳ואל", "url": "https://www.lacoste.com", "about": "Lacoste לשוק הישראלי.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "north-face-il", "name": "The North Face ישראל", "tag": "מעילים וג׳קטים", "traffic": 56000, "conv": 2.2, "aov": 700, "cMargin": 9.0, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "מעילים וג׳קטים", "url": "https://www.thenorthface.com", "about": "The North Face לשוק הישראלי, מעילים וביגוד טיולים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "columbia-il", "name": "Columbia ישראל", "tag": "מעילים וביגוד טיולים", "traffic": 42000, "conv": 2.3, "aov": 560, "cMargin": 8.0, "maxShare": 15, "engagement": 18, "loc": "ישראל", "cat": "מעילים וג׳קטים", "url": "https://www.columbia.com", "about": "Columbia לשוק הישראלי, מעילים וביגוד טיולים.", "dq": "estimate", "dataDate": null, "src": "הערכה (כיול לפי נתונים אמיתיים שנמצאו לחברות דומות)", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "shein-il", "name": "Shein ישראל", "tag": "אופנה מהירה", "traffic": 2730000, "conv": 2.2, "aov": 190, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://il.shein.com", "about": "האתר של Shein בישראל. המדד הוא כניסות מישראל לאתר.", "dq": "measured", "src": "Semrush, יוני 2026 (כניסות מישראל ל-shein.com)", "dataDate": "2026-06", "updatedAt": "2026-10-04T03:18:14Z"},
+  {"key": "factory54", "name": "Factory 54", "tag": "רשת אאוטלט אופנה", "traffic": 663411, "conv": 3.0, "aov": 280, "cMargin": 6.0, "maxShare": 12, "engagement": 15, "loc": "ישראל", "cat": "חולצות ומכנסיים", "url": "https://www.factory54.co.il", "about": "רשת אאוטלט ישראלית למותגי אופנה ובגדים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "lc-waikiki", "name": "LC Waikiki", "tag": "חולצות, מכנסיים ומעילים", "traffic": 40000000, "conv": 2.2, "aov": 130, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "חולצות ומכנסיים", "url": "https://www.lcwaikiki.com", "about": "רשת אופנה טורקית גדולה.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "defacto", "name": "DeFacto", "tag": "חולצות, מכנסיים ומעילים", "traffic": 25000000, "conv": 2.0, "aov": 130, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "חולצות ומכנסיים", "url": "https://www.defacto.com.tr", "about": "רשת אופנה טורקית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "koton", "name": "Koton", "tag": "חולצות, מכנסיים ומעילים", "traffic": 8000000, "conv": 2.0, "aov": 150, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "חולצות ומכנסיים", "url": "https://www.koton.com", "about": "רשת אופנה טורקית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "mavi", "name": "Mavi", "tag": "ג׳ינס וחולצות", "traffic": 8000000, "conv": 2.0, "aov": 200, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "ג׳ינס", "url": "https://www.mavi.com", "about": "מותג ג׳ינס ואופנה טורקי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "trendyol", "name": "Trendyol", "tag": "פלטפורמת אופנה", "traffic": 300000000, "conv": 2.5, "aov": 120, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "פלטפורמות וכלבו", "url": "https://www.trendyol.com", "about": "פלטפורמת מסחר טורקית גדולה עם אופנה כקטגוריה מרכזית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "namshi", "name": "Namshi", "tag": "פלטפורמת אופנה", "traffic": 15000000, "conv": 2.0, "aov": 250, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "פלטפורמות וכלבו", "url": "https://www.namshi.com", "about": "פלטפורמת אופנה מקוונת במפרץ הפרסי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "max-fashion", "name": "Max Fashion", "tag": "חולצות, מכנסיים ומעילים", "traffic": 10000000, "conv": 2.0, "aov": 120, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "המזרח התיכון", "cat": "חולצות ומכנסיים", "url": "https://www.maxfashion.com", "about": "רשת אופנה במזרח התיכון.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "ounass", "name": "Ounass", "tag": "פלטפורמת יוקרה", "traffic": 4000000, "conv": 1.2, "aov": 1200, "cMargin": 5.0, "maxShare": 10, "engagement": 12, "loc": "המזרח התיכון", "cat": "פלטפורמות וכלבו", "url": "https://www.ounass.ae", "about": "פלטפורמת אופנת יוקרה מקוונת במפרץ הפרסי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "american-eagle", "name": "American Eagle", "tag": "ג׳ינס, חולצות וג׳קטים", "traffic": 25000000, "conv": 2.2, "aov": 330, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ג׳ינס", "url": "https://www.ae.com", "about": "רשת בגדים אמריקאית, מתמחה בג׳ינס.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "old-navy", "name": "Old Navy", "tag": "בגדי בייסיק למשפחה", "traffic": 35000000, "conv": 2.4, "aov": 240, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://oldnavy.gap.com", "about": "רשת בגדי בייסיק אמריקאית, מקבוצת Gap.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "jcrew", "name": "J.Crew", "tag": "חולצות, מכנסיים ומעילים", "traffic": 15000000, "conv": 2.0, "aov": 420, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.jcrew.com", "about": "מותג בגדים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "banana-republic", "name": "Banana Republic", "tag": "חליפות וחולצות מכופתרות", "traffic": 10000000, "conv": 2.0, "aov": 380, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "חליפות וחולצות מכופתרות", "url": "https://bananarepublic.gap.com", "about": "מותג בגדים אמריקאי מקבוצת Gap.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "madewell", "name": "Madewell", "tag": "ג׳ינס וחולצות", "traffic": 8000000, "conv": 2.1, "aov": 450, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ג׳ינס", "url": "https://www.madewell.com", "about": "מותג ג׳ינס ובגדים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "urban-outfitters", "name": "Urban Outfitters", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 30000000, "conv": 2.0, "aov": 330, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.urbanoutfitters.com", "about": "רשת אופנה אמריקאית לצעירים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "free-people", "name": "Free People", "tag": "אופנת נשים", "traffic": 10000000, "conv": 2.2, "aov": 420, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.freepeople.com", "about": "מותג אופנת נשים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "hollister", "name": "Hollister", "tag": "בגדי בייסיק וצעירים", "traffic": 12000000, "conv": 2.4, "aov": 290, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://www.hollisterco.com", "about": "מותג בגדים אמריקאי לצעירים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "patagonia", "name": "Patagonia", "tag": "מעילים וג׳קטים", "traffic": 14000000, "conv": 2.3, "aov": 600, "cMargin": 10.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.patagonia.com", "about": "מותג ביגוד חוצות ומעילים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "carhartt", "name": "Carhartt", "tag": "מעילים וביגוד עבודה", "traffic": 12000000, "conv": 2.2, "aov": 400, "cMargin": 9.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.carhartt.com", "about": "מותג מעילים וביגוד עבודה אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "lululemon", "name": "Lululemon", "tag": "ביגוד ספורט", "traffic": 37070000, "conv": 2.4, "aov": 450, "cMargin": 15.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ספורט ואקטיבוור", "url": "https://www.lululemon.com", "about": "מותג ביגוד ספורט קנדי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "nordstrom", "name": "Nordstrom", "tag": "כלבו אופנה", "traffic": 48898008, "conv": 1.8, "aov": 500, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "פלטפורמות וכלבו", "url": "https://www.nordstrom.com", "about": "כלבו אופנה אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025 (כניסות מארה״ב)", "dataDate": "2025-12"},
+  {"key": "macys", "name": "Macy's", "tag": "כלבו אופנה", "traffic": 105360000, "conv": 2.0, "aov": 300, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "פלטפורמות וכלבו", "url": "https://www.macys.com", "about": "כלבו אמריקאי גדול עם אופנה כקטגוריה מרכזית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "canada-goose", "name": "Canada Goose", "tag": "מעילים וג׳קטים", "traffic": 6000000, "conv": 1.6, "aov": 1900, "cMargin": 14.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.canadagoose.com", "about": "מותג מעילי פוך קנדי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "express", "name": "Express", "tag": "חולצות, מכנסיים וחליפות", "traffic": 12000000, "conv": 2.0, "aov": 300, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.express.com", "about": "רשת בגדים אמריקאית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "aritzia", "name": "Aritzia", "tag": "אופנת נשים", "traffic": 20000000, "conv": 2.2, "aov": 380, "cMargin": 12.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.aritzia.com", "about": "מותג אופנת נשים קנדי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "anthropologie", "name": "Anthropologie", "tag": "אופנת נשים", "traffic": 25000000, "conv": 2.0, "aov": 450, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.anthropologie.com", "about": "מותג אופנת נשים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "eddie-bauer", "name": "Eddie Bauer", "tag": "מעילים וביגוד חוצות", "traffic": 5000000, "conv": 2.0, "aov": 300, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.eddiebauer.com", "about": "מותג ביגוד חוצות ומעילים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "llbean", "name": "L.L.Bean", "tag": "מעילים וביגוד חוצות", "traffic": 15000000, "conv": 2.2, "aov": 330, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.llbean.com", "about": "מותג ביגוד חוצות אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "lands-end", "name": "Lands' End", "tag": "חולצות, מכנסיים ומעילים", "traffic": 8000000, "conv": 2.0, "aov": 300, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "חולצות ומכנסיים", "url": "https://www.landsend.com", "about": "מותג בגדים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "jjill", "name": "J.Jill", "tag": "אופנת נשים", "traffic": 5000000, "conv": 2.0, "aov": 300, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.jjill.com", "about": "מותג אופנת נשים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "torrid", "name": "Torrid", "tag": "אופנת נשים במידות גדולות", "traffic": 8000000, "conv": 2.2, "aov": 280, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "שמלות ואופנת נשים", "url": "https://www.torrid.com", "about": "מותג אופנת נשים אמריקאי במידות גדולות.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "duluth", "name": "Duluth Trading", "tag": "מעילים וביגוד עבודה", "traffic": 5000000, "conv": 2.0, "aov": 350, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "מעילים וג׳קטים", "url": "https://www.duluthtrading.com", "about": "מותג ביגוד עבודה אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "vuori", "name": "Vuori", "tag": "ביגוד ספורט וקז׳ואל", "traffic": 8000000, "conv": 2.2, "aov": 400, "cMargin": 12.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ספורט ואקטיבוור", "url": "https://vuoriclothing.com", "about": "מותג ביגוד ספורט וקז׳ואל אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "alo-yoga", "name": "Alo Yoga", "tag": "ביגוד ספורט", "traffic": 12000000, "conv": 2.2, "aov": 450, "cMargin": 10.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ספורט ואקטיבוור", "url": "https://www.aloyoga.com", "about": "מותג ביגוד ספורט ויוגה אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "fabletics", "name": "Fabletics", "tag": "ביגוד ספורט", "traffic": 10000000, "conv": 2.4, "aov": 280, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "ספורט ואקטיבוור", "url": "https://www.fabletics.com", "about": "מותג ביגוד ספורט אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "quince", "name": "Quince", "tag": "בגדי בייסיק D2C", "traffic": 15000000, "conv": 2.5, "aov": 220, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://www.quince.com", "about": "מותג בגדי בייסיק אמריקאי המכור ישירות לצרכן.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "bonobos", "name": "Bonobos", "tag": "חולצות, מכנסיים וחליפות לגברים", "traffic": 3000000, "conv": 2.0, "aov": 380, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "חליפות וחולצות מכופתרות", "url": "https://bonobos.com", "about": "מותג בגדי גברים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "faherty", "name": "Faherty", "tag": "בייסיק וקז׳ואל", "traffic": 2000000, "conv": 2.0, "aov": 330, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://fahertybrand.com", "about": "מותג בגדים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "buck-mason", "name": "Buck Mason", "tag": "בייסיק לגברים", "traffic": 1500000, "conv": 2.0, "aov": 350, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://www.buckmason.com", "about": "מותג בגדי גברים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "todd-snyder", "name": "Todd Snyder", "tag": "חליפות וחולצות מכופתרות", "traffic": 1000000, "conv": 1.8, "aov": 450, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.toddsnyder.com", "about": "מותג בגדי גברים אמריקאי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "roots", "name": "Roots", "tag": "בייסיק וקז׳ואל", "traffic": 4000000, "conv": 2.0, "aov": 250, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "צפון אמריקה", "cat": "בייסיק וקז׳ואל", "url": "https://www.roots.com", "about": "מותג בגדים קנדי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "zalando", "name": "Zalando", "tag": "פלטפורמת אופנה", "traffic": 21790000, "conv": 3.0, "aov": 330, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.zalando.com", "about": "פלטפורמת אופנה אירופית, מהגדולות באירופה.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, מאי 2025 (zalando.com בלבד)", "dataDate": "2025-05"},
+  {"key": "next", "name": "Next", "tag": "חולצות, מכנסיים ומעילים", "traffic": 39480000, "conv": 2.3, "aov": 280, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.next.co.uk", "about": "רשת אופנה בריטית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "boohoo", "name": "Boohoo", "tag": "אופנה מהירה לנשים", "traffic": 30000000, "conv": 2.0, "aov": 160, "cMargin": 1.5, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.boohoo.com", "about": "קבוצת אופנה מהירה בריטית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "about-you", "name": "About You", "tag": "פלטפורמת אופנה", "traffic": 30000000, "conv": 2.2, "aov": 260, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.aboutyou.com", "about": "פלטפורמת אופנה גרמנית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "cos", "name": "COS", "tag": "בייסיק מינימליסטי", "traffic": 10000000, "conv": 2.1, "aov": 380, "cMargin": 9.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "בייסיק וקז׳ואל", "url": "https://www.cosstores.com", "about": "מותג אופנה מקבוצת H&M.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "arket", "name": "Arket", "tag": "בייסיק וג׳קטים", "traffic": 3000000, "conv": 2.0, "aov": 400, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "בייסיק וקז׳ואל", "url": "https://www.arket.com", "about": "מותג אופנה מקבוצת H&M.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "other-stories", "name": "& Other Stories", "tag": "אופנת נשים", "traffic": 6000000, "conv": 2.0, "aov": 350, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.stories.com", "about": "מותג אופנת נשים מקבוצת H&M.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "hugo-boss", "name": "Hugo Boss", "tag": "חליפות, חולצות ומעילים", "traffic": 10000000, "conv": 1.9, "aov": 520, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.hugoboss.com", "about": "מותג אופנה גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "sandro", "name": "Sandro", "tag": "אופנת נשים וגברים", "traffic": 3000000, "conv": 2.0, "aov": 600, "cMargin": 9.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.sandro-paris.com", "about": "מותג אופנה צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "burberry", "name": "Burberry", "tag": "מעילים וטרנצ׳ים", "traffic": 15000000, "conv": 1.6, "aov": 1200, "cMargin": 12.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.burberry.com", "about": "בית אופנה בריטי, ידוע במעילי טרנץ׳.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "moncler", "name": "Moncler", "tag": "מעילי פוך", "traffic": 8000000, "conv": 1.2, "aov": 1600, "cMargin": 15.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.moncler.com", "about": "מותג מעילי פוך איטלקי-צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "benetton", "name": "Benetton", "tag": "סריגים וחולצות", "traffic": 6000000, "conv": 2.0, "aov": 230, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "בייסיק וקז׳ואל", "url": "https://www.benetton.com", "about": "מותג אופנה איטלקי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "diesel", "name": "Diesel", "tag": "ג׳ינס וג׳קטים", "traffic": 8000000, "conv": 1.9, "aov": 450, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "ג׳ינס", "url": "https://www.diesel.com", "about": "מותג ג׳ינס ואופנה איטלקי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "superdry", "name": "Superdry", "tag": "ג׳קטים וחולצות", "traffic": 8000000, "conv": 2.0, "aov": 280, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.superdry.com", "about": "מותג אופנה בריטי, ידוע בג׳קטים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "stradivarius", "name": "Stradivarius", "tag": "אופנת נשים", "traffic": 10000000, "conv": 2.2, "aov": 150, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.stradivarius.com", "about": "מותג אופנה מקבוצת Inditex.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "reserved", "name": "Reserved", "tag": "חולצות, מכנסיים ומעילים", "traffic": 25000000, "conv": 2.2, "aov": 150, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.reserved.com", "about": "רשת אופנה פולנית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "sinsay", "name": "Sinsay", "tag": "אופנה מהירה", "traffic": 20000000, "conv": 2.2, "aov": 90, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.sinsay.com", "about": "רשת אופנה פולנית במחירים נמוכים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "esprit", "name": "Esprit", "tag": "חולצות, מכנסיים ומעילים", "traffic": 5000000, "conv": 2.0, "aov": 250, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.esprit.com", "about": "מותג אופנה גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "tom-tailor", "name": "Tom Tailor", "tag": "חולצות, מכנסיים ומעילים", "traffic": 4000000, "conv": 2.0, "aov": 250, "cMargin": 3.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.tom-tailor.com", "about": "מותג אופנה גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "s-oliver", "name": "s.Oliver", "tag": "חולצות, מכנסיים ומעילים", "traffic": 5000000, "conv": 2.0, "aov": 270, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.soliver.com", "about": "מותג אופנה גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "peek-cloppenburg", "name": "Peek & Cloppenburg", "tag": "כלבו אופנה", "traffic": 8000000, "conv": 2.0, "aov": 300, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.peek-cloppenburg.com", "about": "רשת כלבו אופנה גרמנית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "vero-moda", "name": "Vero Moda", "tag": "אופנת נשים", "traffic": 12000000, "conv": 2.2, "aov": 190, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.veromoda.com", "about": "מותג אופנת נשים דני מקבוצת Bestseller.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "jack-jones", "name": "Jack & Jones", "tag": "חולצות, מכנסיים וג׳קטים לגברים", "traffic": 10000000, "conv": 2.2, "aov": 200, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.jackjones.com", "about": "מותג בגדי גברים דני מקבוצת Bestseller.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "only", "name": "ONLY", "tag": "אופנת נשים", "traffic": 8000000, "conv": 2.2, "aov": 180, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.only.com", "about": "מותג אופנת נשים דני מקבוצת Bestseller.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "weekday", "name": "Weekday", "tag": "ג׳ינס ובייסיק", "traffic": 3000000, "conv": 2.0, "aov": 200, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "ג׳ינס", "url": "https://www.weekday.com", "about": "מותג אופנה שוודי מקבוצת H&M.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "monki", "name": "Monki", "tag": "אופנת נשים", "traffic": 3000000, "conv": 2.0, "aov": 160, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.monki.com", "about": "מותג אופנה שוודי מקבוצת H&M.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "lindex", "name": "Lindex", "tag": "חולצות, מכנסיים ומעילים", "traffic": 6000000, "conv": 2.2, "aov": 170, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.lindex.com", "about": "רשת אופנה שוודית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "kappahl", "name": "KappAhl", "tag": "חולצות, מכנסיים ומעילים", "traffic": 3000000, "conv": 2.0, "aov": 170, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.kappahl.com", "about": "רשת אופנה שוודית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "gina-tricot", "name": "Gina Tricot", "tag": "אופנת נשים", "traffic": 4000000, "conv": 2.2, "aov": 130, "cMargin": 3.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.ginatricot.com", "about": "רשת אופנה שוודית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "na-kd", "name": "NA-KD", "tag": "אופנת נשים", "traffic": 8000000, "conv": 2.3, "aov": 150, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.na-kd.com", "about": "מותג אופנה שוודי מקוון.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "ganni", "name": "Ganni", "tag": "אופנת נשים", "traffic": 5000000, "conv": 1.8, "aov": 500, "cMargin": 9.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.ganni.com", "about": "מותג אופנה דני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "acne-studios", "name": "Acne Studios", "tag": "בייסיק וג׳ינס", "traffic": 4000000, "conv": 1.5, "aov": 800, "cMargin": 10.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "בייסיק וקז׳ואל", "url": "https://www.acnestudios.com", "about": "מותג אופנה שוודי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "fjallraven", "name": "Fjällräven", "tag": "מעילים וביגוד חוצות", "traffic": 6000000, "conv": 2.0, "aov": 500, "cMargin": 10.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.fjallraven.com", "about": "מותג ביגוד חוצות שוודי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "helly-hansen", "name": "Helly Hansen", "tag": "מעילים וביגוד חוצות", "traffic": 4000000, "conv": 2.0, "aov": 600, "cMargin": 8.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.hellyhansen.com", "about": "מותג ביגוד חוצות נורווגי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "napapijri", "name": "Napapijri", "tag": "מעילים וג׳קטים", "traffic": 2000000, "conv": 1.8, "aov": 600, "cMargin": 7.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.napapijri.com", "about": "מותג מעילים איטלקי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "woolrich", "name": "Woolrich", "tag": "מעילים וג׳קטים", "traffic": 2000000, "conv": 1.6, "aov": 700, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.woolrich.com", "about": "מותג מעילים וביגוד חוצות.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "barbour", "name": "Barbour", "tag": "מעילים וג׳קטים", "traffic": 6000000, "conv": 1.8, "aov": 700, "cMargin": 10.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.barbour.com", "about": "מותג מעילים בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "boden", "name": "Boden", "tag": "אופנת נשים וגברים", "traffic": 4000000, "conv": 2.2, "aov": 450, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.boden.co.uk", "about": "מותג אופנה בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "reiss", "name": "Reiss", "tag": "חליפות ואופנת נשים", "traffic": 3000000, "conv": 1.8, "aov": 600, "cMargin": 7.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.reiss.com", "about": "מותג אופנה בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "allsaints", "name": "AllSaints", "tag": "מעילי עור וג׳קטים", "traffic": 4000000, "conv": 1.8, "aov": 650, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.allsaints.com", "about": "מותג אופנה בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "river-island", "name": "River Island", "tag": "חולצות, מכנסיים ומעילים", "traffic": 10000000, "conv": 2.0, "aov": 220, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.riverisland.com", "about": "רשת אופנה בריטית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "new-look", "name": "New Look", "tag": "חולצות, מכנסיים ומעילים", "traffic": 8520000, "conv": 2.0, "aov": 180, "cMargin": 1.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.newlook.com", "about": "רשת אופנה בריטית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "marks-spencer", "name": "Marks & Spencer", "tag": "כלבו בגדים ומזון", "traffic": 14720000, "conv": 2.0, "aov": 200, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.marksandspencer.com", "about": "רשת קמעונאות בריטית, אופנה היא חלק מהפעילות.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, יוני 2026 (כניסות מבריטניה)", "dataDate": "2026-06"},
+  {"key": "kiabi", "name": "Kiabi", "tag": "חולצות, מכנסיים ומעילים", "traffic": 12000000, "conv": 2.2, "aov": 90, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.kiabi.com", "about": "רשת אופנה צרפתית במחירים נמוכים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "celio", "name": "Celio", "tag": "בגדי גברים", "traffic": 3000000, "conv": 2.0, "aov": 140, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.celio.com", "about": "מותג בגדי גברים צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "jules", "name": "Jules", "tag": "בגדי גברים", "traffic": 2000000, "conv": 2.0, "aov": 140, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.jules.com", "about": "מותג בגדי גברים צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "promod", "name": "Promod", "tag": "אופנת נשים", "traffic": 2000000, "conv": 2.0, "aov": 130, "cMargin": 3.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.promod.fr", "about": "מותג אופנת נשים צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "zadig-voltaire", "name": "Zadig & Voltaire", "tag": "אופנת נשים וגברים", "traffic": 2000000, "conv": 1.8, "aov": 550, "cMargin": 8.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.zadig-et-voltaire.com", "about": "מותג אופנה צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "maje", "name": "Maje", "tag": "אופנת נשים", "traffic": 3000000, "conv": 1.8, "aov": 500, "cMargin": 8.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.maje.com", "about": "מותג אופנת נשים צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "the-kooples", "name": "The Kooples", "tag": "אופנת נשים וגברים", "traffic": 1500000, "conv": 1.8, "aov": 450, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "בייסיק וקז׳ואל", "url": "https://www.thekooples.com", "about": "מותג אופנה צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "bonprix", "name": "bonprix", "tag": "חולצות, מכנסיים ומעילים", "traffic": 15000000, "conv": 2.5, "aov": 120, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.bonprix.de", "about": "רשת אופנה מקוונת גרמנית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "breuninger", "name": "Breuninger", "tag": "כלבו אופנה", "traffic": 5000000, "conv": 2.0, "aov": 300, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.breuninger.com", "about": "כלבו אופנה גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "marc-o-polo", "name": "Marc O'Polo", "tag": "חולצות, מכנסיים ומעילים", "traffic": 4000000, "conv": 2.0, "aov": 300, "cMargin": 7.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.marc-o-polo.com", "about": "מותג אופנה שוודי-גרמני.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "ovs", "name": "OVS", "tag": "חולצות, מכנסיים ומעילים", "traffic": 8000000, "conv": 2.2, "aov": 100, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://www.ovs.it", "about": "רשת אופנה איטלקית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "zegna", "name": "Zegna", "tag": "חליפות וחולצות מכופתרות", "traffic": 2000000, "conv": 1.4, "aov": 1800, "cMargin": 12.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.zegna.com", "about": "בית אופנה איטלקי לגברים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "stone-island", "name": "Stone Island", "tag": "מעילים וג׳קטים", "traffic": 4000000, "conv": 1.6, "aov": 900, "cMargin": 14.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "מעילים וג׳קטים", "url": "https://www.stoneisland.com", "about": "מותג אופנה איטלקי, ידוע במעילים וג׳קטים.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "yoox", "name": "Yoox", "tag": "פלטפורמת אופנה", "traffic": 12000000, "conv": 2.0, "aov": 300, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.yoox.com", "about": "פלטפורמת אופנה איטלקית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "farfetch", "name": "Farfetch", "tag": "פלטפורמת אופנת יוקרה", "traffic": 25000000, "conv": 2.0, "aov": 800, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.farfetch.com", "about": "פלטפורמת אופנת יוקרה בינלאומית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "mytheresa", "name": "Mytheresa", "tag": "פלטפורמת אופנת יוקרה", "traffic": 8000000, "conv": 1.6, "aov": 1200, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.mytheresa.com", "about": "פלטפורמת אופנת יוקרה גרמנית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "net-a-porter", "name": "Net-A-Porter", "tag": "פלטפורמת אופנת יוקרה", "traffic": 15000000, "conv": 1.8, "aov": 1000, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "פלטפורמות וכלבו", "url": "https://www.net-a-porter.com", "about": "פלטפורמת אופנת יוקרה בריטית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "desigual", "name": "Desigual", "tag": "אופנת נשים וגברים", "traffic": 6000000, "conv": 2.0, "aov": 220, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.desigual.com", "about": "מותג אופנה ספרדי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "springfield", "name": "Springfield", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 4000000, "conv": 2.0, "aov": 120, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חולצות ומכנסיים", "url": "https://myspringfield.com", "about": "רשת אופנה ספרדית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "sezane", "name": "Sézane", "tag": "אופנת נשים", "traffic": 3000000, "conv": 2.0, "aov": 300, "cMargin": 12.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.sezane.com", "about": "מותג אופנת נשים צרפתי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "hackett", "name": "Hackett", "tag": "חליפות וחולצות מכופתרות", "traffic": 2000000, "conv": 1.8, "aov": 450, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.hackett.com", "about": "מותג בגדי גברים בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "ted-baker", "name": "Ted Baker", "tag": "אופנת נשים וגברים", "traffic": 3000000, "conv": 1.8, "aov": 400, "cMargin": 3.0, "maxShare": 10, "engagement": 12, "loc": "אירופה", "cat": "שמלות ואופנת נשים", "url": "https://www.tedbaker.com", "about": "מותג אופנה בריטי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "pull-bear", "name": "Pull&Bear (עולמי)", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 25000000, "conv": 2.4, "aov": 260, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.pullandbear.com", "about": "מותג אופנה צעירה מקבוצת Inditex.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "bershka", "name": "Bershka (עולמי)", "tag": "חולצות, מכנסיים וג׳קטים", "traffic": 20000000, "conv": 2.4, "aov": 240, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חולצות ומכנסיים", "url": "https://www.bershka.com", "about": "מותג אופנה צעירה מקבוצת Inditex.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "massimo", "name": "Massimo Dutti (עולמי)", "tag": "חליפות, חולצות ומעילים", "traffic": 12000000, "conv": 2.0, "aov": 520, "cMargin": 9.0, "maxShare": 10, "engagement": 10, "loc": "עולמי", "cat": "חליפות וחולצות מכופתרות", "url": "https://www.massimodutti.com", "about": "מותג אופנה מקבוצת Inditex.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "gu", "name": "GU", "tag": "בגדי בייסיק", "traffic": 15000000, "conv": 2.0, "aov": 150, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "בייסיק וקז׳ואל", "url": "https://www.gu-global.com", "about": "מותג בגדים יפני במחירים נמוכים, אחות של Uniqlo.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "muji", "name": "Muji", "tag": "בייסיק", "traffic": 20000000, "conv": 2.0, "aov": 220, "cMargin": 7.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "בייסיק וקז׳ואל", "url": "https://www.muji.com", "about": "מותג יפני לבגדים ולמוצרי בית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "zozotown", "name": "ZOZOTOWN", "tag": "פלטפורמת אופנה", "traffic": 150000000, "conv": 2.5, "aov": 220, "cMargin": 4.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "פלטפורמות וכלבו", "url": "https://zozo.jp", "about": "פלטפורמת אופנה יפנית גדולה.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "urban-revivo", "name": "Urban Revivo", "tag": "חולצות, מכנסיים ומעילים", "traffic": 12000000, "conv": 2.2, "aov": 200, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "חולצות ומכנסיים", "url": "https://www.urbanrevivo.com", "about": "רשת אופנה סינית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "myntra", "name": "Myntra", "tag": "פלטפורמת אופנה", "traffic": 55920000, "conv": 3.0, "aov": 65, "cMargin": 1.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "פלטפורמות וכלבו", "url": "https://www.myntra.com", "about": "פלטפורמת אופנה הודית גדולה.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "measured", "src": "Semrush, דצמ׳ 2025", "dataDate": "2025-12"},
+  {"key": "ajio", "name": "AJIO", "tag": "פלטפורמת אופנה", "traffic": 20000000, "conv": 2.5, "aov": 80, "cMargin": 1.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "פלטפורמות וכלבו", "url": "https://www.ajio.com", "about": "פלטפורמת אופנה הודית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "cider", "name": "Cider", "tag": "אופנת נשים", "traffic": 15000000, "conv": 2.2, "aov": 150, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "שמלות ואופנת נשים", "url": "https://www.shopcider.com", "about": "מותג אופנה מהירה מקוון.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "giordano", "name": "Giordano", "tag": "חולצות, מכנסיים ומעילים", "traffic": 2000000, "conv": 2.0, "aov": 120, "cMargin": 4.0, "maxShare": 10, "engagement": 12, "loc": "אסיה", "cat": "חולצות ומכנסיים", "url": "https://www.giordano.com", "about": "מותג בגדים מהונג קונג.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "zalora", "name": "Zalora", "tag": "פלטפורמת אופנה", "traffic": 15000000, "conv": 2.2, "aov": 110, "cMargin": 2.0, "maxShare": 10, "engagement": 10, "loc": "אסיה", "cat": "פלטפורמות וכלבו", "url": "https://www.zalora.com", "about": "פלטפורמת אופנה בדרום-מזרח אסיה.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "cotton-on", "name": "Cotton On", "tag": "בגדי בייסיק וצעירים", "traffic": 15000000, "conv": 2.2, "aov": 150, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אוקיינוס", "cat": "בייסיק וקז׳ואל", "url": "https://cottonon.com", "about": "רשת בגדים אוסטרלית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "the-iconic", "name": "The Iconic", "tag": "פלטפורמת אופנה", "traffic": 10000000, "conv": 2.3, "aov": 350, "cMargin": 3.0, "maxShare": 10, "engagement": 10, "loc": "אוקיינוס", "cat": "פלטפורמות וכלבו", "url": "https://www.theiconic.com.au", "about": "פלטפורמת אופנה אוסטרלית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "country-road", "name": "Country Road", "tag": "חולצות, מכנסיים ומעילים", "traffic": 3000000, "conv": 2.0, "aov": 300, "cMargin": 7.0, "maxShare": 10, "engagement": 12, "loc": "אוקיינוס", "cat": "חולצות ומכנסיים", "url": "https://www.countryroad.com.au", "about": "מותג אופנה אוסטרלי.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "glassons", "name": "Glassons", "tag": "אופנת נשים", "traffic": 3000000, "conv": 2.3, "aov": 150, "cMargin": 6.0, "maxShare": 10, "engagement": 12, "loc": "אוקיינוס", "cat": "שמלות ואופנת נשים", "url": "https://www.glassons.com", "about": "רשת אופנת נשים מניו זילנד.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "renner", "name": "Lojas Renner", "tag": "חולצות, מכנסיים ומעילים", "traffic": 30000000, "conv": 2.0, "aov": 200, "cMargin": 8.0, "maxShare": 10, "engagement": 10, "loc": "אמריקה הלטינית", "cat": "חולצות ומכנסיים", "url": "https://www.lojasrenner.com.br", "about": "רשת אופנה ברזילאית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "riachuelo", "name": "Riachuelo", "tag": "חולצות, מכנסיים ומעילים", "traffic": 25000000, "conv": 2.0, "aov": 150, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אמריקה הלטינית", "cat": "חולצות ומכנסיים", "url": "https://www.riachuelo.com.br", "about": "רשת אופנה ברזילאית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "cea-br", "name": "C&A Brasil", "tag": "חולצות, מכנסיים ומעילים", "traffic": 20000000, "conv": 2.0, "aov": 130, "cMargin": 5.0, "maxShare": 10, "engagement": 10, "loc": "אמריקה הלטינית", "cat": "חולצות ומכנסיים", "url": "https://www.cea.com.br", "about": "רשת אופנה בברזיל.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null},
+  {"key": "mr-price", "name": "Mr Price", "tag": "חולצות, מכנסיים ומעילים", "traffic": 8000000, "conv": 1.8, "aov": 80, "cMargin": 6.0, "maxShare": 10, "engagement": 10, "loc": "אפריקה", "cat": "חולצות ומכנסיים", "url": "https://www.mrprice.co.za", "about": "רשת אופנה דרום אפריקאית.", "updatedAt": "2026-10-04T03:18:14Z", "dq": "estimate", "src": "הערכה גסה", "dataDate": null}
 ];
 
 /* ============================================================================
@@ -460,10 +642,23 @@ function renderInputs() {
   <details class="sec" open>
     <summary>בחירת חברה</summary>
     <div class="body">
-      <div class="field full">
-        <label for="preset">חברה מוכנה (ממלא אוטומטית את נתוני הלקוח)</label>
-        <div class="inp"><select id="preset"></select></div>
+      <div class="livebar" id="liveBar"></div>
+      <div class="grid2">
+        <div class="field">
+          <label for="fLoc">מיקום החברה</label>
+          <div class="inp"><select id="fLoc"></select></div>
+        </div>
+        <div class="field">
+          <label for="fCat">סוג בגדים</label>
+          <div class="inp"><select id="fCat"></select></div>
+        </div>
+        <div class="field full">
+          <label for="preset">חברה מוכנה (ממלא אוטומטית את נתוני הלקוח)</label>
+          <div class="inp"><select id="preset"></select></div>
+          <span class="hint" id="filterCount"></span>
+        </div>
       </div>
+      <div id="companyCard"></div>
     </div>
   </details>`;
   FIELDS.forEach(s => {
@@ -483,18 +678,221 @@ function renderInputs() {
     if (s.sec === 'policy') {
       html += `<button type="button" class="btn primary wide" id="proposalBtn">הצעת תמחור לפי הלקוח</button>`;
       html += `<p class="sec-hint" style="margin-top:8px">בונה אוטומטית חבילה ומחיר שבריאים לשני הצדדים לפי נתוני הלקוח שנבחר. אם אין חבילה כזו, תופיע אזהרה שלא כדאי לצרף אותו.</p>`;
+      html += `<div class="meter" id="meterBox">
+        <div class="meter-ends"><span>הכי שווה ללקוח</span><span>הכי שווה לנו</span></div>
+        <input type="range" id="propMeter" dir="rtl" min="0" max="100" step="1" value="50" aria-label="מד חלוקת העסקה בין הלקוח לבינינו">
+        <div id="meterRead"></div>
+      </div>`;
     }
     html += `</div></details>`;
   });
   $('inputs').innerHTML = html;
 
+  fillFilters();
+  fillPresetOptions();
+}
+
+/* ============================================================================
+   נתוני החברות החיים: מסד נתונים משותף (db) כשהדף רץ כ-Artifact, אחרת הצילום המוטמע בקובץ
+============================================================================ */
+const fmtDate = iso => { try { return iso ? new Date(iso).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'; } catch (e) { return '-'; } };
+const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) { return '-'; } };
+const agoText = iso => {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!(ms >= 0)) return '';
+  const h = ms / 3600000;
+  if (h < 1) return 'לפני פחות משעה';
+  if (h < 24) return `לפני ${Math.floor(h)} שעות`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? 'אתמול' : `לפני ${d} ימים`;
+};
+const qChip = dq => dq === 'measured' ? '<span class="q q-m">נמדד</span>' : '<span class="q q-e">הערכה</span>';
+
+let DB = null;
+const LIVE = { mode: 'static', lastCheck: null, fx: Object.assign({}, SNAPSHOT_FX) };
+let FX_SYNCED = null;
+
+/* The USD/ILS field follows the shared rate until the user types their own value. */
+function applyFx() {
+  const el = $('fx');
+  const rate = LIVE.fx && Number(LIVE.fx.rate);
+  if (!el || !(rate > 0)) return false;
+  const cur = parseFloat(el.value);
+  if (cur === 3.65 || cur === FX_SYNCED || !Number.isFinite(cur)) {
+    const changed = cur !== rate;
+    el.value = rate;
+    FX_SYNCED = rate;
+    return changed;
+  }
+  return false;
+}
+
+function applyCompanyDocs(list) {
+  let changed = 0;
+  list.forEach(d => {
+    if (!d || !d.key) return;
+    const i = BRANDS.findIndex(b => b.key === d.key);
+    if (i === -1) { BRANDS.push(Object.assign({}, d)); changed++; }
+    else if (JSON.stringify(BRANDS[i]) !== JSON.stringify(Object.assign({}, BRANDS[i], d))) { Object.assign(BRANDS[i], d); changed++; }
+  });
+  return changed;
+}
+
+function removeCompany(key) {
+  const i = BRANDS.findIndex(b => b.key === key);
+  if (i < 0) return 0;
+  BRANDS.splice(i, 1);
+  return 1;
+}
+
+function afterDataChange(n, silent) {
+  fillFilters();
+  fillPresetOptions();
+  const key = $('preset').value;
+  if (key !== 'custom') applyPreset(key);   // a manual edit switches the preset to "custom", so this never overwrites the user's edits
+  applyFx();
+  renderLiveBar();
+  update();
+  if (!silent && n) toast(`עודכנו ${n} חברות`);
+}
+
+function renderLiveBar() {
+  const el = $('liveBar');
+  if (!el) return;
+  const newest = BRANDS.reduce((m, b) => (b.updatedAt && b.updatedAt > m ? b.updatedAt : m), '');
+  const status = LIVE.mode === 'live'
+    ? `<span class="ldot on"></span><b>חי</b> · ${LIVE.lastCheck ? 'נבדק ' + fmtTime(LIVE.lastCheck) : 'מתחבר...'}`
+    : LIVE.mode === 'connecting' ? '<span class="ldot"></span><b>מתחבר...</b>'
+    : LIVE.mode === 'error' ? '<span class="ldot bad"></span><b>החיבור נותק</b> · מוצג הצילום האחרון'
+    : `<span class="ldot"></span><b>צילום נתונים</b> מ-${fmtDate(SNAPSHOT_AT)} (הדף נפתח ללא חיבור חי)`;
+  const fx = LIVE.fx && Number(LIVE.fx.rate) > 0 ? Number(LIVE.fx.rate).toFixed(2) : '-';
+  el.innerHTML = `<div class="lb-top"><div class="lb-st">${status}</div><button type="button" class="btn lb-btn" id="refreshBtn">עדכן עכשיו</button></div>
+    <div class="lb-sub">נתוני החברות עודכנו לאחרונה: <b>${fmtDate(newest)}</b>${newest ? ' (' + agoText(newest) + ')' : ''} · שער דולר: <b>₪${fx}</b> (עודכן ${fmtDate(LIVE.fx && LIVE.fx.at)})</div>`;
+}
+
+let DB_KEYS = new Set();
+
+/* The catalog is one shared document: { items: { <companyKey>: {...company}, ... }, fx: { rate, updatedAt, source } } */
+function applyCatalog(d) {
+  let n = 0, fxChanged = false;
+  const items = d && d.items && typeof d.items === 'object' ? d.items : {};
+  const keys = Object.keys(items);
+  keys.forEach(k => {
+    const it = items[k];
+    if (it && typeof it === 'object') n += applyCompanyDocs([Object.assign({ key: k }, it)]);
+  });
+  DB_KEYS.forEach(k => { if (!(k in items)) n += removeCompany(k); });   // removed from the shared catalog
+  DB_KEYS = new Set(keys);
+  if (d && d.fx && Number(d.fx.rate) > 0) {
+    LIVE.fx = { rate: Number(d.fx.rate), at: d.fx.updatedAt || LIVE.fx.at, src: d.fx.source || '' };
+    fxChanged = applyFx();
+  }
+  return { n, fxChanged };
+}
+
+async function refreshNow() {
+  const btn = $('refreshBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'מעדכן...'; }
+  try {
+    if (!DB) { toast('אין חיבור חי. מוצג הצילום מ-' + fmtDate(SNAPSHOT_AT)); return; }
+    const snap = await DB.doc('catalog/companies').get();
+    LIVE.mode = 'live';
+    LIVE.lastCheck = new Date().toISOString();
+    if (!snap.exists) { renderLiveBar(); toast('המאגר החי עדיין ריק. מוצג הצילום מ-' + fmtDate(SNAPSHOT_AT)); return; }
+    const r = applyCatalog(snap.data());
+    if (r.n) afterDataChange(r.n, false);
+    else { renderLiveBar(); if (r.fxChanged) update(); toast('הנתונים מעודכנים, אין שינויים חדשים במאגר'); }
+  } catch (e) {
+    toast('העדכון נכשל, נסה שוב בעוד רגע');
+  } finally {
+    renderLiveBar();
+  }
+}
+
+async function initLive() {
+  renderLiveBar();
+  try {
+    const c = window.claude;
+    if (!c || typeof c.use !== 'function') return;
+    LIVE.mode = 'connecting';
+    renderLiveBar();
+    const db = await c.use('db');
+    if (!db) { LIVE.mode = 'static'; renderLiveBar(); return; }
+    DB = db;
+    let first = true;
+    db.doc('catalog/companies').onSnapshot(snap => {
+      LIVE.mode = 'live';
+      LIVE.lastCheck = new Date().toISOString();
+      const wasFirst = first;
+      first = false;
+      if (!snap.exists) { renderLiveBar(); return; }
+      const r = applyCatalog(snap.data());
+      if (r.n) afterDataChange(r.n, wasFirst);
+      else { renderLiveBar(); if (r.fxChanged) update(); }
+    }, () => { LIVE.mode = 'error'; renderLiveBar(); });
+  } catch (e) {
+    LIVE.mode = 'static';
+    renderLiveBar();
+  }
+}
+
+/* ---- company card: details, link and data quality for the selected company ---- */
+function siteLink(b) {
+  const href = b.url || ('https://www.google.com/search?q=' + encodeURIComponent(b.name + ' אתר רשמי'));
+  return `<a class="site" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${b.url ? 'לאתר החברה' : 'חיפוש האתר בגוגל'} ↗</a>`;
+}
+
+function renderCompanyCard() {
+  const el = $('companyCard');
+  if (!el) return;
+  const b = BRANDS.find(x => x.key === $('preset').value);
+  if (!b) { el.innerHTML = '<p class="note" style="margin-top:10px">בחר חברה כדי לראות פרטים, קישור לאתר ומועד העדכון, או הזן נתונים בעצמך.</p>'; return; }
+  el.innerHTML = `<div class="cc">
+    <div class="cc-head"><b>${esc(b.name)}</b><span class="tagx">${esc(b.loc || '')}</span><span class="tagx">${esc(b.cat || '')}</span></div>
+    <p class="cc-about">${esc(b.about || '')}</p>
+    <p>${siteLink(b)}${b.url ? '' : ' <span class="note">(אין לי קישור רשמי מאומת)</span>'}</p>
+    <table class="kv">
+      <tr><td>כניסות חודשיות<span class="small">${esc(b.src || '')}</span></td><td>${num(nf.format(b.traffic))} ${qChip(b.dq)}</td></tr>
+      <tr><td>אחוז המרה</td><td>${b.conv}% ${qChip('estimate')}</td></tr>
+      <tr><td>סל ממוצע</td><td>${num(ils(b.aov))} ${qChip('estimate')}</td></tr>
+      <tr><td>רווח נקי של החברה</td><td>${b.cMargin}% ${qChip('estimate')}</td></tr>
+      <tr><td>עודכן במערכת</td><td>${fmtDate(b.updatedAt)}<span class="small">${agoText(b.updatedAt)}</span></td></tr>
+    </table>
+    <p class="note">רק כניסות נמדדו (כשכתוב "נמדד", ממקור ציבורי עם חודש). המרה, סל ורווח הם הערכות גסות. כדאי להחליף אותם בנתוני הלקוח.</p>
+  </div>`;
+}
+
+/* ---- company filters: location and garment category ---- */
+function fillFilters() {
+  const mk = (id, all, values, getter, otherMatch, current) => {
+    const el = $(id);
+    el.innerHTML = `<option value="הכול">${all}</option>` + values.map(v => {
+      const n = BRANDS.filter(b => getter(b) === v && otherMatch(b)).length;
+      return `<option value="${v}">${v} (${n})</option>`;
+    }).join('');
+    el.value = current;
+  };
+  mk('fLoc', 'כל המיקומים', allLocs(), b => b.loc, b => F_CAT === 'הכול' || b.cat === F_CAT, F_LOC);
+  mk('fCat', 'כל סוגי הבגדים', allCats(), b => b.cat, b => F_LOC === 'הכול' || b.loc === F_LOC, F_CAT);
+}
+
+function fillPresetOptions() {
   const sel = $('preset');
+  const cur = sel.value || 'custom';
   let opts = `<option value="custom">מותאם אישית</option>`;
-  [1, 2, 3, 4].forEach(g => {
-    opts += `<optgroup label="${GROUP_LABELS[g]}">` +
-      BRANDS.filter(b => b.group === g).map(b => `<option value="${b.key}">${esc(b.name)} - ${esc(b.tag)}</option>`).join('') + `</optgroup>`;
+  let shown = 0;
+  allLocs().forEach(loc => {
+    const list = BRANDS.filter(b => b.loc === loc && (brandMatches(b) || b.key === cur));
+    if (!list.length) return;
+    shown += list.length;
+    opts += `<optgroup label="${loc} (${list.length})">` +
+      list.map(b => `<option value="${b.key}">${esc(b.name)} - ${esc(b.tag)}</option>`).join('') + `</optgroup>`;
   });
   sel.innerHTML = opts;
+  sel.value = cur;
+  if (sel.value !== cur) sel.value = 'custom';
+  const n = BRANDS.filter(brandMatches).length;
+  $('filterCount').textContent = n ? `${n} חברות לפי הסינון (מתוך ${BRANDS.length})` : 'אין חברות שמתאימות לסינון';
 }
 
 function readInputs() {
@@ -520,7 +918,7 @@ function applyPreset(key) {
 
 function saveState() {
   try {
-    const s = { preset: $('preset').value, plan: PLAN, custom: CUSTOM };
+    const s = { preset: $('preset').value, plan: PLAN, custom: CUSTOM, fLoc: F_LOC, fCat: F_CAT };
     ALL_FIELDS.forEach(f => { s[f.id] = f.type === 'check' ? $(f.id).checked : $(f.id).value; });
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
   } catch (e) { /* storage may be blocked; the calculator still works */ }
@@ -538,6 +936,8 @@ function loadState() {
     if (s.preset && (s.preset === 'custom' || BRANDS.some(b => b.key === s.preset))) $('preset').value = s.preset;
     if (['rec', 'floor', 'value', 'target', 'cap', 'custom'].includes(s.plan)) PLAN = s.plan;
     if (s.custom != null) CUSTOM = String(s.custom);
+    if (allLocs().includes(s.fLoc)) F_LOC = s.fLoc;
+    if (allCats().includes(s.fCat)) F_CAT = s.fCat;
     return true;
   } catch (e) { return false; }
 }
@@ -547,9 +947,12 @@ function resetAll() {
   ALL_FIELDS.forEach(f => {
     if (f.type === 'check') $(f.id).checked = f.def; else $(f.id).value = f.def;
   });
+  F_LOC = 'הכול'; F_CAT = 'הכול';
+  fillFilters();
+  fillPresetOptions();
   $('preset').value = DEFAULT_BRAND;
   applyPreset(DEFAULT_BRAND);
-  PLAN = 'rec'; CUSTOM = ''; SHOW_PROP = false; USE_PROP = false;
+  PLAN = 'rec'; CUSTOM = ''; SHOW_PROP = false; USE_PROP = false; PROP_T = null;
   update();
   toast('הוחזרו ברירות המחדל');
 }
@@ -584,7 +987,7 @@ function buildAlerts(r, inp, ctx) {
     a.push(['bad', 'גם בחשיפה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
     return a;
   }
-  if (ctx && ctx.plan !== 'rec') {
+  if (ctx && ctx.plan !== 'rec' && ctx.plan !== 'slider') {
     a.push(['info', 'בחרת מדרגת מחיר שונה מהמומלצת. החבילה נשארת זהה ורק המחיר, הרווחיות והתשואה ללקוח משתנים.']);
   }
   if (r.optimized) {
@@ -623,6 +1026,7 @@ function buildAlerts(r, inp, ctx) {
 let LAST = null;
 let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
 let SHOW_PROP = false;  // proposal card visible
+let PROP_T = null;     // meter position 0..1 inside the healthy price window (null = recommended)
 let USE_PROP = false;   // whole calculator (plans, ROI, costs, ladder, table) follows the proposal
 let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
 
@@ -667,6 +1071,14 @@ function isHealthy(r, inp) {
     && (r.price - r.C) >= inp.minProfit;
 }
 
+/* The price range that is healthy for both sides: the floor (our min margin and min profit) up to the
+   highest price that still gives the client the minimum ROI (and stays under the client's budget cap). */
+function healthWindow(r, inp) {
+  let lo = Math.max(r.floor, r.C + inp.minProfit), hi = r.upper;
+  if (!(lo <= hi)) { lo = r.price; hi = r.price; }
+  return { lo, hi };
+}
+
 /* Looks for the fullest package that is healthy for both sides. Levers, in order of
    preference: keep the billed seconds and cut tries per user (down to 1), then shorten
    the billed window (down to 3s). Returns the first healthy combination, otherwise the
@@ -677,15 +1089,22 @@ function proposeFor(inp) {
   const triesList = [inp.tries];
   for (let t = Math.ceil(inp.tries) - 1; t >= 1; t--) triesList.push(t);
 
-  let last = null;
+  const ROOM = 0.25;   // wanted negotiation room: the top of the healthy price window is at least 25% above its bottom
+  let last = null, best = null;
   for (const sec of secs) {
     for (const tries of triesList) {
       const pi = { ...inp, tries, sec };
       const r = computeModel(pi);
       last = { inp: pi, r, tries, sec };
-      if (isHealthy(r, pi)) return { ok: true, changed: tries !== inp.tries || sec !== inp.sec, why: [], ...last };
+      if (!isHealthy(r, pi)) continue;
+      const w = healthWindow(r, pi);
+      const room = w.lo > 0 ? w.hi / w.lo - 1 : 0;
+      const cand = { ok: true, changed: tries !== inp.tries || sec !== inp.sec, why: [], room, ...last };
+      if (room >= ROOM) return cand;
+      if (!best || room > best.room) best = cand;
     }
   }
+  if (best) return best;
   const { r } = last;
   const why = [];
   if (r.unviable) {
@@ -700,20 +1119,73 @@ function proposeFor(inp) {
   return { ok: false, changed: false, why, ...last };
 }
 
-function proposalBlock(p, inp) {
-  const r = p.r, pi = p.inp;
-  let out = '';
+function meterWindow(p) {
+  return healthWindow(p.r, p.inp);
+}
+
+/* Price at meter position t (0 = best for the client, 1 = best for us). Always inside the healthy window. */
+function priceAt(p, t) {
+  const { lo, hi } = meterWindow(p);
+  const raw = lo + Math.min(1, Math.max(0, t)) * (hi - lo);
+  const st = raw < 3000 ? 50 : raw < 30000 ? 100 : 500;
+  let x = Math.round(raw / st) * st;
+  if (x < lo) x = Math.ceil(lo / st) * st;
+  if (x > hi) x = Math.floor(hi / st) * st;
+  return x >= lo && x <= hi ? x : p.r.price;
+}
+
+function meterPos(p) {
+  if (PROP_T !== null) return Math.round(PROP_T * 100);
+  const { lo, hi } = meterWindow(p);
+  return hi > lo ? Math.round(Math.min(1, Math.max(0, (p.r.price - lo) / (hi - lo))) * 100) : 0;
+}
+
+function propShowFor(p) {
+  return p.ok && PROP_T !== null ? runModel(p.inp, 'custom', String(priceAt(p, PROP_T))).r : p.r;
+}
+
+function renderMeterBox(p) {
+  const box = $('meterRead'), m = $('propMeter');
+  if (!box || !m) return;
   if (!p.ok) {
-    out += `<div class="banner bad"><div class="ic">⛔</div><div><h3>לא כדאי לצרף את הלקוח הזה</h3><p>${p.why.join(' ')} אין חבילה שבריאה לשני הצדדים, ולכן לא מומלץ להציע לו מחיר.</p></div></div>`;
+    m.disabled = true;
+    box.innerHTML = '<p class="note">אין הצעה בריאה ללקוח הזה, ולכן אין מה לכוון.</p>';
+    return;
   }
-  if (!SHOW_PROP) return out;
+  m.disabled = false;
+  if (document.activeElement !== m) m.value = meterPos(p);
+  const at = t => runModel(p.inp, 'custom', String(priceAt(p, t))).r;
+  const c = at(0), u = at(1), cur = propShowFor(p);
+  const col = (title, r) => `<div class="mc"><b>${title}</b><div class="p">${num(ils(r.price))}</div>${chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, p.inp)}</div>`;
+  box.innerHTML = `<div class="meter-cols">${col('הכי שווה ללקוח', c)}${col('הכי שווה לנו', u)}</div>
+    <p class="meter-now">עכשיו: <b>${num(ils(cur.price))}</b> לחודש · ROI ללקוח ${cur.roi.toFixed(2)} פי · רווחיות שלנו ${pct(cur.margin)}</p>
+    <p class="note">בכל נקודה על המד העסקה נשארת בריאה: הלקוח מקבל לפחות ${p.inp.minROI} פי, ואנחנו ברווחיות של לפחות ${p.inp.minMargin}% ורווח של לפחות ${ils(p.inp.minProfit)} בחודש.</p>`;
+}
+
+function proposalWarn(p) {
+  if (p.ok) return '';
+  return `<div class="banner bad"><div class="ic">⛔</div><div><h3>לא כדאי לצרף את הלקוח הזה</h3><p>${p.why.join(' ')} אין חבילה שבריאה לשני הצדדים, ולכן לא מומלץ להציע לו מחיר.</p></div></div>`;
+}
+
+function proposalCard(p, inp) {
+  const pi = p.inp;
+  const r = propShowFor(p);
+  const { lo, hi } = meterWindow(p);
   const was = (cur, now, unit) => cur === now ? '' : `<span class="small">כיום ${cur}${unit || ''}</span>`;
   const name = inp.name || 'הלקוח';
-  out += `<div class="card prop">
-    <h2><span>הצעת תמחור: ${esc(name)}</span><button type="button" class="xbtn" data-act="closeProp" aria-label="סגור">✕</button></h2>
-    <p class="sub">${p.ok ? 'החבילה והמחיר מחושבים אוטומטית לפי נתוני הלקוח, כך שזה בריא לשני הצדדים.' : 'לא נמצאה הצעה בריאה. מוצגת החבילה הזולה ביותר שנבדקה, להבנה בלבד.'}</p>
+  const pie = r.value - r.C;
+  const cShare = pie > 0 ? Math.min(1, Math.max(0, (r.value - r.price) / pie)) : 0;
+  const canApply = p.ok && (p.changed || PROP_T !== null);
+
+  const live = `
+    ${p.ok ? `<div class="meter-read">
+      <div class="mr-price">${num(ils(r.price))} <small>לחודש</small></div>
+      ${chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, pi)}
+      <div class="split" role="img" aria-label="חלוקת הערך בין הלקוח לבינינו"><div class="c" style="flex:${cShare}"></div><div class="u" style="flex:${1 - cShare}"></div></div>
+      <div class="split-l"><span>ללקוח ${pct(cShare)} מהערך (אחרי עלויות)</span><span>לנו ${pct(1 - cShare)}</span></div>
+      <p class="note">טווח עסקה בריאה: ${num(ils(lo))} עד ${num(ils(hi))} לחודש. בכל נקודה על המד הלקוח מקבל לפחות ${pi.minROI} פי ואנחנו ברווחיות של לפחות ${pi.minMargin}% ורווח של לפחות ${num(ils(pi.minProfit))} בחודש.</p>
+    </div>` : ''}
     ${p.ok ? `<div class="banner good"><div class="ic">✅</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
-    <label class="check" style="margin-bottom:10px"><input type="checkbox" data-act="toggleUse" ${USE_PROP ? 'checked' : ''}><span>הצג את כל המחשבון (מסלולים, ROI, עלויות, מדרגות והטבלה למטה) לפי ההצעה</span></label>
     <table class="kv">
       <tr><td>מדידות למשתמש${was(inp.tries, pi.tries)}</td><td>${pi.tries}</td></tr>
       <tr><td>משך מדידה${was(inp.sec, pi.sec, ' שניות')}</td><td>${pi.sec} שניות</td></tr>
@@ -728,24 +1200,50 @@ function proposalBlock(p, inp) {
       <tr><td>הרווחיות שלנו</td><td class="${r.margin < pi.minMargin / 100 - 0.005 ? 'neg' : 'pos'}">${pct(r.margin)}</td></tr>
       <tr><td>הרווח החודשי שלנו</td><td class="${r.price - r.C < pi.minProfit ? 'neg' : 'pos'}">${num(ils(r.price - r.C))}</td></tr>
     </table>
-    ${p.ok ? `<div class="actions">${p.changed ? '<button type="button" class="btn primary" data-act="applyProp">החל על המחשבון</button>' : ''}<button type="button" class="btn" data-act="copyProp">העתק הצעה ללקוח</button></div>${p.changed ? '' : '<p class="note">ההגדרות הנוכחיות כבר זהות להצעה.</p>'}` : ''}
+    ${p.ok ? `<div class="actions">${canApply ? '<button type="button" class="btn primary" data-act="applyProp">החל על המחשבון</button>' : ''}${PROP_T !== null ? '<button type="button" class="btn" data-act="meterReset">חזרה למחיר המומלץ</button>' : ''}<button type="button" class="btn" data-act="copyProp">העתק הצעה ללקוח</button></div>${canApply ? '' : '<p class="note">ההגדרות הנוכחיות כבר זהות להצעה.</p>'}` : ''}`;
+
+  const shell = `<div class="card prop">
+    <h2><span>הצעת תמחור: ${esc(name)}</span><button type="button" class="xbtn" data-act="closeProp" aria-label="סגור">✕</button></h2>
+    <p class="sub">${p.ok ? 'החבילה והמחיר מחושבים אוטומטית לפי נתוני הלקוח, כך שזה בריא לשני הצדדים. המד שמתחת לכפתור במדיניות התמחור מזיז את המחיר לצד שנוח יותר ללקוח או לנו.' : 'לא נמצאה הצעה בריאה. מוצגת החבילה הזולה ביותר שנבדקה, להבנה בלבד.'}</p>
+    <label class="check" style="margin-bottom:10px"><input type="checkbox" id="propUse" data-act="toggleUse" ${USE_PROP ? 'checked' : ''}><span>הצג את כל המחשבון (מסלולים, ROI, עלויות, מדרגות והטבלה למטה) לפי ההצעה</span></label>
+    <div id="propLive">${live}</div>
   </div>`;
-  return out;
+  return { key: `${p.ok}|${name}`, shell, live };
+}
+
+/* The card shell (with the slider) is only replaced when its structure changes, so a drag is never interrupted;
+   otherwise just the live readout inside it is refreshed. */
+function setPropCard(p, inp) {
+  const host = $('propHost');
+  if (!SHOW_PROP) { host.innerHTML = ''; host.dataset.key = ''; return; }
+  const c = proposalCard(p, inp);
+  const live = $('propLive');
+  if (host.dataset.key === c.key && live) {
+    live.innerHTML = c.live;
+    const use = $('propUse');
+    if (use) use.checked = USE_PROP;
+  } else {
+    host.innerHTML = c.shell;
+    host.dataset.key = c.key;
+  }
 }
 
 function handleAct(act) {
   const p = LAST && LAST.ctx && LAST.ctx.proposal;
-  if (act === 'closeProp') { SHOW_PROP = false; USE_PROP = false; update(); return; }
+  if (act === 'closeProp') { SHOW_PROP = false; USE_PROP = false; PROP_T = null; update(); return; }
   if (act === 'toggleUse') { USE_PROP = !USE_PROP; update(); return; }
   if (!p || !p.ok) return;
+  if (act === 'meterReset') { PROP_T = null; PLAN = 'rec'; update(); return; }
   if (act === 'applyProp') {
+    const sp = PROP_T !== null ? priceAt(p, PROP_T) : null;
     $('tries').value = p.tries;
     $('sec').value = p.sec;
-    PLAN = 'rec';
+    if (sp !== null) { PLAN = 'custom'; CUSTOM = String(sp); } else PLAN = 'rec';
+    PROP_T = null;
     update();
     toast('ההצעה הוחלה על המחשבון');
   } else if (act === 'copyProp') {
-    copyText(offerTextFor(p.r, p.inp)).then(() => toast('ההצעה הועתקה'), () => toast('ההעתקה נכשלה'));
+    copyText(offerTextFor(propShowFor(p), p.inp)).then(() => toast('ההצעה הועתקה'), () => toast('ההעתקה נכשלה'));
   }
 }
 
@@ -841,11 +1339,10 @@ function renderResults(r, inp, ctx) {
   const ladder = ['floor', 'rec', 'value', 'target', 'cap']
     .map(k => ({ key: k, name: TIER_META[k][0], desc: tierDesc[k], price: ctx.tiers[k] }))
     .sort((x, y) => x.price - y.price);
-  const chosenName = ctx.plan === 'custom' ? 'מחיר ידני' : TIER_META[ctx.plan][0];
+  const chosenName = ctx.plan === 'slider' ? 'מד הצעת התמחור' : ctx.plan === 'custom' ? 'מחיר ידני' : TIER_META[ctx.plan][0];
   const cv = clientView(r, inp);
 
   const html = `
-  ${proposalBlock(ctx.proposal, ctx.rawInp || inp)}
   <div class="banner ${st}">
     <div class="ic">${stText[0]}</div>
     <div><h3>${esc(inp.name || 'החברה')}: ${stText[1]}</h3><p>${stText[2]}</p></div>
@@ -959,22 +1456,28 @@ function renderResults(r, inp, ctx) {
     <h2>אזהרות ותובנות</h2>
     <ul class="alerts">${buildAlerts(r, inp, ctx).map(x => `<li class="${x[0]}">${x[1]}</li>`).join('')}</ul>
   </div>`;
-  $('results').innerHTML = html;
+  $('resTop').innerHTML = proposalWarn(ctx.proposal);
+  setPropCard(ctx.proposal, ctx.rawInp || inp);
+  $('resRest').innerHTML = html;
 }
 
 function renderTable(inp) {
   const cur = $('preset').value;
-  const rows = BRANDS.map(b => {
+  const list = BRANDS.filter(brandMatches);
+  $('allCount').textContent = `מוצגות ${list.length} חברות מתוך ${BRANDS.length} (לפי הסינון בבחירת החברה)`;
+  const rows = list.map(b => {
     const bi = { ...inp, ...b };
     const prop = proposeFor(bi);
     const ei = USE_PROP ? prop.inp : bi;   // each company's own proposal when the proposal is active
-    const r = runModel(ei, PLAN === 'custom' ? 'rec' : PLAN, '').r;
+    const useMeter = USE_PROP && PROP_T !== null && prop.ok;
+    const r = useMeter ? runModel(ei, 'custom', String(priceAt(prop, PROP_T))).r : runModel(ei, PLAN === 'custom' ? 'rec' : PLAN, '').r;
     return { b, r, ei, st: statusOf(r, ei), prop };
   }).sort((x, y) => y.r.price - x.r.price);
   $('allBody').innerHTML = rows.map(({ b, r, ei, st, prop }) => `
     <tr data-key="${b.key}" class="${b.key === cur ? 'sel' : ''}">
-      <td><b>${esc(b.name)}</b></td>
+      <td><b>${esc(b.name)}</b>${b.url ? `<a class="site-i" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer" title="לאתר החברה">↗</a>` : ''}</td>
       <td>${esc(b.tag)}</td>
+      <td>${esc(b.loc)}</td>
       <td>${num(ils(r.price))}</td>
       <td>${num(ils(r.annualTotal))}</td>
       <td>${pct(r.shareOfProfit, 1)}</td>
@@ -984,6 +1487,8 @@ function renderTable(inp) {
       <td>${r.roi.toFixed(2)}</td>
       <td><span class="dot ${st}"></span>${{good:'בריא', warn:'דורש הוכחה', bad:'בעייתי'}[st]}</td>
       <td>${prop.ok ? `<span class="pos">✅ ${triesWord(prop.tries)} למשתמש · ${num(ils(prop.r.price))}</span>` : '<span class="neg">⛔ לא כדאי לצרף</span>'}</td>
+      <td>${qChip(b.dq)}</td>
+      <td>${fmtDate(b.updatedAt)}</td>
     </tr>`).join('');
 }
 
@@ -1027,11 +1532,19 @@ function update() {
   const raw = readInputs();
   const proposal = proposeFor(raw);
   const inp = USE_PROP ? proposal.inp : raw;   // effective inputs: the proposal's package when the proposal is active
-  const ctx = runModel(inp, PLAN, CUSTOM);
+  let ctx;
+  if (USE_PROP && proposal.ok && PROP_T !== null) {
+    ctx = runModel(inp, 'custom', String(priceAt(proposal, PROP_T)));
+    ctx.plan = 'slider';
+  } else {
+    ctx = runModel(inp, PLAN, CUSTOM);
+  }
   ctx.proposal = proposal; ctx.rawInp = raw; ctx.useProp = USE_PROP;
   LAST = { r: ctx.r, inp, ctx };
   renderResults(ctx.r, inp, ctx);
   renderTable(raw);
+  renderMeterBox(proposal);
+  renderCompanyCard();
   saveState();
   if (keepFocus) {
     const el = $('customPrice');
@@ -1084,9 +1597,25 @@ function copyText(text) {
 ============================================================================ */
 renderInputs();
 const restored = loadState();
+fillFilters();
+fillPresetOptions();
 if (!restored) { $('preset').value = DEFAULT_BRAND; applyPreset(DEFAULT_BRAND); }
 
 $('inputs').addEventListener('input', e => {
+  if (e.target.id === 'propMeter') {
+    PROP_T = Number(e.target.value) / 100;
+    USE_PROP = true;
+    SHOW_PROP = true;
+    update();
+    return;
+  }
+  if (e.target.id === 'fLoc' || e.target.id === 'fCat') {
+    F_LOC = $('fLoc').value; F_CAT = $('fCat').value;
+    fillFilters();
+    fillPresetOptions();
+    update();
+    return;
+  }
   if (e.target.id === 'preset') return;
   if (['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].includes(e.target.id)) $('preset').value = 'custom';
   update();
@@ -1096,6 +1625,7 @@ $('preset').addEventListener('change', e => {
   update();
 });
 $('allBody').addEventListener('click', e => {
+  if (e.target.closest('a')) return;
   const tr = e.target.closest('tr[data-key]');
   if (!tr) return;
   $('preset').value = tr.dataset.key;
@@ -1106,6 +1636,7 @@ $('allBody').addEventListener('click', e => {
 function pickTier(el) {
   const row = el.closest('[data-tier]');
   if (!row) return;
+  PROP_T = null;
   PLAN = row.dataset.tier;
   update();
   if (PLAN === 'custom') { const c = $('customPrice'); if (c) c.focus(); }
@@ -1124,6 +1655,7 @@ $('results').addEventListener('keydown', e => {
 });
 $('results').addEventListener('input', e => {
   if (e.target.id !== 'customPrice') return;
+  PROP_T = null;
   CUSTOM = e.target.value.replace(/[^\d.]/g, '');
   PLAN = 'custom';
   update();
@@ -1135,12 +1667,15 @@ $('proposalBtn').addEventListener('click', () => {
   $('results').scrollTop = 0;
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+$('inputs').addEventListener('click', e => { if (e.target.closest('#refreshBtn')) refreshNow(); });
 $('resetBtn').addEventListener('click', resetAll);
 $('copyBtn').addEventListener('click', () => {
   copyText(offerText()).then(() => toast('הצעת המחיר הועתקה'), () => toast('ההעתקה נכשלה'));
 });
 
+applyFx();
 update();
+initLive();
 </script>
 </body>
 </html>
