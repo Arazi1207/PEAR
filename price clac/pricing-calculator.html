@@ -155,7 +155,7 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .alerts li.good{background:var(--good-bg);border-color:rgba(47,125,50,.3);color:#1d4d20;}
 
 .tablewrap{overflow-x:auto;}
-table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:960px;}
+table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:1040px;}
 table.all th{font-size:.7rem;color:var(--muted);text-align:start;padding:8px 10px;background:var(--bg);position:sticky;top:0;white-space:nowrap;}
 table.all td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
 table.all tbody tr{cursor:pointer;}
@@ -200,7 +200,7 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
       <table class="all">
         <thead><tr>
           <th>מותג</th><th>סוג</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
-          <th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th>
+          <th>מדידות למשתמש</th><th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th>
         </tr></thead>
         <tbody id="allBody"></tbody>
       </table>
@@ -549,7 +549,7 @@ function resetAll() {
   });
   $('preset').value = DEFAULT_BRAND;
   applyPreset(DEFAULT_BRAND);
-  PLAN = 'rec'; CUSTOM = ''; SHOW_PROP = false;
+  PLAN = 'rec'; CUSTOM = ''; SHOW_PROP = false; USE_PROP = false;
   update();
   toast('הוחזרו ברירות המחדל');
 }
@@ -570,6 +570,7 @@ function buildAlerts(r, inp, ctx) {
   if (ctx && ctx.proposal) {
     const p = ctx.proposal;
     if (!p.ok) a.push(['bad', `לא כדאי לצרף את הלקוח הזה. ${p.why.join(' ')}`]);
+    else if (ctx.useProp) a.push(['info', `כל החישובים מוצגים לפי הצעת התמחור (${triesWord(p.tries)} למשתמש, ${p.sec} שניות). כדי לחזור להגדרות שלך, בטל את הסימון בכרטיס ההצעה.`]);
     else if (p.changed) a.push(['info', `ההגדרות הנוכחיות לא בריאות לשני הצדדים, אבל יש הצעה בריאה: ${triesWord(p.tries)} למשתמש, ${p.sec} שניות, ${ils(p.r.price)} לחודש. לחץ "הצעת תמחור לפי הלקוח" במדיניות התמחור.`]);
     else a.push(['good', 'ההגדרות הנוכחיות כבר בריאות לשני הצדדים.']);
   }
@@ -622,6 +623,7 @@ function buildAlerts(r, inp, ctx) {
 let LAST = null;
 let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
 let SHOW_PROP = false;  // proposal card visible
+let USE_PROP = false;   // whole calculator (plans, ROI, costs, ladder, table) follows the proposal
 let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
 
 /* ============================================================================
@@ -711,6 +713,7 @@ function proposalBlock(p, inp) {
     <h2><span>הצעת תמחור: ${esc(name)}</span><button type="button" class="xbtn" data-act="closeProp" aria-label="סגור">✕</button></h2>
     <p class="sub">${p.ok ? 'החבילה והמחיר מחושבים אוטומטית לפי נתוני הלקוח, כך שזה בריא לשני הצדדים.' : 'לא נמצאה הצעה בריאה. מוצגת החבילה הזולה ביותר שנבדקה, להבנה בלבד.'}</p>
     ${p.ok ? `<div class="banner good"><div class="ic">✅</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
+    <label class="check" style="margin-bottom:10px"><input type="checkbox" data-act="toggleUse" ${USE_PROP ? 'checked' : ''}><span>הצג את כל המחשבון (מסלולים, ROI, עלויות, מדרגות והטבלה למטה) לפי ההצעה</span></label>
     <table class="kv">
       <tr><td>מדידות למשתמש${was(inp.tries, pi.tries)}</td><td>${pi.tries}</td></tr>
       <tr><td>משך מדידה${was(inp.sec, pi.sec, ' שניות')}</td><td>${pi.sec} שניות</td></tr>
@@ -732,7 +735,8 @@ function proposalBlock(p, inp) {
 
 function handleAct(act) {
   const p = LAST && LAST.ctx && LAST.ctx.proposal;
-  if (act === 'closeProp') { SHOW_PROP = false; update(); return; }
+  if (act === 'closeProp') { SHOW_PROP = false; USE_PROP = false; update(); return; }
+  if (act === 'toggleUse') { USE_PROP = !USE_PROP; update(); return; }
   if (!p || !p.ok) return;
   if (act === 'applyProp') {
     $('tries').value = p.tries;
@@ -841,13 +845,13 @@ function renderResults(r, inp, ctx) {
   const cv = clientView(r, inp);
 
   const html = `
-  ${proposalBlock(ctx.proposal, inp)}
+  ${proposalBlock(ctx.proposal, ctx.rawInp || inp)}
   <div class="banner ${st}">
     <div class="ic">${stText[0]}</div>
     <div><h3>${esc(inp.name || 'החברה')}: ${stText[1]}</h3><p>${stText[2]}</p></div>
   </div>
 
-  <p class="chosen">מחושב לפי: <b>${chosenName}</b> · ${num(ils(r.price))} לחודש</p>
+  <p class="chosen">מחושב לפי: <b>${chosenName}</b> · ${num(ils(r.price))} לחודש${ctx.useProp ? ` · <b>הצעת תמחור</b>: ${triesWord(inp.tries)} למשתמש, ${inp.sec} שניות` : ''}</p>
 
   <div class="plans">
     <div class="plan ${annualBetter ? '' : 'best'}">
@@ -962,16 +966,19 @@ function renderTable(inp) {
   const cur = $('preset').value;
   const rows = BRANDS.map(b => {
     const bi = { ...inp, ...b };
-    const r = runModel(bi, PLAN === 'custom' ? 'rec' : PLAN, '').r;
-    return { b, r, st: statusOf(r, bi), prop: proposeFor(bi) };
+    const prop = proposeFor(bi);
+    const ei = USE_PROP ? prop.inp : bi;   // each company's own proposal when the proposal is active
+    const r = runModel(ei, PLAN === 'custom' ? 'rec' : PLAN, '').r;
+    return { b, r, ei, st: statusOf(r, ei), prop };
   }).sort((x, y) => y.r.price - x.r.price);
-  $('allBody').innerHTML = rows.map(({ b, r, st, prop }) => `
+  $('allBody').innerHTML = rows.map(({ b, r, ei, st, prop }) => `
     <tr data-key="${b.key}" class="${b.key === cur ? 'sel' : ''}">
       <td><b>${esc(b.name)}</b></td>
       <td>${esc(b.tag)}</td>
       <td>${num(ils(r.price))}</td>
       <td>${num(ils(r.annualTotal))}</td>
       <td>${pct(r.shareOfProfit, 1)}</td>
+      <td>${ei.tries}${ei.sec !== inp.sec ? ` · ${ei.sec}ש׳` : ''}</td>
       <td>${(r.e * 100).toFixed(1)}%</td>
       <td>${pct(r.margin)}</td>
       <td>${r.roi.toFixed(2)}</td>
@@ -1017,12 +1024,14 @@ function update() {
   const ae = document.activeElement;
   const keepFocus = ae && ae.id === 'customPrice';
   const caret = keepFocus ? ae.selectionStart : null;
-  const inp = readInputs();
+  const raw = readInputs();
+  const proposal = proposeFor(raw);
+  const inp = USE_PROP ? proposal.inp : raw;   // effective inputs: the proposal's package when the proposal is active
   const ctx = runModel(inp, PLAN, CUSTOM);
-  ctx.proposal = proposeFor(inp);
+  ctx.proposal = proposal; ctx.rawInp = raw; ctx.useProp = USE_PROP;
   LAST = { r: ctx.r, inp, ctx };
   renderResults(ctx.r, inp, ctx);
-  renderTable(inp);
+  renderTable(raw);
   saveState();
   if (keepFocus) {
     const el = $('customPrice');
@@ -1121,6 +1130,7 @@ $('results').addEventListener('input', e => {
 });
 $('proposalBtn').addEventListener('click', () => {
   SHOW_PROP = true;
+  USE_PROP = true;
   update();
   $('results').scrollTop = 0;
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
