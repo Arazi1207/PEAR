@@ -100,10 +100,20 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .metric .s{font-size:.68rem;color:var(--muted-2);}
 
 .ladder{display:flex;flex-direction:column;gap:6px;}
-.rung{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 12px;border-radius:10px;background:var(--bg);font-size:.84rem;align-items:center;}
+.rung{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:.84rem;align-items:center;border:1.5px solid transparent;cursor:pointer;}
 .rung .n small{display:block;font-size:.7rem;color:var(--muted-2);}
 .rung b{font-weight:800;}
-.rung.rec{background:var(--pear-soft);border:1.5px solid var(--pear);}
+.rung:hover{border-color:var(--pear-ring);}
+.rung:focus-visible{outline:2px solid var(--pear);outline-offset:2px;}
+.rung.sel{background:var(--pear-soft);border-color:var(--pear);}
+.rung .radio{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted-2);display:grid;place-items:center;}
+.rung.sel .radio{border-color:var(--pear);}
+.rung.sel .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--pear);}
+.rtag{display:inline-block;font-size:.66rem;font-weight:800;background:var(--pear);color:var(--on-pear);border-radius:999px;padding:1px 8px;margin-inline-start:6px;vertical-align:middle;}
+.rung .cust{width:120px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-weight:800;color:var(--ink);background:var(--card);direction:ltr;text-align:end;}
+.rung .cust:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
+.chosen{font-size:.82rem;color:var(--muted);margin-bottom:10px;}
+.chosen b{color:var(--ink);}
 
 .alerts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
 .alerts li{font-size:.82rem;border-radius:10px;padding:8px 12px;border:1px solid;}
@@ -153,7 +163,7 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
 
   <section class="card" id="allCard">
     <h2>כל החברות במחיר אחד (לפי ההגדרות הנוכחיות)</h2>
-    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה וחשיפה) ועם עלויות ומדיניות התמחור שהגדרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
+    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה וחשיפה) ועם עלויות ומדיניות התמחור שהגדרת, לפי מדרגת המחיר שבחרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
     <div class="tablewrap">
       <table class="all">
         <thead><tr>
@@ -220,6 +230,7 @@ function computeModel(i) {
   let price = Math.round(raw / stepFor(raw)) * stepFor(raw);
   if (price < floor && floor <= cap * 1.05) price = Math.ceil(floor / stepFor(floor)) * stepFor(floor);
   if (!(price > 0)) price = 0;
+  if (i.priceOverride != null && i.priceOverride >= 0) price = i.priceOverride;
 
   const margin = price > 0 ? (price - C) / price : 0;
   const roi = price > 0 ? value / price : 0;
@@ -443,7 +454,7 @@ function applyPreset(key) {
 
 function saveState() {
   try {
-    const s = { preset: $('preset').value };
+    const s = { preset: $('preset').value, plan: PLAN, custom: CUSTOM };
     ALL_FIELDS.forEach(f => { s[f.id] = f.type === 'check' ? $(f.id).checked : $(f.id).value; });
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
   } catch (e) { /* storage may be blocked; the calculator still works */ }
@@ -459,6 +470,8 @@ function loadState() {
       if (f.type === 'check') $(f.id).checked = !!s[f.id]; else $(f.id).value = s[f.id];
     });
     if (s.preset) $('preset').value = s.preset;
+    if (['rec', 'floor', 'value', 'target', 'cap', 'custom'].includes(s.plan)) PLAN = s.plan;
+    if (s.custom != null) CUSTOM = String(s.custom);
     return true;
   } catch (e) { return false; }
 }
@@ -470,6 +483,7 @@ function resetAll() {
   });
   $('preset').value = DEFAULT_BRAND;
   applyPreset(DEFAULT_BRAND);
+  PLAN = 'rec'; CUSTOM = '';
   update();
   toast('הוחזרו ברירות המחדל');
 }
@@ -485,11 +499,14 @@ function statusOf(r, inp) {
   return 'good';
 }
 
-function buildAlerts(r, inp) {
+function buildAlerts(r, inp, ctx) {
   const a = [];
   if (r.unviable) {
     a.push(['bad', 'גם בחשיפה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
     return a;
+  }
+  if (ctx && ctx.plan !== 'rec') {
+    a.push(['info', 'בחרת מדרגת מחיר שונה מהמומלצת. החבילה נשארת זהה ורק המחיר, הרווחיות והתשואה ללקוח משתנים.']);
   }
   if (r.optimized) {
     a.push(['info', `החשיפה הוקטנה מ-${(r.e0 * 100).toFixed(1)}% ל-${(r.e * 100).toFixed(2)}% כדי שהעלות תישאר בתוך תקרת התקציב של הלקוח (${inp.maxShare}% מהרווח הנקי) ובמקביל תשמור על רווחיות יעד של ${inp.targetMargin}%.`]);
@@ -525,8 +542,10 @@ function buildAlerts(r, inp) {
    הצגת התוצאות
 ============================================================================ */
 let LAST = null;
+let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
+let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
 
-function renderResults(r, inp) {
+function renderResults(r, inp, ctx) {
   const st = statusOf(r, inp);
   const stText = {
     good: ['✅', 'עסקה בריאה', `הלקוח מקבל ערך של ${r.roi.toFixed(1)} פי המחיר, ואתה ברווחיות ${pct(r.margin)}.`],
@@ -543,19 +562,25 @@ function renderResults(r, inp) {
   const perUser = r.users > 0 ? r.price / r.users : 0;
   const perTry = r.tries > 0 ? r.price / r.tries : 0;
 
-  const ladder = [
-    ['רצפה', `רווחיות ${inp.minMargin}% על העלות`, r.floor, false],
-    ['מחיר מומלץ', 'הערך ללקוח, בין הרצפה לתקרת התקציב', r.price, true],
-    ['מחיר לפי ערך', `ערך ללקוח חלקי ${inp.targetROI} (יעד תשואה)`, r.valuePrice, false],
-    ['מחיר לפי רווחיות יעד', `רווחיות ${inp.targetMargin}% על העלות`, r.targetPrice, false],
-    ['תקרת תקציב', `${inp.maxShare}% מהרווח הנקי של הלקוח`, r.cap, false],
-  ].sort((x, y) => x[2] - y[2]);
+  const tierDesc = {
+    rec: TIER_META.rec[1],
+    floor: `רווחיות ${inp.minMargin}% על העלות`,
+    value: `ערך ללקוח חלקי ${inp.targetROI} (יעד תשואה)`,
+    target: `רווחיות ${inp.targetMargin}% על העלות`,
+    cap: `${inp.maxShare}% מהרווח הנקי של הלקוח`,
+  };
+  const ladder = ['floor', 'rec', 'value', 'target', 'cap']
+    .map(k => ({ key: k, name: TIER_META[k][0], desc: tierDesc[k], price: ctx.tiers[k] }))
+    .sort((x, y) => x.price - y.price);
+  const chosenName = ctx.plan === 'custom' ? 'מחיר ידני' : TIER_META[ctx.plan][0];
 
   const html = `
   <div class="banner ${st}">
     <div class="ic">${stText[0]}</div>
     <div><h3>${esc(inp.name || 'החברה')}: ${stText[1]}</h3><p>${stText[2]}</p></div>
   </div>
+
+  <p class="chosen">מחושב לפי: <b>${chosenName}</b> · ${num(ils(r.price))} לחודש</p>
 
   <div class="plans">
     <div class="plan ${annualBetter ? '' : 'best'}">
@@ -597,9 +622,10 @@ function renderResults(r, inp) {
 
   <div class="card">
     <h2>מדרגות מחיר</h2>
-    <p class="sub">כל המחירים החודשיים שהמודל מחשב, מהנמוך לגבוה.</p>
-    <div class="ladder">
-      ${ladder.map(x => `<div class="rung ${x[3] ? 'rec' : ''}"><div class="n">${x[0]}<small>${x[1]}</small></div><b>${num(ils(x[2]))}</b></div>`).join('')}
+    <p class="sub">בחר מדרגה: המסלול החודשי, השנתי וכל החישובים למעלה מתעדכנים לפי הבחירה. החבילה (חשיפה ומדידות כלולות) נשארת זהה.</p>
+    <div class="ladder" role="radiogroup" aria-label="בחירת מדרגת מחיר">
+      ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small></div><b>${num(ils(x.price))}</b></div>`).join('')}
+      <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small></div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
     </div>
   </div>
 
@@ -642,7 +668,7 @@ function renderResults(r, inp) {
 
   <div class="card">
     <h2>אזהרות ותובנות</h2>
-    <ul class="alerts">${buildAlerts(r, inp).map(x => `<li class="${x[0]}">${x[1]}</li>`).join('')}</ul>
+    <ul class="alerts">${buildAlerts(r, inp, ctx).map(x => `<li class="${x[0]}">${x[1]}</li>`).join('')}</ul>
   </div>`;
   $('results').innerHTML = html;
 }
@@ -650,8 +676,9 @@ function renderResults(r, inp) {
 function renderTable(inp) {
   const cur = $('preset').value;
   const rows = BRANDS.map(b => {
-    const r = computeModel({ ...inp, ...b });
-    return { b, r, st: statusOf(r, { ...inp, ...b }) };
+    const bi = { ...inp, ...b };
+    const r = runModel(bi, PLAN === 'custom' ? 'rec' : PLAN, '').r;
+    return { b, r, st: statusOf(r, bi) };
   }).sort((x, y) => y.r.price - x.r.price);
   $('allBody').innerHTML = rows.map(({ b, r, st }) => `
     <tr data-key="${b.key}" class="${b.key === cur ? 'sel' : ''}">
@@ -667,13 +694,54 @@ function renderTable(inp) {
     </tr>`).join('');
 }
 
+/* ============================================================================
+   מדרגות מחיר: הבחירה קובעת את המחיר החודשי, וממנו נגזרים כל המסלולים
+============================================================================ */
+const TIER_META = {
+  rec:    ['מחיר מומלץ', 'הערך ללקוח, בין הרצפה לתקרת התקציב'],
+  floor:  ['רצפה', null],
+  value:  ['מחיר לפי ערך', null],
+  target: ['מחיר לפי רווחיות יעד', null],
+  cap:    ['תקרת תקציב', null],
+};
+
+function tierPrices(r0) {
+  const q = (x, up) => {
+    const st = x < 3000 ? 50 : x < 30000 ? 100 : 500;
+    return Math.max(0, (up ? Math.ceil(x / st) : Math.round(x / st)) * st);
+  };
+  return { rec: r0.price, floor: q(r0.floor, true), value: q(r0.valuePrice), target: q(r0.targetPrice), cap: q(r0.cap) };
+}
+
+function runModel(inp, plan, custom) {
+  const base = computeModel(inp);
+  const tiers = tierPrices(base);
+  const customNum = parseFloat(custom);
+  let price = null;
+  if (plan === 'custom') price = Number.isFinite(customNum) && customNum >= 0 ? customNum : null;
+  else if (plan !== 'rec') price = tiers[plan];
+  const r = price === null ? base : computeModel({ ...inp, priceOverride: price });
+  const usedPlan = plan === 'custom' && price === null ? 'rec' : plan;
+  return { r, tiers, plan: usedPlan };
+}
+
 function update() {
+  const ae = document.activeElement;
+  const keepFocus = ae && ae.id === 'customPrice';
+  const caret = keepFocus ? ae.selectionStart : null;
   const inp = readInputs();
-  const r = computeModel(inp);
-  LAST = { r, inp };
-  renderResults(r, inp);
+  const ctx = runModel(inp, PLAN, CUSTOM);
+  LAST = { r: ctx.r, inp, ctx };
+  renderResults(ctx.r, inp, ctx);
   renderTable(inp);
   saveState();
+  if (keepFocus) {
+    const el = $('customPrice');
+    if (el) {
+      el.focus();
+      try { el.setSelectionRange(caret, caret); } catch (e) { /* caret restore is cosmetic */ }
+    }
+  }
 }
 
 /* ============================================================================
@@ -733,6 +801,29 @@ $('allBody').addEventListener('click', e => {
   applyPreset(tr.dataset.key);
   update();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+function pickTier(el) {
+  const row = el.closest('[data-tier]');
+  if (!row) return;
+  PLAN = row.dataset.tier;
+  update();
+  if (PLAN === 'custom') { const c = $('customPrice'); if (c) c.focus(); }
+}
+$('results').addEventListener('click', e => {
+  if (e.target.id === 'customPrice' && PLAN === 'custom') return;
+  pickTier(e.target);
+});
+$('results').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.rung')) {
+    e.preventDefault();
+    pickTier(e.target);
+  }
+});
+$('results').addEventListener('input', e => {
+  if (e.target.id !== 'customPrice') return;
+  CUSTOM = e.target.value.replace(/[^\d.]/g, '');
+  PLAN = 'custom';
+  update();
 });
 $('resetBtn').addEventListener('click', resetAll);
 $('copyBtn').addEventListener('click', () => {
