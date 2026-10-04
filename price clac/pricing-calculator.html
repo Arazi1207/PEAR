@@ -113,6 +113,22 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .rung .cust{width:120px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-weight:800;color:var(--ink);background:var(--card);direction:ltr;text-align:end;}
 .rung .cust:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
 .chosen{font-size:.82rem;color:var(--muted);margin-bottom:10px;}
+.card .banner{margin-bottom:12px;}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px;}
+.tile{background:var(--bg);border-radius:12px;padding:10px 12px;min-width:0;}
+.tile .l{font-size:.72rem;color:var(--muted);font-weight:600;}
+.tile .v{font-size:1.15rem;font-weight:800;color:var(--ink);}
+.tile .s{font-size:.68rem;color:var(--muted-2);}
+.tile.hl{background:var(--pear-soft);border:1.5px solid var(--pear);}
+.why{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
+@media(max-width:600px){.why{grid-template-columns:1fr;}}
+.why h4{font-size:.82rem;font-weight:800;margin-bottom:6px;color:var(--ink);}
+.why ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;}
+.why li{font-size:.8rem;border-radius:10px;padding:8px 10px;border:1px solid;line-height:1.45;}
+.why li.yes{background:var(--good-bg);border-color:var(--good-line);color:var(--good-ink);}
+.why li.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink);}
+.why li.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad-ink);}
+.why li.none{background:var(--bg);border-color:var(--line);color:var(--muted);}
 .chosen b{color:var(--ink);}
 
 .alerts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
@@ -545,6 +561,71 @@ let LAST = null;
 let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
 let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
 
+/* ============================================================================
+   נקודת המבט של הלקוח: האם זה שווה לו במחיר שנבחר, ולמה
+============================================================================ */
+function clientView(r, inp) {
+  const price = r.price, value = r.value;
+  const net = value - price;
+  const annualNet = value * 12 - r.annualTotal;
+  const unitGM = inp.aov * inp.gMargin / 100;
+  const retAvoided = r.expOrders * inp.returnRate / 100 * inp.returnReduction / 100;
+  const upRevenue = r.upliftOrders * inp.aov;
+  const needOrders = unitGM > 0 ? Math.max(0, (price - r.returnSavings) / unitGM) : null;
+  const perUserValue = r.users > 0 ? value / r.users : 0;
+  const perUserPrice = r.users > 0 ? price / r.users : 0;
+  const returnCover = price > 0 ? r.returnSavings / price : 0;
+  const upShare = value > 0 ? r.upliftProfit / value : 0;
+  const impact = r.orders > 0 ? r.expOrders / r.orders : 0;
+  const payback = net > 0 && inp.setupFee > 0 ? inp.setupFee / net : null;
+  const yearNetProfit = r.netProfit * 12;
+
+  let level, title, summary;
+  if (r.unviable || price <= 0) {
+    level = 'bad'; title = 'אי אפשר להעריך: אין מחיר תקף';
+    summary = 'עם ההגדרות הנוכחיות אין מחיר שמחזיק, ולכן אין ערך שאפשר להשוות אליו.';
+  } else if (r.roi >= inp.targetROI) {
+    level = 'good'; title = 'כן, זה שווה ללקוח';
+    summary = `במחיר ${ils(price)} לחודש הלקוח מקבל ערך של כ-${ils(value)}: רווח נקי של ${ils(net)} בחודש אחרי התשלום (${r.roi.toFixed(1)} פי המחיר).`;
+  } else if (r.roi >= 1) {
+    level = 'warn'; title = 'שווה ללקוח, בתנאי שההנחות מתממשות';
+    summary = `במחיר ${ils(price)} לחודש הלקוח מקבל ערך של כ-${ils(value)}: רווח נקי של ${ils(net)} בחודש, אבל התשואה (${r.roi.toFixed(2)} פי) נמוכה מיעד ${inp.targetROI} פי ולכן כדאי להוכיח בפיילוט.`;
+  } else {
+    level = 'bad'; title = 'לא, זה לא שווה ללקוח במחיר הזה';
+    summary = `במחיר ${ils(price)} לחודש הלקוח מקבל ערך של כ-${ils(value)} בלבד: הפסד נטו של ${ils(-net)} בחודש (${r.roi.toFixed(2)} פי המחיר).`;
+  }
+
+  const yes = [], no = [];
+  if (!(r.unviable || price <= 0)) {
+    if (r.roi >= 1) yes.push(`על כל ₪1 שהלקוח משלם הוא מקבל ערך של ${ils2(r.roi)}.`);
+    if (net > 0) yes.push(`רווח נקי ללקוח אחרי התשלום: ${ils(net)} בחודש ו-${ils(annualNet)} בשנה${yearNetProfit > 0 ? ` (${pct(annualNet / yearNetProfit, 1)} מהרווח הנקי השנתי שלו)` : ''}.`);
+    if (returnCover >= 1) yes.push(`החיסכון מהחזרות לבדו (${ils(r.returnSavings)}) מכסה את כל המחיר, בלי להסתמך על שיפור בהמרה. כ-${nf.format(Math.round(retAvoided))} החזרות פחות בחודש.`);
+    else if (returnCover >= 0.25) yes.push(`החיסכון מהחזרות לבדו (${ils(r.returnSavings)}) מכסה ${pct(returnCover)} מהמחיר. כ-${nf.format(Math.round(retAvoided))} החזרות פחות בחודש.`);
+    if (needOrders !== null && needOrders > 0 && r.upliftOrders > 0 && needOrders <= r.upliftOrders * 0.7) {
+      yes.push(`מספיקות ${nf.format(Math.ceil(needOrders))} הזמנות נוספות בחודש כדי להחזיר את המחיר. המודל מעריך ${nf.format(Math.round(r.upliftOrders))}.`);
+    }
+    if (r.shareOfProfit <= inp.maxShare / 100 + 0.0005) yes.push(`המחיר הוא ${pct(r.shareOfProfit, 1)} מהרווח הנקי של החברה, בתוך התקרה שהיא מוכנה לשלם (${inp.maxShare}%).`);
+    if (perUserValue > perUserPrice) yes.push(`כל משתמש שנחשף מייצר ללקוח ${ils2(perUserValue)} ערך, ועולה לו ${ils2(perUserPrice)}.`);
+    if (payback !== null && payback <= 3) yes.push(`דמי ההקמה (${ils(inp.setupFee)}) יוחזרו ${payback < 1 ? 'תוך פחות מחודש' : 'תוך ' + payback.toFixed(1) + ' חודשים'} מהרווח הנקי.`);
+
+    if (r.roi < 1) no.push(['bad', `הלקוח משלם ${ils(price)} ומקבל ערך של ${ils(value)}: הפסד נטו של ${ils(-net)} בחודש, ${ils(-annualNet)} בשנה.`]);
+    else if (r.roi < inp.targetROI) no.push(['warn', `התשואה (${r.roi.toFixed(2)} פי) נמוכה מיעד ${inp.targetROI} פי. מחיר שנותן תשואה כזו הוא ${ils(r.valuePrice)} לחודש, והלקוח עשוי לבקש הנחה.`]);
+    if (upShare > 0.5) {
+      no.push([r.roi < 1 ? 'bad' : 'warn', `${pct(upShare)} מהערך תלוי בהנחה שההמרה תשתפר ב-${inp.uplift}%, וההנחה עוד לא הוכחה. בלעדיה, החיסכון מהחזרות מכסה רק ${pct(returnCover)} מהמחיר.`]);
+    }
+    if (r.reqUplift1x !== null && r.reqUplift1x > inp.uplift) {
+      no.push(['bad', `כדי שהלקוח לא יפסיד נדרש שיפור המרה של ${r.reqUplift1x.toFixed(0)}%, והמודל מניח ${inp.uplift}%.`]);
+    }
+    if (r.shareOfProfit > inp.maxShare / 100 + 0.0005) no.push(['warn', `המחיר הוא ${pct(r.shareOfProfit, 1)} מהרווח הנקי של החברה, מעל התקרה שהיא מוכנה לשלם (${inp.maxShare}%).`]);
+    if (impact < 0.1) no.push(['warn', `ההשפעה מוגבלת: רק ${pct(impact, 1)} מהזמנות האתר מגיעות ממשתמשים שנחשפו, ולכן גם בהצלחה מלאה המחזור הכולל משתנה מעט.`]);
+    if (r.roi < inp.targetROI) no.push(['warn', `מסלול שנתי הוא התחייבות של ${ils(r.annualTotal)} לפני שההנחות הוכחו. מומלץ להתחיל בפיילוט חודשי.`]);
+    if (inp.setupFee > 0 && net <= 0) no.push(['warn', `דמי ההקמה (${ils(inp.setupFee)}) לא יוחזרו, כי אין רווח נקי חודשי ללקוח.`]);
+    else if (payback !== null && payback > 6) no.push(['warn', `דמי ההקמה (${ils(inp.setupFee)}) יוחזרו רק אחרי ${payback.toFixed(0)} חודשים.`]);
+  }
+
+  return { level, title, summary, net, annualNet, retAvoided, upRevenue, needOrders, yes, no, impact };
+}
+
 function renderResults(r, inp, ctx) {
   const st = statusOf(r, inp);
   const stText = {
@@ -573,6 +654,7 @@ function renderResults(r, inp, ctx) {
     .map(k => ({ key: k, name: TIER_META[k][0], desc: tierDesc[k], price: ctx.tiers[k] }))
     .sort((x, y) => x.price - y.price);
   const chosenName = ctx.plan === 'custom' ? 'מחיר ידני' : TIER_META[ctx.plan][0];
+  const cv = clientView(r, inp);
 
   const html = `
   <div class="banner ${st}">
@@ -642,15 +724,32 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>הערך ללקוח (ROI)</h2>
-    <p class="sub">הערכה חודשית על בסיס ההנחות. לא להבטיח ללקוח לפני פיילוט.</p>
+    <p class="sub">האם זה שווה ללקוח במחיר שנבחר (${num(ils(r.price))} לחודש). הערכה חודשית על בסיס ההנחות, לא להבטיח ללקוח לפני פיילוט.</p>
+    <div class="banner ${cv.level}">
+      <div class="ic">${{good: '✅', warn: '⚠️', bad: '⛔'}[cv.level]}</div>
+      <div><h3>${cv.title}</h3><p>${cv.summary}</p></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="l">הערך החודשי שהוא מקבל</div><div class="v">${num(ils(r.value))}</div></div>
+      <div class="tile"><div class="l">המחיר שהוא משלם</div><div class="v">${num(ils(r.price))}</div></div>
+      <div class="tile hl"><div class="l">רווח נקי שלו בחודש</div><div class="v ${cv.net < 0 ? 'neg' : 'pos'}">${num(ils(cv.net))}</div><div class="s">${num(ils(cv.annualNet))} בשנה</div></div>
+      <div class="tile"><div class="l">על כל ₪1 שהוא משלם</div><div class="v ${r.roi < 1 ? 'neg' : 'pos'}">${num(ils2(r.roi))}</div><div class="s">ערך חוזר</div></div>
+    </div>
     <table class="kv">
       <tr><td>הזמנות של משתמשים שנחשפו</td><td>${num(nf.format(Math.round(r.expOrders)))}</td></tr>
+      <tr><td>החזרות שנמנעות בחודש</td><td>${num(nf.format(Math.round(cv.retAvoided)))}</td></tr>
       <tr><td>חיסכון מהחזרות</td><td>${num(ils(r.returnSavings))}</td></tr>
-      <tr><td>רווח ממכירות נוספות (${inp.uplift}% עלייה)</td><td>${num(ils(r.upliftProfit))}</td></tr>
+      <tr><td>הזמנות נוספות בחודש (${inp.uplift}% עלייה)</td><td>${num(nf.format(Math.round(r.upliftOrders)))}</td></tr>
+      <tr><td>הכנסות נוספות לחנות</td><td>${num(ils(cv.upRevenue))}</td></tr>
+      <tr><td>רווח ממכירות נוספות</td><td>${num(ils(r.upliftProfit))}</td></tr>
       <tr class="total"><td>סך הערך החודשי ללקוח</td><td>${num(ils(r.value))}</td></tr>
-      <tr><td>תשואה ללקוח (ערך / מחיר)</td><td class="${r.roi < 1 ? 'neg' : 'pos'}">${r.roi.toFixed(2)} פי</td></tr>
-      <tr><td>הרווחיות שלך אם תמכור במחיר לפי ערך<span class="small">מחיר ${num(ils(r.valuePrice))} (יעד ${inp.targetROI} פי)</span></td><td class="${r.marginAtROI < 0 ? 'neg' : ''}">${pct(r.marginAtROI)}</td></tr>
+      <tr><td>נקודת איזון<span class="small">הזמנות נוספות בחודש שמחזירות את המחיר (בניכוי חיסכון החזרות)</span></td><td>${cv.needOrders === null ? '-' : num(nf.format(Math.ceil(cv.needOrders)))}</td></tr>
+      <tr><td>שיפור המרה נדרש לאיזון<span class="small">מול ${inp.uplift}% שהוערכו</span></td><td>${r.reqUplift1x === null ? '-' : r.reqUplift1x.toFixed(0) + '%'}</td></tr>
     </table>
+    <div class="why">
+      <div><h4>למה כן</h4><ul>${cv.yes.length ? cv.yes.map(t => `<li class="yes">${t}</li>`).join('') : '<li class="none">אין סיבות חזקות בהנחות ובמחיר הנוכחיים.</li>'}</ul></div>
+      <div><h4>למה לא, ומה הסיכון</h4><ul>${cv.no.length ? cv.no.map(t => `<li class="${t[0]}">${t[1]}</li>`).join('') : '<li class="none">לא זוהו סיכונים מהותיים בהנחות ובמחיר הנוכחיים.</li>'}</ul></div>
+    </div>
   </div>
 
   <div class="card">
@@ -662,6 +761,7 @@ function renderResults(r, inp, ctx) {
       <tr class="total"><td>סך עלויות</td><td>${num(ils(r.C))}</td></tr>
       <tr><td>רווח חודשי</td><td class="${r.price - r.C < 0 ? 'neg' : 'pos'}">${num(ils(r.price - r.C))}</td></tr>
       <tr><td>רווחיות</td><td>${pct(r.margin)}</td></tr>
+      <tr><td>הרווחיות שלך במחיר לפי ערך<span class="small">מחיר ${num(ils(r.valuePrice))} (יעד ${inp.targetROI} פי ללקוח)</span></td><td class="${r.marginAtROI < 0 ? 'neg' : ''}">${pct(r.marginAtROI)}</td></tr>
       <tr><td>עלות הקמה חד-פעמית</td><td>${num(ils(r.setupCost))}</td></tr>
     </table>
   </div>
@@ -760,7 +860,7 @@ function offerText() {
   L.push('');
   L.push(`כלול בחבילה: עד ${nf.format(Math.round(r.tries))} מדידות בחודש. מדידה נוספת: ${ils2(r.overage)}.`);
   if (r.value > r.price) {
-    L.push(`הערכת הערך החודשי לחנות: כ-${ils(r.value)} (חיסכון מהחזרות ומכירות נוספות), בכפוף לפיילוט.`);
+    L.push(`הערכת הערך החודשי לחנות: כ-${ils(r.value)} (חיסכון מהחזרות ומכירות נוספות), כלומר רווח נקי של כ-${ils(r.value - r.price)} בחודש אחרי המחיר. ההערכה בכפוף לפיילוט.`);
   }
   return L.join('\n');
 }
