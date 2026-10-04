@@ -113,6 +113,15 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .rung .cust{width:120px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-weight:800;color:var(--ink);background:var(--card);direction:ltr;text-align:end;}
 .rung .cust:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
 .chosen{font-size:.82rem;color:var(--muted);margin-bottom:10px;}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.chip{font-size:.7rem;font-weight:700;border-radius:999px;padding:1px 9px;border:1px solid;}
+.chip.ok{background:var(--good-bg);border-color:var(--good-line);color:var(--good-ink);}
+.chip.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink);}
+.chip.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad-ink);}
+.recnote{margin-top:7px;font-size:.76rem;line-height:1.45;border-radius:8px;padding:7px 9px;border:1px solid;font-weight:600;}
+.recnote.ok{background:var(--good-bg);border-color:var(--good-line);color:var(--good-ink);}
+.recnote.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad-ink);}
+.rung .n{min-width:0;}
 .card .banner{margin-bottom:12px;}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px;}
 .tile{background:var(--bg);border-radius:12px;padding:10px 12px;min-width:0;}
@@ -241,10 +250,17 @@ function computeModel(i) {
   const targetPrice = floorAt(e);
   const floor = Math.max(i.minPrice, C / (1 - mMin));
   const valuePrice = i.targetROI > 0 ? value / i.targetROI : 0;
-  const raw = Math.min(cap, Math.max(floor, valuePrice));
+  const minROI = i.minROI > 0 ? i.minROI : 1;
+  const upper = Math.min(cap, value / minROI);
+  const feasible = value > 0 && floor <= upper * 1.0005;
+  const raw = feasible ? Math.min(upper, Math.max(floor, valuePrice)) : Math.min(cap, Math.max(floor, valuePrice));
   const stepFor = x => x < 3000 ? 50 : x < 30000 ? 100 : 500;
   let price = Math.round(raw / stepFor(raw)) * stepFor(raw);
   if (price < floor && floor <= cap * 1.05) price = Math.ceil(floor / stepFor(floor)) * stepFor(floor);
+  if (feasible && price > upper) {
+    const st = stepFor(upper), down = Math.floor(upper / st) * st;
+    price = down >= floor ? down : Math.ceil(floor / st) * st;
+  }
   if (!(price > 0)) price = 0;
   if (i.priceOverride != null && i.priceOverride >= 0) price = i.priceOverride;
 
@@ -276,6 +292,8 @@ function computeModel(i) {
 
   const marginAtROI = valuePrice > 0 ? (valuePrice - C) / valuePrice : 0;
   const upliftDenom = expOrders * i.aov * i.gMargin / 100;
+  const needUpliftBalanced = upliftDenom > 0 ? Math.max(0, (floor * minROI - returnSavings) / upliftDenom * 100) : null;
+  const maxTriesBalanced = users > 0 && costPerTry > 0 ? (((value / minROI) * (1 - mMin) - F) / users - i.otherPerUser) / costPerTry : null;
   const reqUpliftROI = upliftDenom > 0 ? Math.max(0, (price * i.targetROI - returnSavings) / upliftDenom * 100) : null;
   const reqUplift1x = upliftDenom > 0 ? Math.max(0, (price - returnSavings) / upliftDenom * 100) : null;
 
@@ -287,6 +305,7 @@ function computeModel(i) {
     annualTotal, annualEff, annualSaving, annualCost, annualProfit, annualMargin,
     monthlyRev12, monthlyCost12, monthlyProfit12, lifetimeMonths, f,
     maxSafeDisc, overage, marginAtROI, reqUpliftROI, reqUplift1x,
+    feasible, upper, minROI, needUpliftBalanced, maxTriesBalanced,
     shareOfProfit: netProfit > 0 ? price / netProfit : 0,
     shareOfSales: revenue > 0 ? price / revenue : 0,
     unviable: e < 0.001 || price <= 0,
@@ -377,6 +396,7 @@ const FIELDS = [
       {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%', hint:'קובעת את גודל החבילה (חשיפה)'},
       {id:'minMargin', label:'רווחיות מינימום (רצפה)', def:60, step:1, unit:'%', hint:'מתחתיה לא מוכרים'},
       {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי', hint:'המחיר = הערך שהלקוח מקבל / יעד התשואה'},
+      {id:'minROI', label:'תשואה מינימלית ללקוח', def:1.5, step:0.1, unit:'פי', hint:'מתחתיה הלקוח לא ירגיש שזה שווה לו. קובעת את המחיר המומלץ'},
       {id:'minPrice', label:'מחיר חודשי מינימלי', def:1000, step:100, unit:'₪'},
       {id:'annualDiscount', label:'הנחה על תשלום שנתי מראש', def:15, step:1, unit:'%'},
       {id:'setupFee', label:'דמי הקמה חד-פעמיים', def:3000, step:100, unit:'₪'},
@@ -517,6 +537,12 @@ function statusOf(r, inp) {
 
 function buildAlerts(r, inp, ctx) {
   const a = [];
+  if (ctx && ctx.base && !ctx.base.unviable) {
+    const b = ctx.base;
+    a.push(b.feasible
+      ? ['good', `יש מחיר שווה לשני הצדדים: בין ${ils(b.floor)} ל-${ils(b.upper)} לחודש. המומלץ (${ils(ctx.tiers.rec)}) נותן ללקוח ${ctx.info.rec.roi.toFixed(2)} פי ולנו רווחיות ${pct(ctx.info.rec.margin)}.`]
+      : ['bad', `אין מחיר שווה לשני הצדדים: ללקוח לפחות ${inp.minROI} פי דורש מחיר עד ${ils(b.upper)}, ורצפת הרווחיות שלנו (${inp.minMargin}%) דורשת לפחות ${ils(b.floor)}. ${leversText(b, inp)}.`]);
+  }
   if (r.unviable) {
     a.push(['bad', 'גם בחשיפה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
     return a;
@@ -560,6 +586,35 @@ function buildAlerts(r, inp, ctx) {
 let LAST = null;
 let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
 let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
+
+/* ============================================================================
+   המחיר המומלץ: שווה ללקוח (תשואה מינימלית) ושווה לנו (רווחיות מינימלית)
+============================================================================ */
+function chipsHtml(info, inp) {
+  if (!info || !(info.price > 0)) return '';
+  const roiCls = info.roi < 1 ? 'bad' : info.roi < inp.minROI ? 'warn' : 'ok';
+  const mCls = info.margin < inp.minMargin / 100 - 0.005 ? 'bad' : 'ok';
+  return `<div class="chips"><span class="chip ${roiCls}">ROI ללקוח ${info.roi.toFixed(2)} פי</span><span class="chip ${mCls}">רווחיות שלנו ${pct(info.margin)}</span></div>`;
+}
+
+function leversText(b, inp) {
+  const parts = [];
+  if (b.maxTriesBalanced !== null) {
+    parts.push(b.maxTriesBalanced >= 1
+      ? `להוריד את המדידות למשתמש ל-${Math.max(1, Math.floor(b.maxTriesBalanced * 10) / 10)} לכל היותר (כיום ${inp.tries})`
+      : `גם מדידה אחת למשתמש לא מספיקה, צריך להוזיל את עלות המדידה`);
+  }
+  if (b.needUpliftBalanced !== null) parts.push(`או להוכיח שיפור המרה של ${b.needUpliftBalanced.toFixed(0)}% (כיום מוערך ${inp.uplift}%)`);
+  return parts.join(', ');
+}
+
+function recNote(b, inp, rec) {
+  if (b.feasible) {
+    return `<div class="recnote ok">✅ שווה לשני הצדדים: הלקוח מקבל ${rec.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(rec.margin)}. טווח המחירים שמתאים לשניהם: ${num(ils(b.floor))} עד ${num(ils(b.upper))} לחודש.</div>`;
+  }
+  const lv = leversText(b, inp);
+  return `<div class="recnote bad">⛔ אין מחיר שווה לשני הצדדים. הרצפה שלנו (${num(ils(b.floor))}) גבוהה ממה שהלקוח יכול לשלם ולקבל לפחות ${inp.minROI} פי (${num(ils(b.upper))}). המחיר המוצג הוא הרצפה, והלקוח מקבל ${rec.roi.toFixed(2)} פי.${lv ? ' כדי שיהיה מחיר כזה: ' + lv + '.' : ''}</div>`;
+}
 
 /* ============================================================================
    נקודת המבט של הלקוח: האם זה שווה לו במחיר שנבחר, ולמה
@@ -644,7 +699,7 @@ function renderResults(r, inp, ctx) {
   const perTry = r.tries > 0 ? r.price / r.tries : 0;
 
   const tierDesc = {
-    rec: TIER_META.rec[1],
+    rec: `שווה לשני הצדדים: ROI ללקוח לפחות ${inp.minROI} פי, רווחיות שלנו לפחות ${inp.minMargin}%`,
     floor: `רווחיות ${inp.minMargin}% על העלות`,
     value: `ערך ללקוח חלקי ${inp.targetROI} (יעד תשואה)`,
     target: `רווחיות ${inp.targetMargin}% על העלות`,
@@ -706,8 +761,8 @@ function renderResults(r, inp, ctx) {
     <h2>מדרגות מחיר</h2>
     <p class="sub">בחר מדרגה: המסלול החודשי, השנתי וכל החישובים למעלה מתעדכנים לפי הבחירה. החבילה (חשיפה ומדידות כלולות) נשארת זהה.</p>
     <div class="ladder" role="radiogroup" aria-label="בחירת מדרגת מחיר">
-      ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small></div><b>${num(ils(x.price))}</b></div>`).join('')}
-      <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small></div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
+      ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small>${chipsHtml(ctx.info[x.key], inp)}${x.key === 'rec' ? recNote(ctx.base, inp, ctx.info.rec) : ''}</div><b>${num(ils(x.price))}</b></div>`).join('')}
+      <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small>${ctx.plan === 'custom' ? chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, inp) : ''}</div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
     </div>
   </div>
 
@@ -816,13 +871,15 @@ function tierPrices(r0) {
 function runModel(inp, plan, custom) {
   const base = computeModel(inp);
   const tiers = tierPrices(base);
+  const infoOf = p => ({ price: p, roi: p > 0 ? base.value / p : 0, margin: p > 0 ? (p - base.C) / p : 0 });
+  const info = Object.fromEntries(Object.entries(tiers).map(([k, p]) => [k, infoOf(p)]));
   const customNum = parseFloat(custom);
   let price = null;
   if (plan === 'custom') price = Number.isFinite(customNum) && customNum >= 0 ? customNum : null;
   else if (plan !== 'rec') price = tiers[plan];
   const r = price === null ? base : computeModel({ ...inp, priceOverride: price });
   const usedPlan = plan === 'custom' && price === null ? 'rec' : plan;
-  return { r, tiers, plan: usedPlan };
+  return { r, tiers, info, base, plan: usedPlan };
 }
 
 function update() {
