@@ -232,12 +232,12 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
 
   <section class="card" id="allCard">
     <h2>כל החברות במחיר אחד (לפי ההגדרות הנוכחיות)</h2>
-    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה וחשיפה) ועם עלויות ומדיניות התמחור שהגדרת, לפי מדרגת המחיר שבחרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
+    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה ושימוש) ועם עלויות ומדיניות התמחור שהגדרת, לפי מדרגת המחיר שבחרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
     <div class="tablewrap">
       <table class="all">
         <thead><tr>
           <th>מותג</th><th>סוג</th><th>מיקום</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
-          <th>מדידות למשתמש</th><th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th><th>נתון</th><th>עודכן</th>
+          <th>מדידות למשתמש</th><th>כיסוי השימוש</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th><th>נתון</th><th>עודכן</th>
         </tr></thead>
         <tbody id="allBody"></tbody>
       </table>
@@ -267,7 +267,8 @@ function computeModel(i) {
   const mMin = Math.min(i.minMargin / 100, m);
   const setupCost = i.onboardHours * i.hourRate;
 
-  const e0 = i.engagement / 100;
+  const reach = Math.min(1, Math.max(0, (i.reach == null ? 70 : i.reach) / 100));   // share of visitors who see the button
+  const e0 = reach * i.engagement / 100;   // expected share of visitors who start a try-on (the demand the package is sized against)
   const varCostAt = e => i.traffic * e * costPerUser;
   const floorAt = e => Math.max(i.minPrice, (varCostAt(e) + F) / (1 - m));
 
@@ -344,7 +345,9 @@ function computeModel(i) {
 
   return {
     orders, revenue, netProfit, cap, costPerTry, costPerUser, setupCost,
-    e0, e, optimized, users, tries, varCost, decartCost, fixed: F, C,
+    reach, e0, e, optimized, users, tries, varCost, decartCost, fixed: F, C,
+    exposed: i.traffic * reach, demandUsers: i.traffic * e0, demandTries: i.traffic * e0 * i.tries,
+    coverage: e0 > 0 ? Math.min(1, e / e0) : 1, extraTries: Math.max(0, i.traffic * (e0 - e)) * i.tries,
     expOrders, returnSavings, upliftOrders, upliftProfit, value,
     targetPrice, valuePrice, floor, raw, price, margin, roi,
     annualTotal, annualEff, annualSaving, annualCost, annualProfit, annualMargin,
@@ -715,7 +718,8 @@ const FIELDS = [
       {id:'cMargin', label:'רווח נקי של המותג', def:6, step:0.1, unit:'%', client:true},
       {id:'gMargin', label:'רווח גולמי של המותג', def:55, step:1, unit:'%', hint:'משמש לחישוב הרווח מהמכירות הנוספות'},
       {id:'maxShare', label:'תקרת תקציב: % מהרווח הנקי', def:10, step:1, unit:'%', client:true, hint:'כמה מהרווח הנקי החברה מוכנה לשלם לתוכנה'},
-      {id:'engagement', label:'חשיפה: % מהמבקרים שרואים את הכפתור', def:15, step:0.5, unit:'%', client:true, hint:'הכפתור מוצג רק למבקרים החמים'},
+      {id:'reach', label:'חשיפה: % מהמבקרים שרואים את הכפתור', def:70, step:1, unit:'%', hint:'הכפתור מוצג בעמודי המוצר, לכן רוב המבקרים רואים אותו. זו הנחה, ואין לה עלות: משלמים רק על מדידות שבוצעו בפועל'},
+      {id:'engagement', label:'שימוש: % מהחשופים שמפעילים מדידה', def:15, step:0.5, unit:'%', client:true, hint:'מי שרואה את הכפתור ובוחר להשתמש בו. זה מה שיוצר עלות וערך'},
     ]},
   { sec:'value', title:'2. ההנחות על הערך ללקוח (ROI)', open:false,
     hint:'אלה הנחות, לא נתונים מוכחים. יש לאמת אותן בפיילוט A/B לפני שמבטיחים ללקוח תוצאות.',
@@ -742,7 +746,7 @@ const FIELDS = [
   { sec:'policy', title:'4. מדיניות תמחור', open:true,
     hint:'כאן קובעים כמה לקחת: רווחיות, הנחת שנתי, דמי הקמה ויעד תשואה ללקוח.',
     fields:[
-      {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%', hint:'קובעת את גודל החבילה (חשיפה)'},
+      {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%', hint:'קובעת את גודל החבילה (כמה מדידות כלולות)'},
       {id:'minMargin', label:'רווחיות מינימום (רצפה)', def:60, step:1, unit:'%', hint:'מתחתיה לא מוכרים'},
       {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי', hint:'המחיר = הערך שהלקוח מקבל / יעד התשואה'},
       {id:'minROI', label:'תשואה מינימלית ללקוח', def:1.5, step:0.1, unit:'פי', hint:'מתחתיה הלקוח לא ירגיש שזה שווה לו. קובעת את המחיר המומלץ'},
@@ -759,7 +763,7 @@ const FIELDS = [
       {id:'minTries', label:'מינימום מדידות למשתמש', def:1, step:1, unit:'מדידות', hint:'ההצעה לא תוריד את מספר המדידות מתחת לזה'},
       {id:'minSec', label:'מינימום משך מדידה', def:3, step:0.5, unit:'שניות', hint:'ההצעה לא תקצר את חלון החיוב מתחת לזה'},
       {id:'minBuffer', label:'מינימום באפר חריגה', def:10, step:1, unit:'%', hint:'ההצעה תחשב עם באפר גבוה מזה אם הוגדר'},
-      {id:'minExposure', label:'מינימום חשיפה', def:0, step:0.5, unit:'%', hint:'מבקרים שרואים את הכפתור. 0 = ללא מגבלה'},
+      {id:'minCoverage', label:'מינימום כיסוי של השימוש הצפוי', def:0, step:5, unit:'%', hint:'כמה מהשימוש הצפוי חייב להיכלל בחבילה. 0 = ללא מגבלה'},
       {id:'minIncluded', label:'מינימום מדידות כלולות בחודש', def:0, step:1000, unit:'מדידות', hint:'0 = ללא מגבלה'},
       {id:'maxPrice', label:'תקרת מחיר חודשי להצעה', def:0, step:500, unit:'₪', hint:'0 = ללא תקרה. ההצעה לא תעלה מעליה'},
     ]},
@@ -1147,14 +1151,16 @@ function buildAlerts(r, inp, ctx) {
       : ['bad', `אין מחיר שווה לשני הצדדים: ללקוח לפחות ${inp.minROI} פי דורש מחיר עד ${ils(b.upper)}, ורצפת הרווחיות שלנו (${inp.minMargin}%) דורשת לפחות ${ils(b.floor)}. ${leversText(b, inp)}.`]);
   }
   if (r.unviable) {
-    a.push(['bad', 'גם בחשיפה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
+    if (r.e0 < 0.001) { a.push(['bad', 'אין שימוש צפוי: החשיפה או שיעור השימוש הוגדרו כאפס, ולכן אין מה לתמחר.']); return a; }
+    a.push(['bad', 'גם בחבילה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
     return a;
   }
   if (ctx && ctx.plan !== 'rec' && ctx.plan !== 'slider') {
     a.push(['info', 'בחרת מדרגת מחיר שונה מהמומלצת. החבילה נשארת זהה ורק המחיר, הרווחיות והתשואה ללקוח משתנים.']);
   }
   if (r.optimized) {
-    a.push(['info', `החשיפה הוקטנה מ-${(r.e0 * 100).toFixed(1)}% ל-${(r.e * 100).toFixed(2)}% כדי שהעלות תישאר בתוך תקרת התקציב של הלקוח (${inp.maxShare}% מהרווח הנקי) ובמקביל תשמור על רווחיות יעד של ${inp.targetMargin}%.`]);
+    const day = Math.max(1, Math.min(30, Math.round(30 * r.coverage)));
+    a.push([r.coverage < 0.3 ? 'warn' : 'info', `הכפתור גלוי ל-${pct(r.reach)} מהמבקרים, ומהם צפויים להפעיל מדידה כ-${nf.format(Math.round(r.demandUsers))} משתמשים בחודש (${pct(r.e0, 1)} מכלל המבקרים). החבילה כוללת ${nf.format(Math.round(r.users))} משתמשים, כלומר ${pct(r.coverage)} מהשימוש הצפוי, כדי שהעלות תישאר בתוך תקרת התקציב של הלקוח (${inp.maxShare}% מהרווח הנקי) ובמקביל תשמור על רווחיות יעד של ${inp.targetMargin}%. המכסה תיגמר בערך ביום ה-${day} בחודש: מעבר לה אפשר לחייב ${ils2(r.overage)} למדידה (כ-${ils(r.extraTries * r.overage)} בחודש אם כל הביקוש ימומש) או להשהות את הכפתור עד החודש הבא.`]);
   }
   if (r.price < r.floor - 1) {
     a.push(['bad', `המחיר חתוך בתקרת התקציב של הלקוח (${ils(r.cap)}) ולכן הרווחיות שלך נמוכה מהרצפה שהגדרת (${inp.minMargin}%).`]);
@@ -1232,7 +1238,7 @@ function isHealthy(r, inp) {
     && r.roi >= inp.minROI - 0.005
     && r.margin >= inp.minMargin / 100 - 0.005
     && (r.price - r.C) >= inp.minProfit
-    && (!(inp.minExposure > 0) || r.e * 100 >= inp.minExposure - 1e-9)
+    && (!(inp.minCoverage > 0) || r.coverage * 100 >= inp.minCoverage - 1e-9)
     && (!(inp.minIncluded > 0) || r.tries >= inp.minIncluded)
     && (!(inp.maxPrice > 0) || r.price <= inp.maxPrice + 0.5);
 }
@@ -1255,7 +1261,7 @@ function activeLimits(inp) {
   if (inp.minTries > 1) a.push(`מינימום ${inp.minTries} מדידות למשתמש`);
   if (inp.minSec > 3) a.push(`מינימום ${inp.minSec} שניות למדידה`);
   if (inp.minBuffer > inp.buffer) a.push(`באפר מינימלי ${inp.minBuffer}%`);
-  if (inp.minExposure > 0) a.push(`חשיפה של לפחות ${inp.minExposure}%`);
+  if (inp.minCoverage > 0) a.push(`כיסוי של לפחות ${inp.minCoverage}% מהשימוש הצפוי`);
   if (inp.minIncluded > 0) a.push(`לפחות ${nf.format(inp.minIncluded)} מדידות כלולות בחודש`);
   if (inp.maxPrice > 0) a.push(`תקרת מחיר ${ils(inp.maxPrice)}`);
   return a;
@@ -1292,7 +1298,9 @@ function proposeFor(inp) {
   const { r, inp: pi } = last;
   const why = [];
   const lim = activeLimits(inp);
-  if (r.unviable) {
+  if (r.e0 < 0.001) {
+    why.push('אין שימוש צפוי: החשיפה או שיעור השימוש הוגדרו כאפס.');
+  } else if (r.unviable) {
     why.push('גם בחבילה הזולה ביותר העלות עולה על תקרת התקציב של הלקוח.');
   } else if (!r.feasible) {
     why.push(`גם בחבילה הזולה ביותר שהמגבלות מאפשרות (${last.tries} מדידות למשתמש, ${last.sec} שניות) הרצפה שלנו (${ils(r.floor)}) גבוהה ממה שהלקוח יכול לשלם ולקבל לפחות ${inp.minROI} פי (${ils(r.upper)}).`);
@@ -1300,8 +1308,8 @@ function proposeFor(inp) {
     why.push(`תקרת המחיר שהגדרת (${ils(inp.maxPrice)}) נמוכה מהרצפה שלנו (${ils(r.floor)}).`);
   } else if (r.price - r.C < inp.minProfit) {
     why.push(`הרווח החודשי שלנו (${ils(r.price - r.C)}) נמוך מהמינימום שהגדרת (${ils(inp.minProfit)}).`);
-  } else if (inp.minExposure > 0 && r.e * 100 < inp.minExposure) {
-    why.push(`החשיפה האפשרית (${(r.e * 100).toFixed(2)}%) נמוכה מהמינימום שהגדרת (${inp.minExposure}%).`);
+  } else if (inp.minCoverage > 0 && r.coverage * 100 < inp.minCoverage) {
+    why.push(`החבילה מכסה ${pct(r.coverage)} מהשימוש הצפוי, פחות מהמינימום שהגדרת (${inp.minCoverage}%).`);
   } else if (inp.minIncluded > 0 && r.tries < inp.minIncluded) {
     why.push(`מספר המדידות הכלולות (${nf.format(Math.round(r.tries))}) נמוך מהמינימום שהגדרת (${nf.format(inp.minIncluded)}).`);
   } else {
@@ -1381,8 +1389,8 @@ function proposalCard(p, inp) {
     <table class="kv">
       <tr><td>מדידות למשתמש${was(inp.tries, pi.tries)}</td><td>${pi.tries}</td></tr>
       <tr><td>משך מדידה${was(inp.sec, pi.sec, ' שניות')}</td><td>${pi.sec} שניות</td></tr>
-      <tr><td>חשיפה (מבקרים שרואים את הכפתור)</td><td>${(r.e * 100).toFixed(2)}%</td></tr>
-      <tr><td>מדידות כלולות בחודש</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
+      <tr><td>חשיפה (מבקרים שרואים את הכפתור)</td><td>${pct(r.reach)}</td></tr>
+      <tr><td>מדידות כלולות בחודש<span class="small">מכסה ${pct(r.coverage)} מהשימוש הצפוי</span></td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
       <tr class="total"><td>מחיר חודשי</td><td>${num(ils(r.price))}</td></tr>
       <tr><td>מחיר שנתי<span class="small">${num(ils(r.annualEff))} לחודש בפועל</span></td><td>${num(ils(r.annualTotal))}</td></tr>
       <tr><td>דמי הקמה</td><td>${num(ils(inp.setupFee))}</td></tr>
@@ -1483,7 +1491,7 @@ function clientView(r, inp) {
       yes.push(`מספיקות ${nf.format(Math.ceil(needOrders))} הזמנות נוספות בחודש כדי להחזיר את המחיר. המודל מעריך ${nf.format(Math.round(r.upliftOrders))}.`);
     }
     if (r.shareOfProfit <= inp.maxShare / 100 + 0.0005) yes.push(`המחיר הוא ${pct(r.shareOfProfit, 1)} מהרווח הנקי של החברה, בתוך התקרה שהיא מוכנה לשלם (${inp.maxShare}%).`);
-    if (perUserValue > perUserPrice) yes.push(`כל משתמש שנחשף מייצר ללקוח ${ils2(perUserValue)} ערך, ועולה לו ${ils2(perUserPrice)}.`);
+    if (perUserValue > perUserPrice) yes.push(`כל משתמש שמפעיל מדידה מייצר ללקוח ${ils2(perUserValue)} ערך, ועולה לו ${ils2(perUserPrice)}.`);
     if (payback !== null && payback <= 3) yes.push(`דמי ההקמה (${ils(inp.setupFee)}) יוחזרו ${payback < 1 ? 'תוך פחות מחודש' : 'תוך ' + payback.toFixed(1) + ' חודשים'} מהרווח הנקי.`);
 
     if (r.roi < 1) no.push(['bad', `הלקוח משלם ${ils(price)} ומקבל ערך של ${ils(value)}: הפסד נטו של ${ils(-net)} בחודש, ${ils(-annualNet)} בשנה.`]);
@@ -1495,7 +1503,7 @@ function clientView(r, inp) {
       no.push(['bad', `כדי שהלקוח לא יפסיד נדרש שיפור המרה של ${r.reqUplift1x.toFixed(0)}%, והמודל מניח ${inp.uplift}%.`]);
     }
     if (r.shareOfProfit > inp.maxShare / 100 + 0.0005) no.push(['warn', `המחיר הוא ${pct(r.shareOfProfit, 1)} מהרווח הנקי של החברה, מעל התקרה שהיא מוכנה לשלם (${inp.maxShare}%).`]);
-    if (impact < 0.1) no.push(['warn', `ההשפעה מוגבלת: רק ${pct(impact, 1)} מהזמנות האתר מגיעות ממשתמשים שנחשפו, ולכן גם בהצלחה מלאה המחזור הכולל משתנה מעט.`]);
+    if (impact < 0.1) no.push(['warn', `ההשפעה מוגבלת: רק ${pct(impact, 1)} מהזמנות האתר מגיעות ממשתמשים שהפעילו מדידה, ולכן גם בהצלחה מלאה המחזור הכולל משתנה מעט.`]);
     if (r.roi < inp.targetROI) no.push(['warn', `מסלול שנתי הוא התחייבות של ${ils(r.annualTotal)} לפני שההנחות הוכחו. מומלץ להתחיל בפיילוט חודשי.`]);
     if (inp.setupFee > 0 && net <= 0) no.push(['warn', `דמי ההקמה (${ils(inp.setupFee)}) לא יוחזרו, כי אין רווח נקי חודשי ללקוח.`]);
     else if (payback !== null && payback > 6) no.push(['warn', `דמי ההקמה (${ils(inp.setupFee)}) יוחזרו רק אחרי ${payback.toFixed(0)} חודשים.`]);
@@ -1582,7 +1590,7 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>מדרגות מחיר</h2>
-    <p class="sub">בחר מדרגה: המסלול החודשי, השנתי וכל החישובים למעלה מתעדכנים לפי הבחירה. החבילה (חשיפה ומדידות כלולות) נשארת זהה.</p>
+    <p class="sub">בחר מדרגה: המסלול החודשי, השנתי וכל החישובים למעלה מתעדכנים לפי הבחירה. החבילה (המדידות הכלולות) נשארת זהה.</p>
     <div class="ladder" role="radiogroup" aria-label="בחירת מדרגת מחיר">
       ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small>${chipsHtml(ctx.info[x.key], inp)}${x.key === 'rec' ? recNote(ctx.base, inp, ctx.info.rec) : ''}</div><b>${num(ils(x.price))}</b></div>`).join('')}
       <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small>${ctx.plan === 'custom' ? chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, inp) : ''}</div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
@@ -1591,11 +1599,13 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>מה כלול בחבילה</h2>
-    <p class="sub">החבילה נקבעת כך שהעלות תתאים לתקרת התקציב של הלקוח.</p>
+    <p class="sub">הכפתור גלוי לרוב המבקרים, ומשלמים רק על מדידות שבוצעו. גודל החבילה (המכסה) נקבע כך שהעלות תתאים לתקרת התקציב של הלקוח.</p>
     <table class="kv">
-      <tr><td>חשיפה (מבקרים שרואים את הכפתור)<span class="small">ברירת מחדל של המותג: ${(r.e0 * 100).toFixed(1)}%</span></td><td>${(r.e * 100).toFixed(2)}%</td></tr>
-      <tr><td>משתמשים פעילים בחודש</td><td>${num(nf.format(Math.round(r.users)))}</td></tr>
-      <tr><td>מדידות כלולות בחודש</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
+      <tr><td>חשיפה (מבקרים שרואים את הכפתור)<span class="small">${num(nf.format(Math.round(r.exposed)))} מתוך ${num(nf.format(Math.round(inp.traffic)))} כניסות בחודש. הנחה, ניתן לשנות בנתוני הלקוח</span></td><td>${pct(r.reach)}</td></tr>
+      <tr><td>שימוש צפוי: מפעילים מדידה<span class="small">${inp.engagement}% מהחשופים, כלומר ${pct(r.e0, 1)} מכלל המבקרים</span></td><td>${num(nf.format(Math.round(r.demandUsers)))} משתמשים</td></tr>
+      <tr><td>משתמשים פעילים בחבילה<span class="small">${pct(r.e, 1)} מכלל המבקרים</span></td><td>${num(nf.format(Math.round(r.users)))}</td></tr>
+      <tr><td>מדידות כלולות בחודש (מכסה)</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
+      <tr><td>כיסוי השימוש הצפוי<span class="small">${r.coverage < 0.999 ? 'המכסה תיגמר בערך ביום ה-' + Math.max(1, Math.min(30, Math.round(30 * r.coverage))) + ' בחודש. מעבר לה: חריגה או השהיית הכפתור' : 'כל הביקוש הצפוי נכלל בחבילה'}</span></td><td class="${r.coverage < 0.3 ? 'neg' : ''}">${pct(r.coverage)}</td></tr>
       <tr><td>מחיר מדידה חריגה<span class="small">מעבר לחבילה, לפי רווחיות יעד</span></td><td>${num(ils2(r.overage))}</td></tr>
     </table>
   </div>
@@ -1614,7 +1624,7 @@ function renderResults(r, inp, ctx) {
       <div class="tile"><div class="l">על כל ₪1 שהוא משלם</div><div class="v ${r.roi < 1 ? 'neg' : 'pos'}">${num(ils2(r.roi))}</div><div class="s">ערך חוזר</div></div>
     </div>
     <table class="kv">
-      <tr><td>הזמנות של משתמשים שנחשפו</td><td>${num(nf.format(Math.round(r.expOrders)))}</td></tr>
+      <tr><td>הזמנות של משתמשים שהפעילו מדידה</td><td>${num(nf.format(Math.round(r.expOrders)))}</td></tr>
       <tr><td>החזרות שנמנעות בחודש</td><td>${num(nf.format(Math.round(cv.retAvoided)))}</td></tr>
       <tr><td>חיסכון מהחזרות</td><td>${num(ils(r.returnSavings))}</td></tr>
       <tr><td>הזמנות נוספות בחודש (${inp.uplift}% עלייה)</td><td>${num(nf.format(Math.round(r.upliftOrders)))}</td></tr>
@@ -1674,7 +1684,7 @@ function renderTable(inp) {
       <td>${num(ils(r.annualTotal))}</td>
       <td>${pct(r.shareOfProfit, 1)}</td>
       <td>${ei.tries}${ei.sec !== inp.sec ? ` · ${ei.sec}ש׳` : ''}</td>
-      <td>${(r.e * 100).toFixed(1)}%</td>
+      <td>${pct(r.coverage)}</td>
       <td>${pct(r.margin)}</td>
       <td>${r.roi.toFixed(2)}</td>
       <td><span class="dot ${st}"></span>${{good:'בריא', warn:'דורש הוכחה', bad:'בעייתי'}[st]}</td>
