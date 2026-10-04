@@ -113,6 +113,13 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .rung .cust{width:120px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-weight:800;color:var(--ink);background:var(--card);direction:ltr;text-align:end;}
 .rung .cust:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
 .chosen{font-size:.82rem;color:var(--muted);margin-bottom:10px;}
+.btn.wide{width:100%;margin-top:14px;padding:12px 16px;}
+.card.prop{border:1.5px solid var(--pear);}
+.card.prop h2{justify-content:space-between;}
+.xbtn{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:50%;width:28px;height:28px;cursor:pointer;font:inherit;line-height:1;}
+.xbtn:hover{color:var(--ink);border-color:var(--pear);}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.actions .btn{flex:1 1 140px;}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .chip{font-size:.7rem;font-weight:700;border-radius:999px;padding:1px 9px;border:1px solid;}
 .chip.ok{background:var(--good-bg);border-color:var(--good-line);color:var(--good-ink);}
@@ -148,7 +155,7 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .alerts li.good{background:var(--good-bg);border-color:rgba(47,125,50,.3);color:#1d4d20;}
 
 .tablewrap{overflow-x:auto;}
-table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:760px;}
+table.all{width:100%;border-collapse:collapse;font-size:.84rem;min-width:960px;}
 table.all th{font-size:.7rem;color:var(--muted);text-align:start;padding:8px 10px;background:var(--bg);position:sticky;top:0;white-space:nowrap;}
 table.all td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
 table.all tbody tr{cursor:pointer;}
@@ -193,7 +200,7 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
       <table class="all">
         <thead><tr>
           <th>מותג</th><th>סוג</th><th>מחיר חודשי</th><th>מחיר שנתי</th><th>% מהרווח הנקי שלו</th>
-          <th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th>
+          <th>חשיפה</th><th>הרווחיות שלך</th><th>ROI ללקוח</th><th>סטטוס</th><th>הצעה בריאה</th>
         </tr></thead>
         <tbody id="allBody"></tbody>
       </table>
@@ -315,41 +322,58 @@ function computeModel(i) {
 /* ============================================================================
    נתוני מותגים (הערכות מתוך הסימולטור הקיים: "price clac/index.html")
 ============================================================================ */
-const GROUP_LABELS = {1:'ענקיות ופלטפורמות', 2:'רשתות אופנה', 3:'D2C ובוטיקים'};
+const GROUP_LABELS = {1:'ענקיות ופלטפורמות', 2:'רשתות אופנה', 3:'D2C ובוטיקים', 4:'חברות מחו״ל'};
 const BRANDS = [
-  {"key":"terminal-x","name":"Terminal X","tag":"מפלצת איקומרס","group":1,"traffic":7500000,"conv":2.1,"aov":300,"cMargin":5.6,"maxShare":10,"engagement":12},
-  {"key":"shoesonline","name":"ShoesOnline","tag":"מרקטפלייס נעליים","group":1,"traffic":1100000,"conv":3.1,"aov":350,"cMargin":5.8,"maxShare":10,"engagement":12},
-  {"key":"one-project","name":"One Project","tag":"קניון דיגיטלי (עזריאלי)","group":1,"traffic":650000,"conv":3.1,"aov":320,"cMargin":6.9,"maxShare":10,"engagement":15},
-  {"key":"platin-express","name":"Platin Express","tag":"פרימיום וסטריטוול","group":1,"traffic":400000,"conv":2.5,"aov":420,"cMargin":8.3,"maxShare":10,"engagement":15},
-  {"key":"step-in","name":"Step In","tag":"מולטי-ברנד נעליים","group":1,"traffic":350000,"conv":2.5,"aov":350,"cMargin":6.8,"maxShare":10,"engagement":15},
-  {"key":"story-online","name":"Story Online","tag":"אופנת יבוא פרימיום","group":1,"traffic":280000,"conv":2.6,"aov":400,"cMargin":9,"maxShare":10,"engagement":15},
-  {"key":"delta","name":"Delta","tag":"מותג ענק","group":2,"traffic":2100000,"conv":2.9,"aov":360,"cMargin":8.2,"maxShare":10,"engagement":12},
-  {"key":"castro","name":"Castro","tag":"רשת אופנה","group":2,"traffic":1400000,"conv":2.7,"aov":300,"cMargin":4.3,"maxShare":10,"engagement":12},
-  {"key":"renuar","name":"Renuar","tag":"רשת אופנה","group":2,"traffic":950000,"conv":2.8,"aov":320,"cMargin":6.5,"maxShare":10,"engagement":15},
-  {"key":"hoodies","name":"Hoodies","tag":"קז'ואל ובייסיק","group":2,"traffic":750000,"conv":2.9,"aov":290,"cMargin":7.7,"maxShare":10,"engagement":15},
-  {"key":"urbanica","name":"Urbanica","tag":"Value Fashion","group":2,"traffic":700000,"conv":3.6,"aov":220,"cMargin":6,"maxShare":10,"engagement":15},
-  {"key":"weshoes","name":"WeShoes","tag":"נעלי נוחות","group":2,"traffic":600000,"conv":2.5,"aov":340,"cMargin":7.7,"maxShare":10,"engagement":15},
-  {"key":"golf-online","name":"Golf Online","tag":"גולף ואינטימה","group":2,"traffic":550000,"conv":2.7,"aov":300,"cMargin":4.9,"maxShare":10,"engagement":15},
-  {"key":"fox-online","name":"Fox Online","tag":"רשת אופנה","group":2,"traffic":500000,"conv":2.9,"aov":280,"cMargin":6,"maxShare":10,"engagement":15},
-  {"key":"twentyfourseven","name":"Twentyfourseven","tag":"אופנת דור Z","group":2,"traffic":480000,"conv":2.9,"aov":270,"cMargin":6.8,"maxShare":10,"engagement":15},
-  {"key":"hamashbir365","name":"המשביר 365","tag":"כלבו דיגיטלי","group":2,"traffic":420000,"conv":2.8,"aov":300,"cMargin":5.1,"maxShare":10,"engagement":15},
-  {"key":"tamnoon","name":"תמנון","tag":"רשת דיסקאונט","group":2,"traffic":380000,"conv":2.8,"aov":260,"cMargin":5,"maxShare":12,"engagement":15},
-  {"key":"golbary","name":"גולברי","tag":"אופנה לקהל מבוגר","group":2,"traffic":350000,"conv":2.3,"aov":400,"cMargin":8.8,"maxShare":12,"engagement":15},
-  {"key":"crazy-line","name":"Crazy Line","tag":"נאמנות לקוחות גבוהה","group":2,"traffic":300000,"conv":3,"aov":320,"cMargin":8.6,"maxShare":12,"engagement":15},
-  {"key":"honigman-kids","name":"Honigman Kids","tag":"בגדי ילדים","group":2,"traffic":240000,"conv":2.5,"aov":350,"cMargin":8.6,"maxShare":12,"engagement":18},
-  {"key":"kiwi-kids","name":"Kiwi Kids","tag":"דיסקאונט לילדים","group":2,"traffic":210000,"conv":3.1,"aov":280,"cMargin":7.2,"maxShare":12,"engagement":18},
-  {"key":"intima","name":"Intima","tag":"הלבשה תחתונה","group":2,"traffic":190000,"conv":3,"aov":280,"cMargin":8.8,"maxShare":15,"engagement":18},
-  {"key":"jack-kuba","name":"Jack Kuba","tag":"יוקרה - הלבשה תחתונה","group":2,"traffic":150000,"conv":3.3,"aov":450,"cMargin":14.1,"maxShare":15,"engagement":20},
-  {"key":"itay-brands","name":"Itay Brands","tag":"D2C מוביל","group":3,"traffic":380000,"conv":2.8,"aov":400,"cMargin":11,"maxShare":12,"engagement":15},
-  {"key":"adika","name":"Adika אונליין","tag":"אופנת צעירות","group":3,"traffic":300000,"conv":3.4,"aov":300,"cMargin":7.1,"maxShare":12,"engagement":15},
-  {"key":"rockglam","name":"Rockglam","tag":"בוטיק D2C","group":3,"traffic":220000,"conv":3.4,"aov":290,"cMargin":8.2,"maxShare":15,"engagement":18},
-  {"key":"strongful","name":"Strongful","tag":"אקטיבוול","group":3,"traffic":180000,"conv":3.5,"aov":300,"cMargin":11.1,"maxShare":15,"engagement":18},
-  {"key":"galita","name":"גליתא","tag":"אופנת ערב","group":3,"traffic":160000,"conv":2.6,"aov":380,"cMargin":7.5,"maxShare":15,"engagement":20},
-  {"key":"s-wear","name":"S.Wear","tag":"בייסיק איכותי","group":3,"traffic":140000,"conv":3.1,"aov":320,"cMargin":8.6,"maxShare":15,"engagement":20},
-  {"key":"shlomit-ofir","name":"שלומית אופיר","tag":"מעצבים ואקססוריז","group":3,"traffic":110000,"conv":2.9,"aov":350,"cMargin":11.8,"maxShare":15,"engagement":20},
-  {"key":"meduza","name":"Meduza","tag":"תיקים ואקססוריז","group":3,"traffic":90000,"conv":3.4,"aov":280,"cMargin":11.2,"maxShare":15,"engagement":20},
-  {"key":"nunuforme","name":"Nunuforme","tag":"בגדי ילדים מעוצבים","group":3,"traffic":85000,"conv":3.4,"aov":310,"cMargin":11.1,"maxShare":15,"engagement":20},
-  {"key":"bare","name":"Bare","tag":"לאונג'וור D2C","group":3,"traffic":80000,"conv":3.8,"aov":250,"cMargin":10.7,"maxShare":15,"engagement":20}
+  {"key": "terminal-x", "name": "Terminal X", "tag": "מפלצת איקומרס", "group": 1, "traffic": 7500000, "conv": 2.1, "aov": 300, "cMargin": 5.6, "maxShare": 10, "engagement": 12},
+  {"key": "one-project", "name": "One Project", "tag": "קניון דיגיטלי (עזריאלי)", "group": 1, "traffic": 650000, "conv": 3.1, "aov": 320, "cMargin": 6.9, "maxShare": 10, "engagement": 15},
+  {"key": "platin-express", "name": "Platin Express", "tag": "פרימיום וסטריטוול", "group": 1, "traffic": 400000, "conv": 2.5, "aov": 420, "cMargin": 8.3, "maxShare": 10, "engagement": 15},
+  {"key": "story-online", "name": "Story Online", "tag": "אופנת יבוא פרימיום", "group": 1, "traffic": 280000, "conv": 2.6, "aov": 400, "cMargin": 9, "maxShare": 10, "engagement": 15},
+  {"key": "delta", "name": "Delta", "tag": "מותג ענק", "group": 2, "traffic": 2100000, "conv": 2.9, "aov": 360, "cMargin": 8.2, "maxShare": 10, "engagement": 12},
+  {"key": "castro", "name": "Castro", "tag": "רשת אופנה", "group": 2, "traffic": 1400000, "conv": 2.7, "aov": 300, "cMargin": 4.3, "maxShare": 10, "engagement": 12},
+  {"key": "renuar", "name": "Renuar", "tag": "רשת אופנה", "group": 2, "traffic": 950000, "conv": 2.8, "aov": 320, "cMargin": 6.5, "maxShare": 10, "engagement": 15},
+  {"key": "hoodies", "name": "Hoodies", "tag": "קז'ואל ובייסיק", "group": 2, "traffic": 750000, "conv": 2.9, "aov": 290, "cMargin": 7.7, "maxShare": 10, "engagement": 15},
+  {"key": "urbanica", "name": "Urbanica", "tag": "Value Fashion", "group": 2, "traffic": 700000, "conv": 3.6, "aov": 220, "cMargin": 6, "maxShare": 10, "engagement": 15},
+  {"key": "golf-online", "name": "Golf Online", "tag": "רשת אופנה", "group": 2, "traffic": 550000, "conv": 2.7, "aov": 300, "cMargin": 4.9, "maxShare": 10, "engagement": 15},
+  {"key": "fox-online", "name": "Fox Online", "tag": "רשת אופנה", "group": 2, "traffic": 500000, "conv": 2.9, "aov": 280, "cMargin": 6, "maxShare": 10, "engagement": 15},
+  {"key": "twentyfourseven", "name": "Twentyfourseven", "tag": "אופנת דור Z", "group": 2, "traffic": 480000, "conv": 2.9, "aov": 270, "cMargin": 6.8, "maxShare": 10, "engagement": 15},
+  {"key": "hamashbir365", "name": "המשביר 365", "tag": "כלבו דיגיטלי", "group": 2, "traffic": 420000, "conv": 2.8, "aov": 300, "cMargin": 5.1, "maxShare": 10, "engagement": 15},
+  {"key": "tamnoon", "name": "תמנון", "tag": "רשת דיסקאונט", "group": 2, "traffic": 380000, "conv": 2.8, "aov": 260, "cMargin": 5, "maxShare": 12, "engagement": 15},
+  {"key": "golbary", "name": "גולברי", "tag": "אופנה לקהל מבוגר", "group": 2, "traffic": 350000, "conv": 2.3, "aov": 400, "cMargin": 8.8, "maxShare": 12, "engagement": 15},
+  {"key": "crazy-line", "name": "Crazy Line", "tag": "נאמנות לקוחות גבוהה", "group": 2, "traffic": 300000, "conv": 3, "aov": 320, "cMargin": 8.6, "maxShare": 12, "engagement": 15},
+  {"key": "honigman-kids", "name": "Honigman Kids", "tag": "בגדי ילדים", "group": 2, "traffic": 240000, "conv": 2.5, "aov": 350, "cMargin": 8.6, "maxShare": 12, "engagement": 18},
+  {"key": "kiwi-kids", "name": "Kiwi Kids", "tag": "דיסקאונט לילדים", "group": 2, "traffic": 210000, "conv": 3.1, "aov": 280, "cMargin": 7.2, "maxShare": 12, "engagement": 18},
+  {"key": "itay-brands", "name": "Itay Brands", "tag": "D2C מוביל", "group": 3, "traffic": 380000, "conv": 2.8, "aov": 400, "cMargin": 11, "maxShare": 12, "engagement": 15},
+  {"key": "adika", "name": "Adika אונליין", "tag": "אופנת צעירות", "group": 3, "traffic": 300000, "conv": 3.4, "aov": 300, "cMargin": 7.1, "maxShare": 12, "engagement": 15},
+  {"key": "rockglam", "name": "Rockglam", "tag": "בוטיק D2C", "group": 3, "traffic": 220000, "conv": 3.4, "aov": 290, "cMargin": 8.2, "maxShare": 15, "engagement": 18},
+  {"key": "strongful", "name": "Strongful", "tag": "אקטיבוול", "group": 3, "traffic": 180000, "conv": 3.5, "aov": 300, "cMargin": 11.1, "maxShare": 15, "engagement": 18},
+  {"key": "galita", "name": "גליתא", "tag": "אופנת ערב", "group": 3, "traffic": 160000, "conv": 2.6, "aov": 380, "cMargin": 7.5, "maxShare": 15, "engagement": 20},
+  {"key": "s-wear", "name": "S.Wear", "tag": "בייסיק איכותי", "group": 3, "traffic": 140000, "conv": 3.1, "aov": 320, "cMargin": 8.6, "maxShare": 15, "engagement": 20},
+  {"key": "shlomit-ofir", "name": "שלומית אופיר", "tag": "מעצבים ואקססוריז", "group": 3, "traffic": 110000, "conv": 2.9, "aov": 350, "cMargin": 11.8, "maxShare": 15, "engagement": 20},
+  {"key": "meduza", "name": "Meduza", "tag": "תיקים ואקססוריז", "group": 3, "traffic": 90000, "conv": 3.4, "aov": 280, "cMargin": 11.2, "maxShare": 15, "engagement": 20},
+  {"key": "nunuforme", "name": "Nunuforme", "tag": "בגדי ילדים מעוצבים", "group": 3, "traffic": 85000, "conv": 3.4, "aov": 310, "cMargin": 11.1, "maxShare": 15, "engagement": 20},
+  {"key": "bare", "name": "Bare", "tag": "לאונג'וור D2C", "group": 3, "traffic": 80000, "conv": 3.8, "aov": 250, "cMargin": 10.7, "maxShare": 15, "engagement": 20},
+  {"key": "shilav", "name": "Shilav (שילב)", "tag": "חולצות, מכנסיים וחליפות", "group": 2, "traffic": 260000, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 12, "engagement": 15},
+  {"key": "alembika", "name": "Alembika (אלמביקה)", "tag": "אופנת נשים: חולצות ושמלות", "group": 3, "traffic": 190000, "conv": 2.8, "aov": 420, "cMargin": 9.0, "maxShare": 15, "engagement": 18},
+  {"key": "studio-pasha", "name": "Studio Pasha", "tag": "אופנת נשים מעוצבת", "group": 3, "traffic": 120000, "conv": 2.6, "aov": 460, "cMargin": 10.5, "maxShare": 15, "engagement": 20},
+  {"key": "dorin-frankfurt", "name": "Dorin Frankfurt", "tag": "מעצבת: חליפות ומעילים", "group": 3, "traffic": 70000, "conv": 2.2, "aov": 700, "cMargin": 12.0, "maxShare": 15, "engagement": 20},
+  {"key": "ronen-chen", "name": "Ronen Chen", "tag": "מעצב: שמלות ומעילים", "group": 3, "traffic": 60000, "conv": 2.0, "aov": 800, "cMargin": 12.0, "maxShare": 15, "engagement": 20},
+  {"key": "dodo-bar-or", "name": "Dodo Bar Or", "tag": "מעצבת: סריגים וחולצות", "group": 3, "traffic": 150000, "conv": 2.7, "aov": 520, "cMargin": 11.0, "maxShare": 15, "engagement": 20},
+  {"key": "zara", "name": "Zara", "tag": "חולצות, מכנסיים, ג׳קטים ומעילים", "group": 4, "traffic": 130000000, "conv": 2.4, "aov": 330, "cMargin": 14.0, "maxShare": 10, "engagement": 10},
+  {"key": "hm", "name": "H&M", "tag": "בגדי בייסיק וצעירים", "group": 4, "traffic": 110000000, "conv": 2.2, "aov": 280, "cMargin": 6.0, "maxShare": 10, "engagement": 10},
+  {"key": "shein", "name": "Shein", "tag": "אופנה מהירה", "group": 4, "traffic": 600000000, "conv": 2.0, "aov": 190, "cMargin": 8.0, "maxShare": 10, "engagement": 10},
+  {"key": "uniqlo", "name": "Uniqlo", "tag": "בייסיק, ג׳קטים ופליז", "group": 4, "traffic": 80000000, "conv": 2.5, "aov": 300, "cMargin": 12.0, "maxShare": 10, "engagement": 10},
+  {"key": "asos", "name": "ASOS", "tag": "פלטפורמת אופנה", "group": 4, "traffic": 70000000, "conv": 2.3, "aov": 320, "cMargin": 2.0, "maxShare": 10, "engagement": 10},
+  {"key": "mango", "name": "Mango", "tag": "חולצות, מכנסיים ומעילים", "group": 4, "traffic": 45000000, "conv": 2.3, "aov": 350, "cMargin": 8.0, "maxShare": 10, "engagement": 10},
+  {"key": "levis", "name": "Levi's", "tag": "ג׳ינס, חולצות וג׳קטים", "group": 4, "traffic": 30000000, "conv": 2.6, "aov": 380, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
+  {"key": "gap", "name": "Gap", "tag": "חולצות, מכנסיים וג׳קטים", "group": 4, "traffic": 25000000, "conv": 2.2, "aov": 320, "cMargin": 4.0, "maxShare": 10, "engagement": 12},
+  {"key": "polo-rl", "name": "Ralph Lauren", "tag": "חולצות, מעילים וחליפות", "group": 4, "traffic": 20000000, "conv": 1.8, "aov": 650, "cMargin": 10.0, "maxShare": 10, "engagement": 12},
+  {"key": "abercrombie", "name": "Abercrombie & Fitch", "tag": "חולצות, ג׳ינס ומעילים", "group": 4, "traffic": 20000000, "conv": 2.4, "aov": 380, "cMargin": 8.0, "maxShare": 10, "engagement": 12},
+  {"key": "north-face", "name": "The North Face", "tag": "מעילים וג׳קטים", "group": 4, "traffic": 18000000, "conv": 2.0, "aov": 750, "cMargin": 10.0, "maxShare": 10, "engagement": 12},
+  {"key": "tommy", "name": "Tommy Hilfiger", "tag": "חולצות, מכנסיים ומעילים", "group": 4, "traffic": 15000000, "conv": 2.0, "aov": 550, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
+  {"key": "lacoste", "name": "Lacoste", "tag": "חולצות פולו ובייסיק", "group": 4, "traffic": 12000000, "conv": 1.9, "aov": 520, "cMargin": 12.0, "maxShare": 10, "engagement": 12},
+  {"key": "columbia", "name": "Columbia", "tag": "מעילים וביגוד טיולים", "group": 4, "traffic": 8000000, "conv": 2.1, "aov": 600, "cMargin": 9.0, "maxShare": 10, "engagement": 12},
+  {"key": "everlane", "name": "Everlane", "tag": "בייסיק D2C", "group": 4, "traffic": 4000000, "conv": 2.3, "aov": 420, "cMargin": 5.0, "maxShare": 12, "engagement": 15},
+  {"key": "reformation", "name": "Reformation", "tag": "אופנת נשים D2C", "group": 4, "traffic": 3000000, "conv": 2.5, "aov": 800, "cMargin": 6.0, "maxShare": 12, "engagement": 15}
 ];
 
 /* ============================================================================
@@ -398,6 +422,7 @@ const FIELDS = [
       {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי', hint:'המחיר = הערך שהלקוח מקבל / יעד התשואה'},
       {id:'minROI', label:'תשואה מינימלית ללקוח', def:1.5, step:0.1, unit:'פי', hint:'מתחתיה הלקוח לא ירגיש שזה שווה לו. קובעת את המחיר המומלץ'},
       {id:'minPrice', label:'מחיר חודשי מינימלי', def:1000, step:100, unit:'₪'},
+      {id:'minProfit', label:'רווח חודשי מינימלי ללקוח', def:500, step:100, unit:'₪', hint:'מתחתיו לא כדאי לצרף את הלקוח'},
       {id:'annualDiscount', label:'הנחה על תשלום שנתי מראש', def:15, step:1, unit:'%'},
       {id:'setupFee', label:'דמי הקמה חד-פעמיים', def:3000, step:100, unit:'₪'},
       {id:'waiveSetup', label:'לוותר על דמי הקמה בחוזה שנתי', type:'check', def:true},
@@ -454,13 +479,18 @@ function renderInputs() {
         html += `<div class="field"><label for="${f.id}">${f.label}</label><div class="inp"><input type="number" inputmode="decimal" id="${f.id}" value="${f.def}" step="${f.step}" min="0"><span class="unit">${f.unit || ''}</span></div>${f.hint ? `<span class="hint">${f.hint}</span>` : ''}</div>`;
       }
     });
-    html += `</div></div></details>`;
+    html += `</div>`;
+    if (s.sec === 'policy') {
+      html += `<button type="button" class="btn primary wide" id="proposalBtn">הצעת תמחור לפי הלקוח</button>`;
+      html += `<p class="sec-hint" style="margin-top:8px">בונה אוטומטית חבילה ומחיר שבריאים לשני הצדדים לפי נתוני הלקוח שנבחר. אם אין חבילה כזו, תופיע אזהרה שלא כדאי לצרף אותו.</p>`;
+    }
+    html += `</div></details>`;
   });
   $('inputs').innerHTML = html;
 
   const sel = $('preset');
   let opts = `<option value="custom">מותאם אישית</option>`;
-  [1, 2, 3].forEach(g => {
+  [1, 2, 3, 4].forEach(g => {
     opts += `<optgroup label="${GROUP_LABELS[g]}">` +
       BRANDS.filter(b => b.group === g).map(b => `<option value="${b.key}">${esc(b.name)} - ${esc(b.tag)}</option>`).join('') + `</optgroup>`;
   });
@@ -505,7 +535,7 @@ function loadState() {
       if (!(f.id in s)) return;
       if (f.type === 'check') $(f.id).checked = !!s[f.id]; else $(f.id).value = s[f.id];
     });
-    if (s.preset) $('preset').value = s.preset;
+    if (s.preset && (s.preset === 'custom' || BRANDS.some(b => b.key === s.preset))) $('preset').value = s.preset;
     if (['rec', 'floor', 'value', 'target', 'cap', 'custom'].includes(s.plan)) PLAN = s.plan;
     if (s.custom != null) CUSTOM = String(s.custom);
     return true;
@@ -519,7 +549,7 @@ function resetAll() {
   });
   $('preset').value = DEFAULT_BRAND;
   applyPreset(DEFAULT_BRAND);
-  PLAN = 'rec'; CUSTOM = '';
+  PLAN = 'rec'; CUSTOM = ''; SHOW_PROP = false;
   update();
   toast('הוחזרו ברירות המחדל');
 }
@@ -537,6 +567,12 @@ function statusOf(r, inp) {
 
 function buildAlerts(r, inp, ctx) {
   const a = [];
+  if (ctx && ctx.proposal) {
+    const p = ctx.proposal;
+    if (!p.ok) a.push(['bad', `לא כדאי לצרף את הלקוח הזה. ${p.why.join(' ')}`]);
+    else if (p.changed) a.push(['info', `ההגדרות הנוכחיות לא בריאות לשני הצדדים, אבל יש הצעה בריאה: ${triesWord(p.tries)} למשתמש, ${p.sec} שניות, ${ils(p.r.price)} לחודש. לחץ "הצעת תמחור לפי הלקוח" במדיניות התמחור.`]);
+    else a.push(['good', 'ההגדרות הנוכחיות כבר בריאות לשני הצדדים.']);
+  }
   if (ctx && ctx.base && !ctx.base.unviable) {
     const b = ctx.base;
     a.push(b.feasible
@@ -585,6 +621,7 @@ function buildAlerts(r, inp, ctx) {
 ============================================================================ */
 let LAST = null;
 let PLAN = 'rec';      // selected price tier: rec | floor | value | target | cap | custom
+let SHOW_PROP = false;  // proposal card visible
 let CUSTOM = '';       // manual monthly price (used when PLAN === 'custom')
 
 /* ============================================================================
@@ -614,6 +651,98 @@ function recNote(b, inp, rec) {
   }
   const lv = leversText(b, inp);
   return `<div class="recnote bad">⛔ אין מחיר שווה לשני הצדדים. הרצפה שלנו (${num(ils(b.floor))}) גבוהה ממה שהלקוח יכול לשלם ולקבל לפחות ${inp.minROI} פי (${num(ils(b.upper))}). המחיר המוצג הוא הרצפה, והלקוח מקבל ${rec.roi.toFixed(2)} פי.${lv ? ' כדי שיהיה מחיר כזה: ' + lv + '.' : ''}</div>`;
+}
+
+/* ============================================================================
+   הצעת תמחור לפי הלקוח: חבילה ומחיר שבריאים לשני הצדדים, או אזהרה שלא כדאי לצרף
+============================================================================ */
+const triesWord = t => t === 1 ? 'מדידה אחת' : `${t} מדידות`;
+
+function isHealthy(r, inp) {
+  return !r.unviable && r.feasible
+    && r.roi >= inp.minROI - 0.005
+    && r.margin >= inp.minMargin / 100 - 0.005
+    && (r.price - r.C) >= inp.minProfit;
+}
+
+/* Looks for the fullest package that is healthy for both sides. Levers, in order of
+   preference: keep the billed seconds and cut tries per user (down to 1), then shorten
+   the billed window (down to 3s). Returns the first healthy combination, otherwise the
+   cheapest package checked plus the reasons it still fails. */
+function proposeFor(inp) {
+  const secs = [inp.sec];
+  [4, 3].forEach(x => { if (x < secs[secs.length - 1]) secs.push(x); });
+  const triesList = [inp.tries];
+  for (let t = Math.ceil(inp.tries) - 1; t >= 1; t--) triesList.push(t);
+
+  let last = null;
+  for (const sec of secs) {
+    for (const tries of triesList) {
+      const pi = { ...inp, tries, sec };
+      const r = computeModel(pi);
+      last = { inp: pi, r, tries, sec };
+      if (isHealthy(r, pi)) return { ok: true, changed: tries !== inp.tries || sec !== inp.sec, why: [], ...last };
+    }
+  }
+  const { r } = last;
+  const why = [];
+  if (r.unviable) {
+    why.push('גם בחבילה הזולה ביותר העלות עולה על תקרת התקציב של הלקוח.');
+  } else if (!r.feasible) {
+    why.push(`גם בחבילה הזולה ביותר (${last.tries} מדידה למשתמש, ${last.sec} שניות) הרצפה שלנו (${ils(r.floor)}) גבוהה ממה שהלקוח יכול לשלם ולקבל לפחות ${inp.minROI} פי (${ils(r.upper)}).`);
+  } else if (r.price - r.C < inp.minProfit) {
+    why.push(`הרווח החודשי שלנו (${ils(r.price - r.C)}) נמוך מהמינימום שהגדרת (${ils(inp.minProfit)}).`);
+  } else {
+    why.push('התשואה ללקוח או הרווחיות שלנו מתחת למינימום שהגדרת.');
+  }
+  return { ok: false, changed: false, why, ...last };
+}
+
+function proposalBlock(p, inp) {
+  const r = p.r, pi = p.inp;
+  let out = '';
+  if (!p.ok) {
+    out += `<div class="banner bad"><div class="ic">⛔</div><div><h3>לא כדאי לצרף את הלקוח הזה</h3><p>${p.why.join(' ')} אין חבילה שבריאה לשני הצדדים, ולכן לא מומלץ להציע לו מחיר.</p></div></div>`;
+  }
+  if (!SHOW_PROP) return out;
+  const was = (cur, now, unit) => cur === now ? '' : `<span class="small">כיום ${cur}${unit || ''}</span>`;
+  const name = inp.name || 'הלקוח';
+  out += `<div class="card prop">
+    <h2><span>הצעת תמחור: ${esc(name)}</span><button type="button" class="xbtn" data-act="closeProp" aria-label="סגור">✕</button></h2>
+    <p class="sub">${p.ok ? 'החבילה והמחיר מחושבים אוטומטית לפי נתוני הלקוח, כך שזה בריא לשני הצדדים.' : 'לא נמצאה הצעה בריאה. מוצגת החבילה הזולה ביותר שנבדקה, להבנה בלבד.'}</p>
+    ${p.ok ? `<div class="banner good"><div class="ic">✅</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
+    <table class="kv">
+      <tr><td>מדידות למשתמש${was(inp.tries, pi.tries)}</td><td>${pi.tries}</td></tr>
+      <tr><td>משך מדידה${was(inp.sec, pi.sec, ' שניות')}</td><td>${pi.sec} שניות</td></tr>
+      <tr><td>חשיפה (מבקרים שרואים את הכפתור)</td><td>${(r.e * 100).toFixed(2)}%</td></tr>
+      <tr><td>מדידות כלולות בחודש</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
+      <tr class="total"><td>מחיר חודשי</td><td>${num(ils(r.price))}</td></tr>
+      <tr><td>מחיר שנתי<span class="small">${num(ils(r.annualEff))} לחודש בפועל</span></td><td>${num(ils(r.annualTotal))}</td></tr>
+      <tr><td>דמי הקמה</td><td>${num(ils(inp.setupFee))}</td></tr>
+      <tr><td>מדידה מעבר לחבילה</td><td>${num(ils2(r.overage))}</td></tr>
+      <tr><td>תשואה ללקוח (ROI)</td><td class="${r.roi < pi.minROI ? 'neg' : 'pos'}">${r.roi.toFixed(2)} פי</td></tr>
+      <tr><td>רווח נקי ללקוח בחודש</td><td class="${r.value - r.price < 0 ? 'neg' : 'pos'}">${num(ils(r.value - r.price))}</td></tr>
+      <tr><td>הרווחיות שלנו</td><td class="${r.margin < pi.minMargin / 100 - 0.005 ? 'neg' : 'pos'}">${pct(r.margin)}</td></tr>
+      <tr><td>הרווח החודשי שלנו</td><td class="${r.price - r.C < pi.minProfit ? 'neg' : 'pos'}">${num(ils(r.price - r.C))}</td></tr>
+    </table>
+    ${p.ok ? `<div class="actions">${p.changed ? '<button type="button" class="btn primary" data-act="applyProp">החל על המחשבון</button>' : ''}<button type="button" class="btn" data-act="copyProp">העתק הצעה ללקוח</button></div>${p.changed ? '' : '<p class="note">ההגדרות הנוכחיות כבר זהות להצעה.</p>'}` : ''}
+  </div>`;
+  return out;
+}
+
+function handleAct(act) {
+  const p = LAST && LAST.ctx && LAST.ctx.proposal;
+  if (act === 'closeProp') { SHOW_PROP = false; update(); return; }
+  if (!p || !p.ok) return;
+  if (act === 'applyProp') {
+    $('tries').value = p.tries;
+    $('sec').value = p.sec;
+    PLAN = 'rec';
+    update();
+    toast('ההצעה הוחלה על המחשבון');
+  } else if (act === 'copyProp') {
+    copyText(offerTextFor(p.r, p.inp)).then(() => toast('ההצעה הועתקה'), () => toast('ההעתקה נכשלה'));
+  }
 }
 
 /* ============================================================================
@@ -712,6 +841,7 @@ function renderResults(r, inp, ctx) {
   const cv = clientView(r, inp);
 
   const html = `
+  ${proposalBlock(ctx.proposal, inp)}
   <div class="banner ${st}">
     <div class="ic">${stText[0]}</div>
     <div><h3>${esc(inp.name || 'החברה')}: ${stText[1]}</h3><p>${stText[2]}</p></div>
@@ -833,9 +963,9 @@ function renderTable(inp) {
   const rows = BRANDS.map(b => {
     const bi = { ...inp, ...b };
     const r = runModel(bi, PLAN === 'custom' ? 'rec' : PLAN, '').r;
-    return { b, r, st: statusOf(r, bi) };
+    return { b, r, st: statusOf(r, bi), prop: proposeFor(bi) };
   }).sort((x, y) => y.r.price - x.r.price);
-  $('allBody').innerHTML = rows.map(({ b, r, st }) => `
+  $('allBody').innerHTML = rows.map(({ b, r, st, prop }) => `
     <tr data-key="${b.key}" class="${b.key === cur ? 'sel' : ''}">
       <td><b>${esc(b.name)}</b></td>
       <td>${esc(b.tag)}</td>
@@ -846,6 +976,7 @@ function renderTable(inp) {
       <td>${pct(r.margin)}</td>
       <td>${r.roi.toFixed(2)}</td>
       <td><span class="dot ${st}"></span>${{good:'בריא', warn:'דורש הוכחה', bad:'בעייתי'}[st]}</td>
+      <td>${prop.ok ? `<span class="pos">✅ ${triesWord(prop.tries)} למשתמש · ${num(ils(prop.r.price))}</span>` : '<span class="neg">⛔ לא כדאי לצרף</span>'}</td>
     </tr>`).join('');
 }
 
@@ -888,6 +1019,7 @@ function update() {
   const caret = keepFocus ? ae.selectionStart : null;
   const inp = readInputs();
   const ctx = runModel(inp, PLAN, CUSTOM);
+  ctx.proposal = proposeFor(inp);
   LAST = { r: ctx.r, inp, ctx };
   renderResults(ctx.r, inp, ctx);
   renderTable(inp);
@@ -905,7 +1037,10 @@ function update() {
    הצעת מחיר ללקוח (טקסט להעתקה, בלי נתוני רווחיות פנימיים)
 ============================================================================ */
 function offerText() {
-  const { r, inp } = LAST;
+  return offerTextFor(LAST.r, LAST.inp);
+}
+
+function offerTextFor(r, inp) {
   const name = inp.name || 'החברה';
   const L = [];
   L.push(`הצעת מחיר - PEAR Virtual Try-On | ${name}`);
@@ -967,6 +1102,8 @@ function pickTier(el) {
   if (PLAN === 'custom') { const c = $('customPrice'); if (c) c.focus(); }
 }
 $('results').addEventListener('click', e => {
+  const act = e.target.closest('[data-act]');
+  if (act) { handleAct(act.dataset.act); return; }
   if (e.target.id === 'customPrice' && PLAN === 'custom') return;
   pickTier(e.target);
 });
@@ -981,6 +1118,12 @@ $('results').addEventListener('input', e => {
   CUSTOM = e.target.value.replace(/[^\d.]/g, '');
   PLAN = 'custom';
   update();
+});
+$('proposalBtn').addEventListener('click', () => {
+  SHOW_PROP = true;
+  update();
+  $('results').scrollTop = 0;
+  $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 $('resetBtn').addEventListener('click', resetAll);
 $('copyBtn').addEventListener('click', () => {
