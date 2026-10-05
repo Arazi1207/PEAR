@@ -54,8 +54,8 @@ details.sec .body{padding:0 18px 18px;border-top:1px solid var(--line);padding-t
 .field label{display:block;font-size:.76rem;font-weight:700;color:var(--muted);margin-bottom:4px;}
 .field .hint{display:block;font-size:.7rem;color:var(--muted-2);margin-top:3px;line-height:1.35;}
 .inp{position:relative;}
-.inp input[type=number],.inp select,.inp input[type=text]{width:100%;padding:9px 12px;padding-inline-end:46px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:.9rem;color:var(--ink);background:#fff;}
-.inp select{padding-inline-end:12px;}
+.inp input[type=number],.inp select,.inp input[type=text],.inp input[type=search]{width:100%;padding:9px 12px;padding-inline-end:46px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:.9rem;color:var(--ink);background:#fff;}
+.inp select,.inp input[type=search]{padding-inline-end:12px;}
 .inp input:focus,.inp select:focus{outline:none;border-color:var(--pear);box-shadow:0 0 0 3px var(--pear-ring);}
 .inp .unit{position:absolute;inset-inline-end:10px;top:50%;transform:translateY(-50%);font-size:.72rem;color:var(--muted-2);pointer-events:none;}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:.82rem;font-weight:600;color:var(--text);padding-top:4px;}
@@ -232,7 +232,7 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
 
   <section class="card" id="allCard">
     <h2>כל החברות במחיר אחד (לפי ההגדרות הנוכחיות)</h2>
-    <p class="sub">כל שורה מחושבת עם נתוני ברירת המחדל של המותג (כניסות, המרה, סל, רווח, תקרה ושימוש) ועם עלויות ומדיניות התמחור שהגדרת, לפי מדרגת המחיר שבחרת. לחץ על שורה כדי לטעון אותה למחשבון.</p>
+    <p class="sub">לחץ על שורה כדי לטעון אותה למחשבון.</p>
     <div class="tablewrap">
       <table class="all">
         <thead><tr>
@@ -243,11 +243,11 @@ footer{padding:18px 0 34px;font-size:.76rem;color:var(--muted-2);text-align:cent
       </table>
     </div>
     <p class="note" id="allCount"></p>
-    <p class="note">נתוני המותגים הם הערכות מתוך הסימולטור הקיים ולא נתונים מאומתים. החליפו בנתונים אמיתיים מהלקוח לפני הצעת מחיר.</p>
+    <p class="note">נתוני המותגים הם הערכות. החליפו בנתוני הלקוח לפני הצעת מחיר.</p>
   </section>
 </main>
 
-<footer>PEAR Virtual Try-On - מחשבון פנימי. המחשבון נותן הערכה על בסיס ההנחות שהוזנו, ולא התחייבות.</footer>
+<footer>PEAR Virtual Try-On - מחשבון פנימי. הערכה, לא התחייבות.</footer>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -365,8 +365,12 @@ function computeModel(i) {
 ============================================================================ */
 const LOCS = ["ישראל", "עולמי", "צפון אמריקה", "אירופה", "המזרח התיכון", "אסיה", "אוקיינוס", "אמריקה הלטינית", "אפריקה"];   // base order; unknown locations from live data are appended
 const CATS = ["חולצות ומכנסיים", "מעילים וג׳קטים", "ג׳ינס", "שמלות ואופנת נשים", "חליפות וחולצות מכופתרות", "בייסיק וקז׳ואל", "ספורט ואקטיבוור", "ילדים", "פלטפורמות וכלבו", "תיקים ואקססוריז"];   // main garment category
-let F_LOC = 'הכול', F_CAT = 'הכול';   // company filters
-const brandMatches = b => (F_LOC === 'הכול' || b.loc === F_LOC) && (F_CAT === 'הכול' || b.cat === F_CAT);
+let F_LOC = 'הכול', F_CAT = 'הכול', F_Q = '';   // company filters + search text
+const cmp = x => String(x == null ? '' : x).toLowerCase().replace(/[\s׳'’`"״.,&\-_/()]+/g, '');   // lets "hm" find "H&M"
+const HE_ALIAS = {'terminal-x':'טרמינל איקס','one-project':'וואן פרויקט','platin-express':'פלטין אקספרס','story-online':'סטורי',castro:'קסטרו',renuar:'רנואר',hoodies:'הודיס',urbanica:'אורבניקה','golf-online':'גולף','fox-online':'פוקס',twentyfourseven:'טוונטי פור סבן','crazy-line':'קרייזי ליין','honigman-kids':'הוניגמן','kiwi-kids':'קיווי',adika:'אדיקה',rockglam:'רוקגלאם',alembika:'אלמביקה',zara:'זארה זרה',hm:'אייץ אנד אם',shein:'שיין',uniqlo:'יוניקלו',asos:'אסוס',mango:'מנגו',levis:'ליוויס לויס',gap:'גאפ','polo-rl':'ראלף לורן פולו',abercrombie:'אברקרומבי','north-face':'נורת פייס',tommy:'טומי הילפיגר',lacoste:'לקוסט',columbia:'קולומביה','pull-bear':'פול אנד בר',bershka:'ברשקה',massimo:'מסימו דוטי',factory54:'פקטורי 54','lc-waikiki':'לסי וויקיקי',defacto:'דפקטו',koton:'קוטון',mavi:'מאווי',trendyol:'טרנדיול','american-eagle':'אמריקן איגל','old-navy':'אולד נייבי',patagonia:'פטגוניה',zalando:'זלנדו',next:'נקסט',boohoo:'בוהו','hugo-boss':'הוגו בוס',burberry:'ברברי',benetton:'בנטון',diesel:'דיזל',stradivarius:'סטרדיבריוס','marks-spencer':'מרקס אנד ספנסר',desigual:'דזיגואל',muji:'מוג׳י','under-armour':'אנדר ארמור',guess:'גס',armani:'ארמני','max-mara':'מקס מרה',lululemon:'לולולמון'};   // Hebrew spellings, so Hebrew search finds Latin-named brands
+const brandText = b => cmp([b.name, HE_ALIAS[String(b.key).replace(/-il$/, '')], b.tag, b.hq, b.country, b.own, b.loc, b.cat, b.key].join(' '));
+const qMatch = b => { if (!F_Q) return true; const t = brandText(b); return F_Q.split(/\s+/).map(cmp).filter(Boolean).every(w => t.includes(w)); };
+const brandMatches = b => (F_LOC === 'הכול' || b.loc === F_LOC) && (F_CAT === 'הכול' || b.cat === F_CAT) && qMatch(b);
 const allLocs = () => [...LOCS, ...new Set(BRANDS.map(b => b.loc).filter(l => l && !LOCS.includes(l)))];
 const allCats = () => [...CATS, ...new Set(BRANDS.map(b => b.cat).filter(c => c && !CATS.includes(c)))];
 const SNAPSHOT_AT = '2026-10-04T03:43:26Z';   // when the embedded snapshot was generated
@@ -709,63 +713,61 @@ const BRANDS = [
 ============================================================================ */
 const FIELDS = [
   { sec:'client', title:'1. נתוני הלקוח (החברה)', open:true,
-    hint:'בחר חברה מוכנה או הזן נתונים אמיתיים שקיבלת מהלקוח.',
     fields:[
       {id:'name',  label:'שם החברה', type:'text', def:''},
       {id:'traffic', label:'כניסות חודשיות לאתר', def:500000, step:1000, unit:'ביקורים', client:true},
       {id:'conv', label:'אחוז המרה', def:2.8, step:0.1, unit:'%', client:true},
       {id:'aov', label:'סל קנייה ממוצע', def:300, step:10, unit:'₪', client:true},
       {id:'cMargin', label:'רווח נקי של המותג', def:6, step:0.1, unit:'%', client:true},
-      {id:'gMargin', label:'רווח גולמי של המותג', def:55, step:1, unit:'%', hint:'משמש לחישוב הרווח מהמכירות הנוספות'},
-      {id:'maxShare', label:'תקרת תקציב: % מהרווח הנקי', def:10, step:1, unit:'%', client:true, hint:'כמה מהרווח הנקי החברה מוכנה לשלם לתוכנה'},
-      {id:'reach', label:'חשיפה: % מהמבקרים שרואים את הכפתור', def:70, step:1, unit:'%', hint:'הכפתור מוצג בעמודי המוצר, לכן רוב המבקרים רואים אותו. זו הנחה, ואין לה עלות: משלמים רק על מדידות שבוצעו בפועל'},
-      {id:'engagement', label:'שימוש: % מהחשופים שמפעילים מדידה', def:15, step:0.5, unit:'%', client:true, hint:'מי שרואה את הכפתור ובוחר להשתמש בו. זה מה שיוצר עלות וערך'},
+      {id:'gMargin', label:'רווח גולמי של המותג', def:55, step:1, unit:'%'},
+      {id:'maxShare', label:'תקרת תקציב: % מהרווח הנקי', def:10, step:1, unit:'%', client:true},
+      {id:'reach', label:'חשיפה: % מהמבקרים שרואים את הכפתור', def:70, step:1, unit:'%', hint:'הנחה. אין לה עלות'},
+      {id:'engagement', label:'שימוש: % מהחשופים שמפעילים מדידה', def:15, step:0.5, unit:'%', client:true, hint:'זה מה שיוצר עלות וערך'},
     ]},
   { sec:'value', title:'2. ההנחות על הערך ללקוח (ROI)', open:false,
-    hint:'אלה הנחות, לא נתונים מוכחים. יש לאמת אותן בפיילוט A/B לפני שמבטיחים ללקוח תוצאות.',
+    hint:'הנחות, לא נתונים מוכחים.',
     fields:[
-      {id:'lift', label:'מכפיל טירגוט', def:3, step:0.5, unit:'פי', hint:'כמה פי סביר שמבקר חם יקנה לעומת מבקר ממוצע'},
-      {id:'uplift', label:'עלייה יחסית בהמרה בזכות PEAR', def:10, step:1, unit:'%', hint:'ההנחה הרגישה ביותר במודל'},
+      {id:'lift', label:'מכפיל טירגוט', def:3, step:0.5, unit:'פי'},
+      {id:'uplift', label:'עלייה יחסית בהמרה בזכות PEAR', def:10, step:1, unit:'%', hint:'ההנחה הרגישה ביותר'},
       {id:'returnRate', label:'שיעור החזרות בבגדים', def:24.5, step:0.5, unit:'%'},
       {id:'costPerReturn', label:'עלות החזרה אחת ללקוח', def:40, step:5, unit:'₪'},
       {id:'returnReduction', label:'צמצום החזרות בזכות PEAR', def:20, step:1, unit:'%'},
     ]},
   { sec:'cost', title:'3. העלויות שלך', open:false,
-    hint:'עלות Decart נלקחה מהקוד: 5 שניות למדידה, $0.01 לשנייה. השאר הערכות.',
+    hint:'Decart: 5 שניות למדידה, $0.01 לשנייה.',
     fields:[
       {id:'sec', label:'משך מדידה מחויב', def:5, step:0.5, unit:'שניות'},
       {id:'usdPerSec', label:'עלות Decart לשנייה', def:0.01, step:0.001, unit:'$'},
-      {id:'tries', label:'מדידות למשתמש פעיל', def:4, step:1, unit:'מדידות', hint:'המנוף החזק ביותר להורדת עלות'},
+      {id:'tries', label:'מדידות למשתמש פעיל', def:4, step:1, unit:'מדידות', hint:'המנוף החזק ביותר לעלות'},
       {id:'buffer', label:'באפר חריגה', def:10, step:1, unit:'%'},
       {id:'fx', label:'שער דולר-שקל', def:3.65, step:0.01, unit:'₪'},
-      {id:'otherPerUser', label:'עלות משתנה אחרת למשתמש', def:0.02, step:0.01, unit:'₪', hint:'מייל אימות, מסד נתונים, סיווג תמונות'},
-      {id:'fixed', label:'עלות קבועה חודשית ללקוח', def:400, step:50, unit:'₪', hint:'אחסון, תמיכה, תחזוקה (הערכה)'},
+      {id:'otherPerUser', label:'עלות משתנה אחרת למשתמש', def:0.02, step:0.01, unit:'₪'},
+      {id:'fixed', label:'עלות קבועה חודשית ללקוח', def:400, step:50, unit:'₪'},
       {id:'onboardHours', label:'שעות עבודה בהקמה', def:10, step:1, unit:'שעות'},
       {id:'hourRate', label:'עלות שעת עבודה', def:250, step:10, unit:'₪'},
     ]},
   { sec:'policy', title:'4. מדיניות תמחור', open:true,
-    hint:'כאן קובעים כמה לקחת: רווחיות, הנחת שנתי, דמי הקמה ויעד תשואה ללקוח.',
     fields:[
-      {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%', hint:'קובעת את גודל החבילה (כמה מדידות כלולות)'},
-      {id:'minMargin', label:'רווחיות מינימום (רצפה)', def:60, step:1, unit:'%', hint:'מתחתיה לא מוכרים'},
-      {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי', hint:'המחיר = הערך שהלקוח מקבל / יעד התשואה'},
-      {id:'minROI', label:'תשואה מינימלית ללקוח', def:1.5, step:0.1, unit:'פי', hint:'מתחתיה הלקוח לא ירגיש שזה שווה לו. קובעת את המחיר המומלץ'},
+      {id:'targetMargin', label:'רווחיות יעד', def:80, step:1, unit:'%'},
+      {id:'minMargin', label:'רווחיות מינימום (רצפה)', def:60, step:1, unit:'%'},
+      {id:'targetROI', label:'יעד תשואה ללקוח', def:3, step:0.5, unit:'פי'},
+      {id:'minROI', label:'תשואה מינימלית ללקוח', def:1.5, step:0.1, unit:'פי'},
       {id:'minPrice', label:'מחיר חודשי מינימלי', def:1000, step:100, unit:'₪'},
-      {id:'minProfit', label:'רווח חודשי מינימלי ללקוח', def:500, step:100, unit:'₪', hint:'מתחתיו לא כדאי לצרף את הלקוח'},
+      {id:'minProfit', label:'רווח חודשי מינימלי ללקוח', def:500, step:100, unit:'₪'},
       {id:'annualDiscount', label:'הנחה על תשלום שנתי מראש', def:15, step:1, unit:'%'},
       {id:'setupFee', label:'דמי הקמה חד-פעמיים', def:3000, step:100, unit:'₪'},
       {id:'waiveSetup', label:'לוותר על דמי הקמה בחוזה שנתי', type:'check', def:true},
-      {id:'churn', label:'נטישה חודשית במסלול חודשי', def:6, step:1, unit:'%', hint:'משפיע על ההשוואה חודשי מול שנתי'},
+      {id:'churn', label:'נטישה חודשית במסלול חודשי', def:6, step:1, unit:'%'},
     ]},
   { sec:'limits', title:'5. מגבלות להצעה האוטומטית (מינימומים)', open:true,
-    hint:'הכפתור "הצעת תמחור לפי הלקוח" לא ירד מתחת למינימומים האלה כשהוא מחפש חבילה בריאה. אם עם המגבלות אין חבילה בריאה, תופיע אזהרה שלא כדאי לצרף את הלקוח.',
+    hint:'ההצעה האוטומטית לא תרד מתחת לערכים האלה.',
     fields:[
-      {id:'minTries', label:'מינימום מדידות למשתמש', def:1, step:1, unit:'מדידות', hint:'ההצעה לא תוריד את מספר המדידות מתחת לזה'},
-      {id:'minSec', label:'מינימום משך מדידה', def:3, step:0.5, unit:'שניות', hint:'ההצעה לא תקצר את חלון החיוב מתחת לזה'},
-      {id:'minBuffer', label:'מינימום באפר חריגה', def:10, step:1, unit:'%', hint:'ההצעה תחשב עם באפר גבוה מזה אם הוגדר'},
-      {id:'minCoverage', label:'מינימום כיסוי של השימוש הצפוי', def:0, step:5, unit:'%', hint:'כמה מהשימוש הצפוי חייב להיכלל בחבילה. 0 = ללא מגבלה'},
+      {id:'minTries', label:'מינימום מדידות למשתמש', def:1, step:1, unit:'מדידות'},
+      {id:'minSec', label:'מינימום משך מדידה', def:3, step:0.5, unit:'שניות'},
+      {id:'minBuffer', label:'מינימום באפר חריגה', def:10, step:1, unit:'%'},
+      {id:'minCoverage', label:'מינימום כיסוי של השימוש הצפוי', def:0, step:5, unit:'%', hint:'0 = ללא מגבלה'},
       {id:'minIncluded', label:'מינימום מדידות כלולות בחודש', def:0, step:1000, unit:'מדידות', hint:'0 = ללא מגבלה'},
-      {id:'maxPrice', label:'תקרת מחיר חודשי להצעה', def:0, step:500, unit:'₪', hint:'0 = ללא תקרה. ההצעה לא תעלה מעליה'},
+      {id:'maxPrice', label:'תקרת מחיר חודשי להצעה', def:0, step:500, unit:'₪', hint:'0 = ללא תקרה'},
     ]},
 ];
 
@@ -799,6 +801,7 @@ function renderInputs() {
   <details class="sec" open>
     <summary>בחירת חברה</summary>
     <div class="body">
+      <div class="field full" style="margin-bottom:10px"><div class="inp"><input type="search" id="fSearch" placeholder="חיפוש חברה" autocomplete="off" enterkeyhint="search" aria-label="חיפוש חברה"></div></div>
       <div class="livebar" id="liveBar"></div>
       <div class="grid2">
         <div class="field">
@@ -810,7 +813,7 @@ function renderInputs() {
           <div class="inp"><select id="fCat"></select></div>
         </div>
         <div class="field full">
-          <label for="preset">חברה מוכנה (ממלא אוטומטית את נתוני הלקוח)</label>
+          <label for="preset">חברה</label>
           <div class="inp"><select id="preset"></select></div>
           <span class="hint" id="filterCount"></span>
         </div>
@@ -834,7 +837,6 @@ function renderInputs() {
     html += `</div>`;
     if (s.sec === 'policy') {
       html += `<button type="button" class="btn primary wide" id="proposalBtn">הצעת תמחור לפי הלקוח</button>`;
-      html += `<p class="sec-hint" style="margin-top:8px">בונה אוטומטית חבילה ומחיר שבריאים לשני הצדדים לפי נתוני הלקוח שנבחר, ובלי לרדת מתחת למינימומים שהגדרת בסקשן 5 (מדידות, משך מדידה, באפר ועוד). אם אין חבילה כזו, תופיע אזהרה שלא כדאי לצרף אותו.</p>`;
       html += `<div class="meter" id="meterBox">
         <div class="meter-ends"><span>הכי שווה ללקוח</span><span>הכי שווה לנו</span></div>
         <input type="range" id="propMeter" dir="rtl" min="0" max="100" step="1" value="50" aria-label="מד חלוקת העסקה בין הלקוח לבינינו">
@@ -1009,14 +1011,14 @@ function renderCompanyCard() {
   const el = $('companyCard');
   if (!el) return;
   const b = BRANDS.find(x => x.key === $('preset').value);
-  if (!b) { el.innerHTML = '<p class="note" style="margin-top:10px">בחר חברה כדי לראות פרטים, קישור לאתר ומועד העדכון, או הזן נתונים בעצמך.</p>'; return; }
+  if (!b) { el.innerHTML = '<p class="note" style="margin-top:10px">בחר חברה או חפש למעלה.</p>'; return; }
   const det = [['מדינה', b.country], ['מטה', b.hq], ['נוסדה', b.founded], ['בעלות', b.own], ['גודל (לינקדין)', b.emp ? b.emp + ' עובדים' : ''], ['סניפים', b.stores]]
     .filter(x => x[1]).map(x => `<tr><td>${x[0]}</td><td style="white-space:normal">${esc(x[1])}</td></tr>`).join('');
   el.innerHTML = `<div class="cc">
     <div class="cc-head"><b>${esc(b.name)}</b><span class="tagx">${esc(b.loc || '')}</span><span class="tagx">${esc(b.cat || '')}</span></div>
     <p class="cc-about">${esc(b.about || '')}</p>
     <p class="cc-links">${siteLink(b)}<span>·</span>${liLink(b)}</p>
-    ${b.url ? '' : '<p class="note">אין לי קישור רשמי מאומת לאתר, ולכן מוצג חיפוש בגוגל.</p>'}
+    ${b.url ? '' : '<p class="note">אין קישור רשמי מאומת, מוצג חיפוש בגוגל.</p>'}
     ${det ? `<table class="kv">${det}</table>${b.detSrc ? `<p class="note">${esc(b.detSrc)}</p>` : ''}` : ''}
     <table class="kv">
       <tr><td>כניסות חודשיות<span class="small">${esc(b.src || '')}</span></td><td>${num(nf.format(b.traffic))} ${qChip(b.dq)}</td></tr>
@@ -1025,7 +1027,7 @@ function renderCompanyCard() {
       <tr><td>רווח נקי של החברה</td><td>${b.cMargin}% ${qChip('estimate')}</td></tr>
       <tr><td>עודכן במערכת</td><td>${fmtDate(b.updatedAt)}<span class="small">${agoText(b.updatedAt)}</span></td></tr>
     </table>
-    <p class="note">רק כניסות נמדדו (כשכתוב "נמדד", ממקור ציבורי עם חודש). המרה, סל ורווח הם הערכות גסות. כדאי להחליף אותם בנתוני הלקוח.</p>
+    <p class="note">רק הכניסות נמדדו. המרה, סל ורווח הם הערכות.</p>
   </div>`;
 }
 
@@ -1039,8 +1041,8 @@ function fillFilters() {
     }).join('');
     el.value = current;
   };
-  mk('fLoc', 'כל המיקומים', allLocs(), b => b.loc, b => F_CAT === 'הכול' || b.cat === F_CAT, F_LOC);
-  mk('fCat', 'כל סוגי הבגדים', allCats(), b => b.cat, b => F_LOC === 'הכול' || b.loc === F_LOC, F_CAT);
+  mk('fLoc', 'כל המיקומים', allLocs(), b => b.loc, b => (F_CAT === 'הכול' || b.cat === F_CAT) && qMatch(b), F_LOC);
+  mk('fCat', 'כל סוגי הבגדים', allCats(), b => b.cat, b => (F_LOC === 'הכול' || b.loc === F_LOC) && qMatch(b), F_CAT);
 }
 
 function fillPresetOptions() {
@@ -1059,7 +1061,7 @@ function fillPresetOptions() {
   sel.value = cur;
   if (sel.value !== cur) sel.value = 'custom';
   const n = BRANDS.filter(brandMatches).length;
-  $('filterCount').textContent = n ? `${n} חברות לפי הסינון (מתוך ${BRANDS.length})` : 'אין חברות שמתאימות לסינון';
+  $('filterCount').textContent = n ? `${n === 1 ? 'חברה אחת' : n + ' חברות'} מתוך ${BRANDS.length}` : 'לא נמצאו חברות';
 }
 
 function readInputs() {
@@ -1114,7 +1116,8 @@ function resetAll() {
   ALL_FIELDS.forEach(f => {
     if (f.type === 'check') $(f.id).checked = f.def; else $(f.id).value = f.def;
   });
-  F_LOC = 'הכול'; F_CAT = 'הכול';
+  F_LOC = 'הכול'; F_CAT = 'הכול'; F_Q = '';
+  $('fSearch').value = '';
   fillFilters();
   fillPresetOptions();
   $('preset').value = DEFAULT_BRAND;
@@ -1140,48 +1143,48 @@ function buildAlerts(r, inp, ctx) {
   if (ctx && ctx.proposal) {
     const p = ctx.proposal;
     if (!p.ok) a.push(['bad', `לא כדאי לצרף את הלקוח הזה. ${p.why.join(' ')}`]);
-    else if (ctx.useProp) a.push(['info', `כל החישובים מוצגים לפי הצעת התמחור (${triesWord(p.tries)} למשתמש, ${p.sec} שניות). כדי לחזור להגדרות שלך, בטל את הסימון בכרטיס ההצעה.`]);
-    else if (p.changed) a.push(['info', `ההגדרות הנוכחיות לא בריאות לשני הצדדים, אבל יש הצעה בריאה: ${triesWord(p.tries)} למשתמש, ${p.sec} שניות, ${ils(p.r.price)} לחודש. לחץ "הצעת תמחור לפי הלקוח" במדיניות התמחור.`]);
+    else if (ctx.useProp) a.push(['info', `כל החישובים מוצגים לפי הצעת התמחור (${triesWord(p.tries)} למשתמש, ${p.sec} שניות).`]);
+    else if (p.changed) a.push(['info', `ההגדרות הנוכחיות לא בריאות, אבל יש הצעה בריאה: ${triesWord(p.tries)} למשתמש, ${p.sec} שניות, ${ils(p.r.price)} לחודש.`]);
     else a.push(['good', 'ההגדרות הנוכחיות כבר בריאות לשני הצדדים.']);
   }
   if (ctx && ctx.base && !ctx.base.unviable) {
     const b = ctx.base;
     a.push(b.feasible
-      ? ['good', `יש מחיר שווה לשני הצדדים: בין ${ils(b.floor)} ל-${ils(b.upper)} לחודש. המומלץ (${ils(ctx.tiers.rec)}) נותן ללקוח ${ctx.info.rec.roi.toFixed(2)} פי ולנו רווחיות ${pct(ctx.info.rec.margin)}.`]
-      : ['bad', `אין מחיר שווה לשני הצדדים: ללקוח לפחות ${inp.minROI} פי דורש מחיר עד ${ils(b.upper)}, ורצפת הרווחיות שלנו (${inp.minMargin}%) דורשת לפחות ${ils(b.floor)}. ${leversText(b, inp)}.`]);
+      ? ['good', `מחיר שווה לשני הצדדים: ${ils(b.floor)} עד ${ils(b.upper)} לחודש. מומלץ ${ils(ctx.tiers.rec)}: ROI ${ctx.info.rec.roi.toFixed(2)} פי, רווחיות ${pct(ctx.info.rec.margin)}.`]
+      : ['bad', `אין מחיר שווה לשני הצדדים: הרצפה ${ils(b.floor)}, והמקסימום שהלקוח יכול לשלם ${ils(b.upper)}. ${leversText(b, inp)}.`]);
   }
   if (r.unviable) {
     if (r.e0 < 0.001) { a.push(['bad', 'אין שימוש צפוי: החשיפה או שיעור השימוש הוגדרו כאפס, ולכן אין מה לתמחר.']); return a; }
-    a.push(['bad', 'גם בחבילה מזערית העלות עולה על תקרת התקציב של הלקוח. אין מחיר שמחזיק עם ההנחות הנוכחיות: הורד מדידות למשתמש, העלה תקרה או בדוק אם הלקוח מתאים.']);
+    a.push(['bad', 'העלות עולה על תקרת התקציב של הלקוח גם בחבילה מזערית. הורד מדידות למשתמש או העלה את התקרה.']);
     return a;
   }
   if (ctx && ctx.plan !== 'rec' && ctx.plan !== 'slider') {
-    a.push(['info', 'בחרת מדרגת מחיר שונה מהמומלצת. החבילה נשארת זהה ורק המחיר, הרווחיות והתשואה ללקוח משתנים.']);
+    a.push(['info', 'מדרגת מחיר שונה מהמומלצת: החבילה זהה, והמחיר משתנה.']);
   }
   if (r.optimized) {
     const day = Math.max(1, Math.min(30, Math.round(30 * r.coverage)));
-    a.push([r.coverage < 0.3 ? 'warn' : 'info', `הכפתור גלוי ל-${pct(r.reach)} מהמבקרים, ומהם צפויים להפעיל מדידה כ-${nf.format(Math.round(r.demandUsers))} משתמשים בחודש (${pct(r.e0, 1)} מכלל המבקרים). החבילה כוללת ${nf.format(Math.round(r.users))} משתמשים, כלומר ${pct(r.coverage)} מהשימוש הצפוי, כדי שהעלות תישאר בתוך תקרת התקציב של הלקוח (${inp.maxShare}% מהרווח הנקי) ובמקביל תשמור על רווחיות יעד של ${inp.targetMargin}%. המכסה תיגמר בערך ביום ה-${day} בחודש: מעבר לה אפשר לחייב ${ils2(r.overage)} למדידה (כ-${ils(r.extraTries * r.overage)} בחודש אם כל הביקוש ימומש) או להשהות את הכפתור עד החודש הבא.`]);
+    a.push([r.coverage < 0.3 ? 'warn' : 'info', `החבילה מכסה ${pct(r.coverage)} מהשימוש הצפוי (${nf.format(Math.round(r.users))} מתוך ${nf.format(Math.round(r.demandUsers))} משתמשים). המכסה נגמרת בערך ביום ה-${day} בחודש. מעבר לה: חריגה של ${ils2(r.overage)} למדידה.`]);
   }
   if (r.price < r.floor - 1) {
-    a.push(['bad', `המחיר חתוך בתקרת התקציב של הלקוח (${ils(r.cap)}) ולכן הרווחיות שלך נמוכה מהרצפה שהגדרת (${inp.minMargin}%).`]);
+    a.push(['bad', `המחיר חתוך בתקרת התקציב (${ils(r.cap)}), ולכן הרווחיות נמוכה מהרצפה (${inp.minMargin}%).`]);
   }
   if (r.roi < 1) {
-    a.push(['bad', `לפי ההנחות, הלקוח משלם יותר ממה שהוא מרוויח (ROI ${r.roi.toFixed(2)}). קשה למכור כך. נסה: פחות מדידות למשתמש, טירגוט חד יותר, או אימות ההנחות בפיילוט.`]);
+    a.push(['bad', `הלקוח משלם יותר ממה שהוא מרוויח (ROI ${r.roi.toFixed(2)}). נסה פחות מדידות למשתמש או פיילוט.`]);
   } else if (r.roi < inp.targetROI) {
-    a.push(['warn', `ROI ללקוח הוא ${r.roi.toFixed(2)}, מתחת ליעד (${inp.targetROI}). ניתן למכור, אך צריך פיילוט שמוכיח את התוצאה.`]);
+    a.push(['warn', `ROI ללקוח ${r.roi.toFixed(2)}, מתחת ליעד (${inp.targetROI}). מומלץ פיילוט.`]);
   } else {
     a.push(['good', `ROI ללקוח הוא ${r.roi.toFixed(1)} פי המחיר: מכירה קלה יחסית.`]);
   }
   if (r.reqUpliftROI !== null) {
-    a.push(['info', `כדי שהלקוח יראה ROI של ${inp.targetROI} פי במחיר הזה, צריך שיפור יחסי בהמרה של ${r.reqUpliftROI.toFixed(0)}% (ההנחה הנוכחית: ${inp.uplift}%).`]);
+    a.push(['info', `ל-ROI של ${inp.targetROI} פי נדרש שיפור המרה של ${r.reqUpliftROI.toFixed(0)}% (מוערך ${inp.uplift}%).`]);
   }
   const diff = r.annualProfit - r.monthlyProfit12;
   a.push([diff >= 0 ? 'good' : 'warn',
     diff >= 0
-      ? `שנתי עדיף על חודשי ב-${ils(diff)} רווח צפוי ב-12 חודשים (בהנחת נטישה של ${inp.churn}% בחודש במסלול החודשי).`
-      : `חודשי עדיף על שנתי ב-${ils(-diff)} רווח צפוי ב-12 חודשים. כדאי להקטין את ההנחה על השנתי.`]);
+      ? `שנתי עדיף על חודשי ב-${ils(diff)} רווח ב-12 חודשים.`
+      : `חודשי עדיף על שנתי ב-${ils(-diff)} רווח ב-12 חודשים. כדאי להקטין את ההנחה.`]);
   if (inp.annualDiscount / 100 > r.maxSafeDisc + 0.0005) {
-    a.push(['bad', `הנחת השנתי (${inp.annualDiscount}%) גבוהה מההנחה המקסימלית שמשאירה לך רווחיות מינימום (${(r.maxSafeDisc * 100).toFixed(0)}%).`]);
+    a.push(['bad', `הנחת השנתי (${inp.annualDiscount}%) מעל המקסימום שמשאיר רווחיות מינימום (${(r.maxSafeDisc * 100).toFixed(0)}%).`]);
   }
   if (r.price === inp.minPrice || r.price < inp.minPrice) {
     a.push(['info', 'המחיר נקבע לפי המחיר החודשי המינימלי שהגדרת.']);
@@ -1222,10 +1225,10 @@ function leversText(b, inp) {
 
 function recNote(b, inp, rec) {
   if (b.feasible) {
-    return `<div class="recnote ok">✅ שווה לשני הצדדים: הלקוח מקבל ${rec.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(rec.margin)}. טווח המחירים שמתאים לשניהם: ${num(ils(b.floor))} עד ${num(ils(b.upper))} לחודש.</div>`;
+    return `<div class="recnote ok">✅ שווה לשני הצדדים: ROI ${rec.roi.toFixed(2)} פי, רווחיות ${pct(rec.margin)}. טווח: ${num(ils(b.floor))} עד ${num(ils(b.upper))}.</div>`;
   }
   const lv = leversText(b, inp);
-  return `<div class="recnote bad">⛔ אין מחיר שווה לשני הצדדים. הרצפה שלנו (${num(ils(b.floor))}) גבוהה ממה שהלקוח יכול לשלם ולקבל לפחות ${inp.minROI} פי (${num(ils(b.upper))}). המחיר המוצג הוא הרצפה, והלקוח מקבל ${rec.roi.toFixed(2)} פי.${lv ? ' כדי שיהיה מחיר כזה: ' + lv + '.' : ''}</div>`;
+  return `<div class="recnote bad">⛔ אין מחיר שווה לשני הצדדים: הרצפה שלנו (${num(ils(b.floor))}) מעל מה שהלקוח יכול לשלם ולקבל ${inp.minROI} פי (${num(ils(b.upper))}).${lv ? ' כדי לתקן: ' + lv + '.' : ''}</div>`;
 }
 
 /* ============================================================================
@@ -1359,7 +1362,7 @@ function renderMeterBox(p) {
   const col = (title, r) => `<div class="mc"><b>${title}</b><div class="p">${num(ils(r.price))}</div>${chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, p.inp)}</div>`;
   box.innerHTML = `<div class="meter-cols">${col('הכי שווה ללקוח', c)}${col('הכי שווה לנו', u)}</div>
     <p class="meter-now">עכשיו: <b>${num(ils(cur.price))}</b> לחודש · ROI ללקוח ${cur.roi.toFixed(2)} פי · רווחיות שלנו ${pct(cur.margin)}</p>
-    <p class="note">בכל נקודה על המד העסקה נשארת בריאה: הלקוח מקבל לפחות ${p.inp.minROI} פי, ואנחנו ברווחיות של לפחות ${p.inp.minMargin}% ורווח של לפחות ${ils(p.inp.minProfit)} בחודש.</p>`;
+    <p class="note">בכל נקודה העסקה בריאה: ROI ללקוח לפחות ${p.inp.minROI} פי, רווחיות שלנו לפחות ${p.inp.minMargin}%.</p>`;
 }
 
 function proposalWarn(p) {
@@ -1383,7 +1386,7 @@ function proposalCard(p, inp) {
       ${chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, pi)}
       <div class="split" role="img" aria-label="חלוקת הערך בין הלקוח לבינינו"><div class="c" style="flex:${cShare}"></div><div class="u" style="flex:${1 - cShare}"></div></div>
       <div class="split-l"><span>ללקוח ${pct(cShare)} מהערך (אחרי עלויות)</span><span>לנו ${pct(1 - cShare)}</span></div>
-      <p class="note">טווח עסקה בריאה: ${num(ils(lo))} עד ${num(ils(hi))} לחודש. בכל נקודה על המד הלקוח מקבל לפחות ${pi.minROI} פי ואנחנו ברווחיות של לפחות ${pi.minMargin}% ורווח של לפחות ${num(ils(pi.minProfit))} בחודש.</p>
+      <p class="note">טווח עסקה בריאה: ${num(ils(lo))} עד ${num(ils(hi))} לחודש.</p>
     </div>` : ''}
     ${p.ok ? `<div class="banner good"><div class="ic">✅</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
     <table class="kv">
@@ -1404,8 +1407,7 @@ function proposalCard(p, inp) {
 
   const shell = `<div class="card prop">
     <h2><span>הצעת תמחור: ${esc(name)}</span><button type="button" class="xbtn" data-act="closeProp" aria-label="סגור">✕</button></h2>
-    <p class="sub">${p.ok ? 'החבילה והמחיר מחושבים אוטומטית לפי נתוני הלקוח, כך שזה בריא לשני הצדדים. המד שמתחת לכפתור במדיניות התמחור מזיז את המחיר לצד שנוח יותר ללקוח או לנו.' : 'לא נמצאה הצעה בריאה. מוצגת החבילה הזולה ביותר שנבדקה, להבנה בלבד.'}</p>
-    <label class="check" style="margin-bottom:10px"><input type="checkbox" id="propUse" data-act="toggleUse" ${USE_PROP ? 'checked' : ''}><span>הצג את כל המחשבון (מסלולים, ROI, עלויות, מדרגות והטבלה למטה) לפי ההצעה</span></label>
+    <label class="check" style="margin-bottom:10px"><input type="checkbox" id="propUse" data-act="toggleUse" ${USE_PROP ? 'checked' : ''}><span>הצג את כל המחשבון לפי ההצעה</span></label>
     <div id="propLive">${live}</div>
   </div>`;
   return { key: `${p.ok}|${name}`, shell, live };
@@ -1579,7 +1581,6 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>כמה לקחת מהחברה</h2>
-    <p class="sub">המחיר החודשי המומלץ ביחס לחברה ולשימוש.</p>
     <div class="metrics">
       <div class="metric"><div class="l">מהרווח הנקי שלה</div><div class="v">${pct(r.shareOfProfit, 1)}</div><div class="s">תקרה ${inp.maxShare}%</div></div>
       <div class="metric"><div class="l">מהמחזור שלה</div><div class="v">${pct(r.shareOfSales, 2)}</div><div class="s">מחזור ${num(ils(r.revenue))}</div></div>
@@ -1590,7 +1591,7 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>מדרגות מחיר</h2>
-    <p class="sub">בחר מדרגה: המסלול החודשי, השנתי וכל החישובים למעלה מתעדכנים לפי הבחירה. החבילה (המדידות הכלולות) נשארת זהה.</p>
+    <p class="sub">בחר מדרגה, וכל החישובים מתעדכנים.</p>
     <div class="ladder" role="radiogroup" aria-label="בחירת מדרגת מחיר">
       ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small>${chipsHtml(ctx.info[x.key], inp)}${x.key === 'rec' ? recNote(ctx.base, inp, ctx.info.rec) : ''}</div><b>${num(ils(x.price))}</b></div>`).join('')}
       <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small>${ctx.plan === 'custom' ? chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, inp) : ''}</div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
@@ -1599,20 +1600,19 @@ function renderResults(r, inp, ctx) {
 
   <div class="card">
     <h2>מה כלול בחבילה</h2>
-    <p class="sub">הכפתור גלוי לרוב המבקרים, ומשלמים רק על מדידות שבוצעו. גודל החבילה (המכסה) נקבע כך שהעלות תתאים לתקרת התקציב של הלקוח.</p>
     <table class="kv">
-      <tr><td>חשיפה (מבקרים שרואים את הכפתור)<span class="small">${num(nf.format(Math.round(r.exposed)))} מתוך ${num(nf.format(Math.round(inp.traffic)))} כניסות בחודש. הנחה, ניתן לשנות בנתוני הלקוח</span></td><td>${pct(r.reach)}</td></tr>
+      <tr><td>חשיפה (מבקרים שרואים את הכפתור)<span class="small">${num(nf.format(Math.round(r.exposed)))} מתוך ${num(nf.format(Math.round(inp.traffic)))} כניסות</span></td><td>${pct(r.reach)}</td></tr>
       <tr><td>שימוש צפוי: מפעילים מדידה<span class="small">${inp.engagement}% מהחשופים, כלומר ${pct(r.e0, 1)} מכלל המבקרים</span></td><td>${num(nf.format(Math.round(r.demandUsers)))} משתמשים</td></tr>
       <tr><td>משתמשים פעילים בחבילה<span class="small">${pct(r.e, 1)} מכלל המבקרים</span></td><td>${num(nf.format(Math.round(r.users)))}</td></tr>
       <tr><td>מדידות כלולות בחודש (מכסה)</td><td>${num(nf.format(Math.round(r.tries)))}</td></tr>
-      <tr><td>כיסוי השימוש הצפוי<span class="small">${r.coverage < 0.999 ? 'המכסה תיגמר בערך ביום ה-' + Math.max(1, Math.min(30, Math.round(30 * r.coverage))) + ' בחודש. מעבר לה: חריגה או השהיית הכפתור' : 'כל הביקוש הצפוי נכלל בחבילה'}</span></td><td class="${r.coverage < 0.3 ? 'neg' : ''}">${pct(r.coverage)}</td></tr>
-      <tr><td>מחיר מדידה חריגה<span class="small">מעבר לחבילה, לפי רווחיות יעד</span></td><td>${num(ils2(r.overage))}</td></tr>
+      <tr><td>כיסוי השימוש הצפוי<span class="small">${r.coverage < 0.999 ? 'המכסה תיגמר בערך ביום ה-' + Math.max(1, Math.min(30, Math.round(30 * r.coverage))) + ' בחודש' : 'כל הביקוש נכלל'}</span></td><td class="${r.coverage < 0.3 ? 'neg' : ''}">${pct(r.coverage)}</td></tr>
+      <tr><td>מדידה מעבר לחבילה</td><td>${num(ils2(r.overage))}</td></tr>
     </table>
   </div>
 
   <div class="card">
     <h2>הערך ללקוח (ROI)</h2>
-    <p class="sub">האם זה שווה ללקוח במחיר שנבחר (${num(ils(r.price))} לחודש). הערכה חודשית על בסיס ההנחות, לא להבטיח ללקוח לפני פיילוט.</p>
+    <p class="sub">הערכה חודשית לפי ההנחות. לא להבטיח ללקוח לפני פיילוט.</p>
     <div class="banner ${cv.level}">
       <div class="ic">${{good: '✅', warn: '⚠️', bad: '⛔'}[cv.level]}</div>
       <div><h3>${cv.title}</h3><p>${cv.summary}</p></div>
@@ -1631,7 +1631,7 @@ function renderResults(r, inp, ctx) {
       <tr><td>הכנסות נוספות לחנות</td><td>${num(ils(cv.upRevenue))}</td></tr>
       <tr><td>רווח ממכירות נוספות</td><td>${num(ils(r.upliftProfit))}</td></tr>
       <tr class="total"><td>סך הערך החודשי ללקוח</td><td>${num(ils(r.value))}</td></tr>
-      <tr><td>נקודת איזון<span class="small">הזמנות נוספות בחודש שמחזירות את המחיר (בניכוי חיסכון החזרות)</span></td><td>${cv.needOrders === null ? '-' : num(nf.format(Math.ceil(cv.needOrders)))}</td></tr>
+      <tr><td>נקודת איזון<span class="small">הזמנות נוספות בחודש להחזר המחיר</span></td><td>${cv.needOrders === null ? '-' : num(nf.format(Math.ceil(cv.needOrders)))}</td></tr>
       <tr><td>שיפור המרה נדרש לאיזון<span class="small">מול ${inp.uplift}% שהוערכו</span></td><td>${r.reqUplift1x === null ? '-' : r.reqUplift1x.toFixed(0) + '%'}</td></tr>
     </table>
     <div class="why">
@@ -1666,7 +1666,7 @@ function renderResults(r, inp, ctx) {
 function renderTable(inp) {
   const cur = $('preset').value;
   const list = BRANDS.filter(brandMatches);
-  $('allCount').textContent = `מוצגות ${list.length} חברות מתוך ${BRANDS.length} (לפי הסינון בבחירת החברה)`;
+  $('allCount').textContent = `${list.length === 1 ? 'חברה אחת' : list.length + ' חברות'} מתוך ${BRANDS.length}`;
   const rows = list.map(b => {
     const bi = { ...inp, ...b };
     const prop = proposeFor(bi);
@@ -1811,6 +1811,13 @@ $('inputs').addEventListener('input', e => {
     update();
     return;
   }
+  if (e.target.id === 'fSearch') {
+    F_Q = e.target.value.trim();
+    fillFilters();
+    fillPresetOptions();
+    update();
+    return;
+  }
   if (e.target.id === 'fLoc' || e.target.id === 'fCat') {
     F_LOC = $('fLoc').value; F_CAT = $('fCat').value;
     fillFilters();
@@ -1821,6 +1828,18 @@ $('inputs').addEventListener('input', e => {
   if (e.target.id === 'preset') return;
   if (['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].includes(e.target.id)) $('preset').value = 'custom';
   update();
+});
+$('inputs').addEventListener('keydown', e => {
+  if (e.target.id !== 'fSearch' || e.key !== 'Enter') return;
+  e.preventDefault();
+  const q = cmp(F_Q);
+  const list = allLocs().flatMap(l => BRANDS.filter(b => b.loc === l && brandMatches(b)));
+  if (!list.length) { toast('לא נמצאה חברה'); return; }
+  const b = list.find(x => cmp(x.name).startsWith(q)) || list[0];
+  $('preset').value = b.key;
+  applyPreset(b.key);
+  update();
+  e.target.blur();
 });
 $('preset').addEventListener('change', e => {
   if (e.target.value !== 'custom') applyPreset(e.target.value);
