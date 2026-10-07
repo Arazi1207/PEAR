@@ -1054,10 +1054,12 @@ function renderLiveBar() {
     <div class="lb-sub">נתוני החברות עודכנו לאחרונה: <b>${fmtDate(newest)}</b>${newest ? ' (' + agoText(newest) + ')' : ''} · שער דולר: <b>₪${fx}</b> (עודכן ${fmtDate(LIVE.fx && LIVE.fx.at)})</div>`;
 }
 
-let DB_KEYS = new Set();
+/* The catalog is a few shared documents (one holds up to ~256KB): { items: { <companyKey>: {...company}, ... }, fx: { rate, updatedAt, source } }.
+   The first one also carries the exchange rate. */
+const CATALOG_DOCS = ['catalog/companies', 'catalog/companies-2', 'catalog/companies-3'];
+const DB_KEYS = {};   // per document: the company keys it held last time
 
-/* The catalog is one shared document: { items: { <companyKey>: {...company}, ... }, fx: { rate, updatedAt, source } } */
-function applyCatalog(d) {
+function applyCatalog(d, path) {
   let n = 0, fxChanged = false;
   const items = d && d.items && typeof d.items === 'object' ? d.items : {};
   const keys = Object.keys(items);
@@ -1065,8 +1067,9 @@ function applyCatalog(d) {
     const it = items[k];
     if (it && typeof it === 'object') n += applyCompanyDocs([Object.assign({ key: k }, it)]);
   });
-  DB_KEYS.forEach(k => { if (!(k in items)) n += removeCompany(k); });   // removed from the shared catalog
-  DB_KEYS = new Set(keys);
+  const heldElsewhere = k => Object.keys(DB_KEYS).some(p => p !== path && DB_KEYS[p].has(k));
+  (DB_KEYS[path] || new Set()).forEach(k => { if (!(k in items) && !heldElsewhere(k)) n += removeCompany(k); });   // removed from the shared catalog
+  DB_KEYS[path] = new Set(keys);
   if (d && d.fx && Number(d.fx.rate) > 0) {
     LIVE.fx = { rate: Number(d.fx.rate), at: d.fx.updatedAt || LIVE.fx.at, src: d.fx.source || '' };
     fxChanged = applyFx();
@@ -1079,11 +1082,12 @@ async function refreshNow() {
   if (btn) { btn.disabled = true; btn.textContent = 'מעדכן...'; }
   try {
     if (!DB) { toast('אין חיבור חי. מוצג הצילום מ-' + fmtDate(SNAPSHOT_AT)); return; }
-    const snap = await DB.doc('catalog/companies').get();
+    const snaps = await Promise.all(CATALOG_DOCS.map(p => DB.doc(p).get()));
     LIVE.mode = 'live';
     LIVE.lastCheck = new Date().toISOString();
-    if (!snap.exists) { renderLiveBar(); toast('המאגר החי עדיין ריק. מוצג הצילום מ-' + fmtDate(SNAPSHOT_AT)); return; }
-    const r = applyCatalog(snap.data());
+    if (!snaps.some(x => x.exists)) { renderLiveBar(); toast('המאגר החי עדיין ריק. מוצג הצילום מ-' + fmtDate(SNAPSHOT_AT)); return; }
+    const r = { n: 0, fxChanged: false };
+    snaps.forEach((x, i) => { if (!x.exists) return; const one = applyCatalog(x.data(), CATALOG_DOCS[i]); r.n += one.n; r.fxChanged = r.fxChanged || one.fxChanged; });
     if (r.n) afterDataChange(r.n, false);
     else { renderLiveBar(); if (r.fxChanged) update(); toast('הנתונים מעודכנים, אין שינויים חדשים במאגר'); }
   } catch (e) {
@@ -1103,17 +1107,17 @@ async function initLive() {
     const db = await c.use('db');
     if (!db) { LIVE.mode = 'static'; renderLiveBar(); return; }
     DB = db;
-    let first = true;
-    db.doc('catalog/companies').onSnapshot(snap => {
+    const seen = new Set();
+    CATALOG_DOCS.forEach(path => db.doc(path).onSnapshot(snap => {
       LIVE.mode = 'live';
       LIVE.lastCheck = new Date().toISOString();
-      const wasFirst = first;
-      first = false;
+      const wasFirst = !seen.has(path);
+      seen.add(path);
       if (!snap.exists) { renderLiveBar(); return; }
-      const r = applyCatalog(snap.data());
+      const r = applyCatalog(snap.data(), path);
       if (r.n) afterDataChange(r.n, wasFirst);
       else { renderLiveBar(); if (r.fxChanged) update(); }
-    }, () => { LIVE.mode = 'error'; renderLiveBar(); });
+    }, () => { LIVE.mode = 'error'; renderLiveBar(); }));
   } catch (e) {
     LIVE.mode = 'static';
     renderLiveBar();
