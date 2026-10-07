@@ -445,6 +445,7 @@ function tokenScore(b, raw, withOthers) {
   const cr = cmp(raw);
   if (!cr) return 0;
   const nm = cmp(b.name);
+  if (nm === cr) return -0.5;   // the whole name typed: best match
   if (nm.startsWith(cr)) return 0;
   if (nm.includes(cr)) return 1;
   if (brandText(b).includes(cr)) return 2;
