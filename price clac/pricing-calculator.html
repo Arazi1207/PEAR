@@ -377,11 +377,124 @@ function computeModel(i) {
 const LOCS = ["ישראל", "עולמי", "צפון אמריקה", "אירופה", "המזרח התיכון", "אסיה", "אוקיינוס", "אמריקה הלטינית", "אפריקה"];   // base order; unknown locations from live data are appended
 const CATS = ["חולצות ומכנסיים", "מעילים וג׳קטים", "ג׳ינס", "שמלות ואופנת נשים", "חליפות וחולצות מכופתרות", "בייסיק וקז׳ואל", "ספורט ואקטיבוור", "ילדים", "פלטפורמות וכלבו", "תיקים ואקססוריז"];   // main garment category
 let F_LOC = 'הכול', F_CAT = 'הכול';   // company filters
-let PICK_Q = '', PICK_OPEN = false, PICK_ACTIVE = -1, PICK_ITEMS = [];   // company picker state
-const cmp = x => String(x == null ? '' : x).toLowerCase().replace(/[\s׳'’`"״.,&\-_/()]+/g, '');   // lets "hm" find "H&M"
+let PICK_Q = '', PICK_NOTE = '', PICK_OPEN = false, PICK_ACTIVE = -1, PICK_ITEMS = [];   // company picker state
+const cmp = x => String(x == null ? '' : x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s׳'’`"״.,&\-_/()]+/g, '');   // lets "hm" find "H&M" and "sezane" find "Sézane"
 const HE_ALIAS = {'terminal-x':'טרמינל איקס','one-project':'וואן פרויקט','platin-express':'פלטין אקספרס','story-online':'סטורי',castro:'קסטרו',renuar:'רנואר',hoodies:'הודיס',urbanica:'אורבניקה','golf-online':'גולף','fox-online':'פוקס',twentyfourseven:'טוונטי פור סבן','crazy-line':'קרייזי ליין','honigman-kids':'הוניגמן','kiwi-kids':'קיווי',adika:'אדיקה',rockglam:'רוקגלאם',alembika:'אלמביקה',zara:'זארה זרה',hm:'אייץ אנד אם',shein:'שיין',uniqlo:'יוניקלו',asos:'אסוס',mango:'מנגו',levis:'ליוויס לויס',gap:'גאפ','polo-rl':'ראלף לורן פולו',abercrombie:'אברקרומבי','north-face':'נורת פייס',tommy:'טומי הילפיגר',lacoste:'לקוסט',columbia:'קולומביה','pull-bear':'פול אנד בר',bershka:'ברשקה',massimo:'מסימו דוטי',factory54:'פקטורי 54','lc-waikiki':'לסי וויקיקי',defacto:'דפקטו',koton:'קוטון',mavi:'מאווי',trendyol:'טרנדיול','american-eagle':'אמריקן איגל','old-navy':'אולד נייבי',patagonia:'פטגוניה',zalando:'זלנדו',next:'נקסט',boohoo:'בוהו','hugo-boss':'הוגו בוס',burberry:'ברברי',benetton:'בנטון',diesel:'דיזל',stradivarius:'סטרדיבריוס','marks-spencer':'מרקס אנד ספנסר',desigual:'דזיגואל',muji:'מוג׳י','under-armour':'אנדר ארמור',guess:'גס',armani:'ארמני','max-mara':'מקס מרה',lululemon:'לולולמון'};   // Hebrew spellings, so Hebrew search finds Latin-named brands
 const brandText = b => cmp([b.name, HE_ALIAS[String(b.key).replace(/-il$/, '')], b.tag, b.hq, b.country, b.own, b.loc, b.cat, b.key].join(' '));
-const qMatch = (b, q) => { const ws = String(q || '').split(/\s+/).map(cmp).filter(Boolean); if (!ws.length) return true; const t = brandText(b); return ws.every(w => t.includes(w)); };
+const FZ_HE = { 'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ', 'ק': 'כ', 'ט': 'ת', 'ע': 'א' };
+/* spelling-insensitive form: no accents or niqqud, Hebrew final letters and look-alike sounds merged, vowel letters
+   dropped, Latin c/k/q/ph merged, doubled letters collapsed. Applied to both the query and the company text. */
+const fz = x => String(x == null ? '' : x).toLowerCase()
+  .normalize('NFD').replace(/[̀-֑ͯ-ׇ]/g, '')
+  .replace(/ı/g, 'i').replace(/ø/g, 'o').replace(/ß/g, 'ss').replace(/æ/g, 'ae').replace(/ł/g, 'l')
+  .replace(/[ךםןףץקטע]/g, c => FZ_HE[c])
+  .replace(/[וי]/g, '')
+  .replace(/ph/g, 'f').replace(/ck/g, 'k').replace(/[cq]/g, 'k').replace(/x/g, 'ks')
+  .replace(/(.)\1+/g, '$1');
+const fzWord = x => fz(x).replace(/[^\p{L}\p{N}]/gu, '');
+const FZ_CACHE = new Map();
+function fzWords(b) {
+  const alias = HE_ALIAS[String(b.key).replace(/-il$/, '')];
+  const sig = [b.name, alias, b.tag, b.hq, b.country, b.own, b.loc, b.cat].join('|');
+  const hit = FZ_CACHE.get(b.key);
+  if (hit && hit.sig === sig) return hit;
+  const split = x => String(x || '').split(/\s+/).map(fzWord).filter(Boolean);
+  const nameW = split(b.name), aliasW = split(alias);
+  const v = {
+    sig,
+    names: [...new Set([...nameW, nameW.join(''), ...aliasW, aliasW.join('')])].filter(Boolean),
+    others: [...new Set([b.tag, b.hq, b.country, b.own, b.loc, b.cat].flatMap(split))],
+  };
+  FZ_CACHE.set(b.key, v);
+  return v;
+}
+
+function osa(a, b) {   // edit distance that counts a swapped pair of letters as one edit
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 3) return 9;
+  const d = Array.from({ length: m + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
+  return d[m][n];
+}
+
+function fuzzyDist(t, w) {   // t: typed word, w: company word (also tried as a prefix, for words typed halfway)
+  const n = t.length;
+  if (n < 3) return null;
+  if (n === 3) {   // short word: one wrong or missing letter in a word of about the same length, or two swapped letters at the start of a longer word
+    if (t[0] !== w[0]) return null;
+    if (Math.abs(w.length - 3) <= 1) { const d = osa(t, w); if (d <= 1) return d; }
+    return w.length > 3 && t !== w.slice(0, 3) && [...t].sort().join('') === [...w.slice(0, 3)].sort().join('') ? 1 : null;
+  }
+  const max = n <= 5 ? 1 : n <= 8 ? 2 : 3;
+  let best = null;
+  new Set([w.length, n - 1, n, n + 1]).forEach(L => {
+    if (L < 1 || L > w.length) return;
+    const d = osa(t, w.slice(0, L));
+    if (d <= max && (best === null || d < best)) best = d;
+  });
+  return best;
+}
+
+/* 0 name starts with it, 1 name contains it, 2 other text contains it (all exact), 3+ matches only after
+   spelling normalisation (3) or with a typo (4 + edits), Infinity = no match */
+function tokenScore(b, raw, withOthers) {
+  const cr = cmp(raw);
+  if (!cr) return 0;
+  const nm = cmp(b.name);
+  if (nm.startsWith(cr)) return 0;
+  if (nm.includes(cr)) return 1;
+  if (brandText(b).includes(cr)) return 2;
+  const t = fzWord(raw);
+  if (t.length < 2) return Infinity;
+  const { names, others } = fzWords(b);
+  let best = Infinity;
+  (withOthers ? [[names, 0], [others, 0.5]] : [[names, 0]]).forEach(([words, pen]) => words.forEach(w => {
+    if (w === t || (t.length >= 3 && w.startsWith(t))) best = Math.min(best, 3 + pen);
+    else if (t.length >= 3 && w.includes(t)) best = Math.min(best, 3.5 + pen);
+    else { const d = fuzzyDist(t, w); if (d !== null) best = Math.min(best, 4 + d + pen + Math.min(0.8, 0.15 * Math.max(0, w.length - t.length))); }
+  }));
+  return best;
+}
+
+const KB_LAT = "qwertyuiopasdfghjkl;zxcvbnm,.", KB_HEB = "/'קראטוןםפשדגכעיחלךףזסבהנמצתץ";
+function swapLayout(q) {   // text typed while the keyboard was in the other language
+  const heb = /[֐-׿]/.test(q), lat = /[a-z]/i.test(q);
+  if (heb && !lat) return [...q].map(c => { const i = KB_HEB.indexOf(c); return i < 0 ? c : KB_LAT[i]; }).join('');
+  if (lat && !heb) return [...q.toLowerCase()].map(c => { const i = KB_LAT.indexOf(c); return i < 0 ? c : KB_HEB[i]; }).join('');
+  return '';
+}
+
+/* exact matches if there are any; otherwise spelling-tolerant ones (only the closest tier); the same text typed
+   on the other keyboard layout is tried too */
+function searchBrands(q) {
+  const pool = BRANDS.filter(brandMatches);
+  const run = (text, withOthers) => {
+    const toks = String(text).split(/\s+/).filter(t => cmp(t)), out = [];
+    pool.forEach((b, i) => {
+      if (!toks.length) return;
+      const sc = toks.map(t => tokenScore(b, t, withOthers));
+      if (!sc.every(Number.isFinite)) return;
+      out.push({ b, i, s: sc.reduce((a, c) => a + c, 0), tier: sc.every(c => c < 3) ? 0 : sc.every(c => c < 4) ? 1 : 2 });
+    });
+    if (!out.length) return { hits: [], tier: 9 };
+    const tier = Math.min(...out.map(x => x.tier)), inTier = out.filter(x => x.tier === tier);
+    const minS = Math.min(...inTier.map(x => x.s));
+    const hits = inTier.filter(x => tier < 2 || x.s <= minS + 0.25).sort((x, y) => x.s - y.s || x.i - y.i);
+    return { hits, tier };
+  };
+  const r1 = run(q, false);
+  if (r1.tier === 0) return { hits: r1.hits, note: '' };
+  const alt = swapLayout(q), r2 = alt && alt !== q ? run(alt, false) : { hits: [], tier: 9 };
+  if (r2.tier === 0) return { hits: r2.hits, note: 'kb:' + alt };
+  if (r1.hits.length) return { hits: r1.hits, note: 'similar' };
+  if (r2.hits.length) return { hits: r2.hits, note: 'kb:' + alt };
+  const r3 = run(q, true);   // last resort: also look at group, location and category words
+  return r3.hits.length ? { hits: r3.hits, note: 'similar' } : { hits: [], note: '' };
+}
 const brandMatches = b => (F_LOC === 'הכול' || b.loc === F_LOC) && (F_CAT === 'הכול' || b.cat === F_CAT);
 const allLocs = () => [...LOCS, ...new Set(BRANDS.map(b => b.loc).filter(l => l && !LOCS.includes(l)))];
 const allCats = () => [...CATS, ...new Set(BRANDS.map(b => b.cat).filter(c => c && !CATS.includes(c)))];
@@ -1856,12 +1969,10 @@ function pickRows() {
     });
     return rows;
   }
-  const nq = cmp(q);   // searching: one list ranked by how well the name matches
-  const rank = b => { const n = cmp(b.name); return n.startsWith(nq) ? 0 : n.includes(nq) ? 1 : 2; };
-  BRANDS.filter(b => brandMatches(b) && qMatch(b, q))
-    .map((b, i) => ({ b, i, k: rank(b) }))
-    .sort((x, y) => x.k - y.k || x.i - y.i)
-    .forEach(({ b }) => rows.push({ key: b.key, label: b.name, sub: [b.tag, b.loc].filter(Boolean).join(' · ') }));
+  const { hits, note } = searchBrands(q);   // one list, best match first
+  PICK_NOTE = note;
+  if (note) rows.push({ head: note === 'similar' ? 'התכוונת ל:' : `מקלדת בשפה אחרת, מוצג עבור "${note.slice(3)}"` });
+  hits.forEach(({ b }) => rows.push({ key: b.key, label: b.name, sub: [b.tag, b.loc].filter(Boolean).join(' · ') }));
   return rows;
 }
 
@@ -1889,7 +2000,11 @@ function renderPick(center) {
   ul.hidden = false;
   inp.setAttribute('aria-expanded', 'true');
   inp.setAttribute('aria-activedescendant', PICK_ACTIVE >= 0 ? 'pk' + PICK_ACTIVE : '');
-  if (PICK_Q) $('filterCount').textContent = PICK_ITEMS.length === 1 ? 'תוצאה אחת' : PICK_ITEMS.length ? `${PICK_ITEMS.length} תוצאות` : 'לא נמצאו חברות';
+  if (PICK_Q) {
+    const n = PICK_ITEMS.length, sim = PICK_NOTE === 'similar';
+    const w = n === 1 ? (sim ? 'תוצאה אחת דומה' : 'תוצאה אחת') : `${n} תוצאות${sim ? ' דומות' : ''}`;
+    $('filterCount').textContent = !n ? 'לא נמצאו חברות' : PICK_NOTE.startsWith('kb:') ? `${w} עבור "${PICK_NOTE.slice(3)}" (מקלדת בשפה אחרת)` : w;
+  }
   scrollPick(center);
 }
 
@@ -1914,7 +2029,7 @@ function openPick() {
 
 function closePick() {
   if (!PICK_OPEN) return;
-  PICK_OPEN = false; PICK_Q = '';
+  PICK_OPEN = false; PICK_Q = ''; PICK_NOTE = '';
   $('presetList').hidden = true;
   $('presetInput').setAttribute('aria-expanded', 'false');
   $('filterCount').textContent = countText();
