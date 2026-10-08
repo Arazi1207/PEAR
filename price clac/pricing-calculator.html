@@ -376,7 +376,28 @@ body.scrolled header.top{border-bottom-color:var(--line);box-shadow:0 10px 30px 
 .brand:hover .logo{transform:rotate(-9deg);}
 .wrap.top-in{padding-inline:18px;}
 /* the side menu belongs to the calculator: below it, the companies table takes the full width and the menu scrolls away */
-#allCard{margin-bottom:28px;}   /* .top-in's vertical padding shorthand used to wipe the page gutter */
+#allCard{margin-bottom:28px;}
+/* patch_cur: the side menu scrolls without a visible scrollbar */
+.side{scrollbar-width:none;-ms-overflow-style:none;}
+.side::-webkit-scrollbar{display:none;width:0;height:0;}
+/* display currency: a three-way switch with a sliding marker */
+.top-actions{align-items:center;}
+.cur-seg{position:relative;display:inline-flex;align-items:center;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--card);--i:0;}
+.cur-seg::before{content:"";position:absolute;top:3px;bottom:3px;inset-inline-start:3px;width:32px;border-radius:999px;background:var(--pear);box-shadow:0 6px 14px -8px var(--pear);transform:translateX(calc(var(--i) * -32px));transition:transform .4s var(--spring);}
+.cur-seg button{position:relative;z-index:1;width:32px;height:32px;border:0;background:transparent;border-radius:999px;font:700 .95rem/1 var(--font-num);color:var(--muted);cursor:pointer;transition:color .25s;-webkit-tap-highlight-color:transparent;}
+.cur-seg button:hover{color:var(--ink);}
+.cur-seg button.on{color:var(--on-pear);}
+.cur-seg button:focus-visible{outline:2px solid var(--pear);outline-offset:1px;}
+@media(max-width:640px){.cur-seg button{width:28px;height:30px;font-size:.88rem;}.cur-seg::before{width:28px;transform:translateX(calc(var(--i) * -28px));}
+  .brand h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}}
+@media(max-width:380px){.btn .sm{display:none;}}
+/* formulas: delete all / bring the examples back */
+.f-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:12px;font-size:.8rem;color:var(--muted);}
+.f-tools .btn{padding:5px 12px;font-size:.76rem;}
+.f-tools .grow{flex:1;min-width:0;}
+.btn.danger{color:var(--bad);border-color:var(--bad-line);}
+.btn.danger:hover{background:var(--bad-bg);color:var(--bad-ink);border-color:var(--bad);}
+.f-empty{border:1px dashed var(--line);border-radius:12px;padding:14px;font-size:.84rem;color:var(--muted);text-align:center;}   /* .top-in's vertical padding shorthand used to wipe the page gutter */
 @media(max-width:640px){.logo{width:28px;height:40px;}.wrap.top-in{padding-inline:12px;}.h1-rest{display:none;}}
 
 /* buttons */
@@ -611,6 +632,9 @@ table.all tbody tr:hover td:first-child,table.all tbody tr.sel td:first-child{ba
       </div>
     </div>
     <div class="top-actions">
+      <div class="cur-seg" id="curSeg" role="group" aria-label="מטבע התצוגה">
+        <button type="button" data-cur="ILS" aria-pressed="true" title="שקלים">₪</button><button type="button" data-cur="USD" aria-pressed="false" title="דולרים">$</button><button type="button" data-cur="EUR" aria-pressed="false" title="יורו">€</button>
+      </div>
       <button type="button" class="btn" id="resetBtn">איפוס ברירות מחדל</button>
       <button type="button" class="btn primary" id="copyBtn">העתק הצעת מחיר ללקוח</button>
     </div>
@@ -1639,7 +1663,8 @@ const FIELDS = [
       {id:'usdPerSec', label:'עלות Decart לשנייה', def:0.01, step:0.001, unit:'$'},
       {id:'tries', label:'מדידות למשתמש פעיל', def:4, step:1, unit:'מדידות', hint:'המנוף החזק ביותר לעלות'},
       {id:'buffer', label:'באפר חריגה', def:10, step:1, unit:'%'},
-      {id:'fx', label:'שער דולר-שקל', def:3.65, step:0.01, unit:'₪'},
+      {id:'fx', label:'שער דולר-שקל', def:3.65, step:0.01, unit:'₪', rate:true},
+      {id:'eurFx', label:'שער יורו-שקל', def:3.43, step:0.01, unit:'₪', rate:true, hint:'לתצוגה ביורו. ECB, 7 באוק׳ 2026'},
       {id:'otherPerUser', label:'עלות משתנה אחרת למשתמש', def:0.02, step:0.01, unit:'₪'},
       {id:'fixed', label:'עלות קבועה חודשית ללקוח', def:400, step:50, unit:'₪'},
       {id:'onboardHours', label:'שעות עבודה בהקמה', def:10, step:1, unit:'שעות'},
@@ -1672,6 +1697,30 @@ const FIELDS = [
 
 const ALL_FIELDS = FIELDS.flatMap(s => s.fields);
 const FIELD_BY_ID = Object.fromEntries(ALL_FIELDS.map(f => [f.id, f]));
+/* ---- display currency (patch_cur): the model always works in shekels; money fields and results are shown in
+   the chosen currency and converted on the way in and out ---- */
+const MONEY = ALL_FIELDS.filter(f => f.unit === '₪' && !f.rate).map(f => f.id);
+const MONEY_SET = new Set(MONEY);
+const CURS = { ILS: { sym: '₪', name: 'שקלים' }, USD: { sym: '$', name: 'דולרים' }, EUR: { sym: '€', name: 'יורו' } };
+let CUR = 'ILS', CUR_RATE = 1;   // display currency, and how many shekels one unit of it is worth
+const CS = () => CURS[CUR].sym;
+const rateFor = v => CUR === 'USD' ? (v.fx > 0 ? v.fx : FIELD_BY_ID.fx.def) : CUR === 'EUR' ? (v.eurFx > 0 ? v.eurFx : FIELD_BY_ID.eurFx.def) : 1;
+const dispRound = v => Math.abs(v) >= 1000 ? Math.round(v) : +v.toFixed(2);
+const MONEY_ILS = {};   // field id -> { cur, rate, shown, ils }: the exact shekel amount behind a converted value
+function setMoney(id, ilsVal) {   // write a shekel amount into a money field, in the display currency
+  const el = $(id);
+  if (!el) return;
+  const shown = String(CUR === 'ILS' ? ilsVal : dispRound(ilsVal / CUR_RATE));
+  el.value = shown;
+  MONEY_ILS[id] = { cur: CUR, rate: CUR_RATE, shown, ils: ilsVal };
+}
+let CUSTOM_SNAP = null;   // the same for the manual price
+const customIls = () => {
+  const c = parseFloat(CUSTOM);
+  if (!Number.isFinite(c)) return CUSTOM;
+  const m = CUSTOM_SNAP;
+  return String(m && m.cur === CUR && m.rate === CUR_RATE && m.shown === CUSTOM ? m.ils : c * CUR_RATE);
+};
 const STORE_KEY = 'pearPricingCalc.v1';
 const DEFAULT_BRAND = 'renuar';
 
@@ -1679,9 +1728,9 @@ const DEFAULT_BRAND = 'renuar';
    עזרי תצוגה
 ============================================================================ */
 const nf = new Intl.NumberFormat('he-IL');
-const ils  = n => (n < 0 ? '-' : '') + '₪' + nf.format(Math.round(Math.abs(n)));
-const ils2 = n => '₪' + n.toFixed(2);
-const usd  = n => '$' + nf.format(Math.round(n));
+const ils  = n => { const v = n / CUR_RATE; return (v < 0 ? '-' : '') + CS() + nf.format(Math.round(Math.abs(v))); };   // shekels in, display currency out
+const ils2 = n => CS() + (n / CUR_RATE).toFixed(2);
+const alt  = (n, fx) => CUR === 'ILS' ? '$' + nf.format(Math.round(n / fx)) : '₪' + nf.format(Math.round(n));   // the other currency, for reference
 const pct  = (x, d = 0) => (x * 100).toFixed(d) + '%';
 const num  = s => '<span class="num">' + s + '</span>';
 const $ = id => document.getElementById(id);
@@ -1753,7 +1802,7 @@ function replay(el, name, key, cls, dur) {
 const TWEEN = new Map();
 const TWEEN_SEL = ['.ss-price .num', '#dockPrice', '#resPrice .pprice .num', '#resPlans .metric .v', '#resValue .tile .v', '.mr-price .num', '.meter-cols .mc .p .num'];
 const COUNT_UP = new Set(['.ss-price .num', '#dockPrice', '#resPrice .pprice .num']);
-const NUM_RE = /(-?)([₪$]?)(\d[\d,]*(?:\.\d+)?)/;
+const NUM_RE = /(-?)([₪$€]?)(\d[\d,]*(?:\.\d+)?)/;
 let BOOT = false;
 function numNode(el) {
   const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -1807,7 +1856,8 @@ function fieldText(id, v) {
   const f = FIELD_BY_ID[id], u = f.unit || '';
   if (!v && f.hint && f.hint.startsWith('0 =')) return '';
   if (u === '%') return v + '%';
-  if (u === '₪') return '₪' + nf.format(v);
+  if (MONEY_SET.has(id)) return ils(v);
+  if (u === '₪') return '₪' + v;
   if (u === 'פי') return v + ' פי';
   return nf.format(v) + (u ? ' ' + u : '');
 }
@@ -1901,6 +1951,32 @@ function stepField(btn, mult) {
   box.classList.remove('bump'); void box.offsetWidth; box.classList.add('bump');
 }
 function stopStep() { clearTimeout(STEP_T); STEP_T = null; }
+
+function syncCurUi() {
+  document.querySelectorAll('[data-money]').forEach(u => { u.textContent = CS(); });
+  document.querySelectorAll('#curSeg [data-cur]').forEach((b, i) => {
+    const on = b.dataset.cur === CUR;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    if (on) b.parentNode.style.setProperty('--i', i);
+  });
+}
+function setCur(next) {
+  if (!CURS[next] || next === CUR) return;
+  const raw = readInputs();   // shekel values under the old currency
+  const c = parseFloat(CUSTOM), cIls = Number.isFinite(c) ? parseFloat(customIls()) : null;
+  CUR = next;
+  CUR_RATE = rateFor(raw);
+  MONEY.forEach(id => setMoney(id, raw[id]));
+  if (cIls !== null) {
+    CUSTOM = String(CUR === 'ILS' ? Math.round(cIls) : Math.round(cIls / CUR_RATE));
+    CUSTOM_SNAP = { cur: CUR, rate: CUR_RATE, shown: CUSTOM, ils: cIls };
+  }
+  TWEEN.clear();   // a new currency is a new scale, not a change to animate
+  syncCurUi();
+  update();
+  toast(`המחירים מוצגים ב${CURS[CUR].name}`);
+}
 
 function decorate() {
   document.querySelectorAll('.side-nav button[data-go]').forEach(b => { const n = NAV_IC[b.dataset.go]; if (n && !b.querySelector('svg')) b.insertAdjacentHTML('afterbegin', ic(n)); });
@@ -2000,6 +2076,7 @@ function wireUi() {
     }
   });
   $('dockMenu').addEventListener('click', () => openSide(true));
+  $('curSeg').addEventListener('click', e => { const b = e.target.closest('[data-cur]'); if (b) setCur(b.dataset.cur); });
 }
 
 /* ============================================================================
@@ -2022,7 +2099,8 @@ const BUILTIN_FORMULAS = [
 let FORMULAS = {};      // saved formulas by id
 let ASSIGN = {};        // company key -> formula id (the formula offered to that company)
 let FDB = null;         // the shared store when the page runs live; otherwise this browser's storage
-let F_REN = null, F_DEL = null, NAV_ON = 'secCompany';
+let F_REN = null, F_DEL = null, F_CLEAR = false, NAV_ON = 'secCompany';
+let F_HIDDEN = [];    // example formulas the user deleted
 const FSTORE_KEY = 'pearFormulas.v1';
 
 function loadLocalFormulas() {
@@ -2030,12 +2108,13 @@ function loadLocalFormulas() {
     const s = JSON.parse(localStorage.getItem(FSTORE_KEY) || '{}');
     FORMULAS = s.formulas && typeof s.formulas === 'object' ? s.formulas : {};
     ASSIGN = s.assign && typeof s.assign === 'object' ? s.assign : {};
-  } catch (e) { FORMULAS = {}; ASSIGN = {}; }
+    F_HIDDEN = Array.isArray(s.hidden) ? s.hidden : [];
+  } catch (e) { FORMULAS = {}; ASSIGN = {}; F_HIDDEN = []; }
 }
 function saveLocalFormulas() {
-  try { localStorage.setItem(FSTORE_KEY, JSON.stringify({ formulas: FORMULAS, assign: ASSIGN })); } catch (e) { /* storage blocked: kept for this visit only */ }
+  try { localStorage.setItem(FSTORE_KEY, JSON.stringify({ formulas: FORMULAS, assign: ASSIGN, hidden: F_HIDDEN })); } catch (e) { /* storage blocked: kept for this visit only */ }
 }
-const allFormulas = () => [...Object.values(FORMULAS).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))), ...BUILTIN_FORMULAS];
+const allFormulas = () => [...Object.values(FORMULAS).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))), ...BUILTIN_FORMULAS.filter(f => !F_HIDDEN.includes(f.id))];
 const formulaById = id => (id && (FORMULAS[id] || BUILTIN_FORMULAS.find(f => f.id === id))) || null;
 const fVal = (f, id) => (f.values && f.values[id] !== undefined ? f.values[id] : FIELD_BY_ID[id].def);
 const fPackage = f => `${triesWord(fVal(f, 'tries'))} · ${fVal(f, 'sec')} שניות · ${PLAN_NAME[f.plan] || PLAN_NAME.rec}${f.plan === 'target' ? ' ' + fVal(f, 'targetMargin') + '%' : ''}`;
@@ -2043,7 +2122,10 @@ const fPackage = f => `${triesWord(fVal(f, 'tries'))} · ${fVal(f, 'sec')} שנ�
 function formulaMatches(f) {
   if (USE_PROP || f.plan !== PLAN) return false;
   const inp = readInputs();
-  return FORMULA_FIELDS.every(id => inp[id] === fVal(f, id));
+  return FORMULA_FIELDS.every(id => {   // a converted amount may differ by a rounding hair
+    const a = inp[id], b = fVal(f, id);
+    return typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) <= Math.max(1e-9, Math.abs(b) * 0.002) : a === b;
+  });
 }
 const activeFormula = () => allFormulas().find(formulaMatches) || null;
 
@@ -2056,6 +2138,11 @@ function startFormulaSync(db) {
     FORMULAS = m;
     renderFormulaViews();
   }, () => { FDB = null; renderFormulaViews(); });
+  db.doc('meta/prefs').onSnapshot(s => {
+    const x = s.exists ? s.data() : null;
+    F_HIDDEN = x && Array.isArray(x.hiddenBuiltins) ? x.hiddenBuiltins : [];
+    renderFormulaViews();
+  }, () => {});
   db.doc('meta/assign').onSnapshot(s => {
     const x = s.exists ? s.data() : null;
     ASSIGN = x && x.map && typeof x.map === 'object' ? { ...x.map } : {};
@@ -2075,7 +2162,32 @@ async function writeAssign() {
   try { await FDB.doc('meta/assign').set({ map: ASSIGN, updatedAt: new Date().toISOString() }); }
   catch (e) { toast('שמירת השיוך נכשלה. נסה שוב בעוד רגע'); }
 }
+async function writeHidden() {
+  if (!FDB) { saveLocalFormulas(); return; }
+  try { await FDB.doc('meta/prefs').set({ hiddenBuiltins: F_HIDDEN, updatedAt: new Date().toISOString() }); }
+  catch (e) { toast('השמירה נכשלה. נסה שוב בעוד רגע'); }
+}
+async function clearFormulas() {   // every saved formula and every company assignment; the examples are hidden
+  const ids = Object.keys(FORMULAS);
+  FORMULAS = {}; ASSIGN = {}; F_HIDDEN = BUILTIN_FORMULAS.map(f => f.id);
+  renderFormulaViews();
+  if (!FDB) { saveLocalFormulas(); return; }
+  try {
+    await Promise.all(ids.map(id => FDB.collection('formulas').doc(id).delete()));
+    await writeAssign();
+    await writeHidden();
+  } catch (e) { toast('הניקוי נכשל. נסה שוב בעוד רגע'); }
+}
 async function removeFormula(id) {
+  if (BUILTIN_FORMULAS.some(f => f.id === id)) {   // an example is hidden, not stored
+    if (!F_HIDDEN.includes(id)) F_HIDDEN = [...F_HIDDEN, id];
+    const freed = Object.keys(ASSIGN).filter(k => ASSIGN[k] === id);
+    freed.forEach(k => delete ASSIGN[k]);
+    renderFormulaViews();
+    await writeHidden();
+    if (freed.length) await writeAssign();
+    return;
+  }
   delete FORMULAS[id];
   const freed = Object.keys(ASSIGN).filter(k => ASSIGN[k] === id);
   freed.forEach(k => delete ASSIGN[k]);
@@ -2105,7 +2217,7 @@ function saveCurrentFormula() {
 function applyFormula(f) {
   FORMULA_FIELDS.forEach(id => {
     const el = $(id); if (!el) return;
-    if (FIELD_BY_ID[id].type === 'check') el.checked = !!fVal(f, id); else el.value = fVal(f, id);
+    if (FIELD_BY_ID[id].type === 'check') el.checked = !!fVal(f, id); else if (MONEY_SET.has(id)) setMoney(id, fVal(f, id)); else el.value = fVal(f, id);
   });
   PLAN = FORMULA_PLANS.includes(f.plan) ? f.plan : 'rec';
   CUSTOM = ''; USE_PROP = false; SHOW_PROP = false; PROP_T = null;
@@ -2132,7 +2244,16 @@ function renderFormulaList() {
     ? `<span>לחברה הזו משויכת הנוסחה <b>${esc(assigned.name)}</b>${act && act.id === assigned.id ? ' (פעילה)' : ''}</span>${act && act.id === assigned.id ? '' : `<button type="button" class="btn" data-fact="apply" data-id="${esc(assigned.id)}">החל</button>`}`
     : '';
   $('fAssigned').hidden = !assigned;
-  box.innerHTML = allFormulas().map(f => {
+  const list = allFormulas(), nAssigned = Object.keys(ASSIGN).length, tools = $('fTools');
+  if (tools) {
+    tools.innerHTML = F_CLEAR
+      ? `<span class="grow f-del">למחוק את כל ${list.length === 1 ? 'הנוסחה' : list.length + ' הנוסחאות'}${nAssigned ? ` ואת ${nAssigned === 1 ? 'השיוך לחברה' : nAssigned + ' השיוכים לחברות'}` : ''}?</span><button type="button" class="btn danger" data-fact="clear-yes">כן, מחק הכול</button><button type="button" class="btn" data-fact="clear-no">ביטול</button>`
+      : `<span class="grow">${list.length ? (list.length === 1 ? 'נוסחה אחת' : list.length + ' נוסחאות') : 'אין נוסחאות'}${nAssigned ? ` · ${nAssigned === 1 ? 'חברה אחת משויכת' : nAssigned + ' חברות משויכות'}` : ''}</span>`
+        + (F_HIDDEN.length ? '<button type="button" class="btn" data-fact="restore">החזר את נוסחאות הדוגמה</button>' : '')
+        + (list.length || nAssigned ? '<button type="button" class="btn danger" data-fact="clear">מחק את כל הנוסחאות</button>' : '');
+  }
+  if (!list.length) { box.innerHTML = '<div class="f-empty">אין נוסחאות שמורות. שמור את ההגדרות הנוכחיות כנוסחה למעלה.</div>'; return; }
+  box.innerHTML = list.map(f => {
     const { r, inp, ok } = formulaOnCompany(f);
     const isAct = act && act.id === f.id, isAs = assigned && assigned.id === f.id;
     const id = esc(f.id);
@@ -2140,7 +2261,7 @@ function renderFormulaList() {
     if (F_DEL === f.id) acts = `<span class="f-del">למחוק את הנוסחה?</span><button type="button" class="btn" data-fact="del-yes" data-id="${id}">כן, מחק</button><button type="button" class="btn" data-fact="del-no">ביטול</button>`;
     else acts = `${isAct ? '' : `<button type="button" class="btn primary" data-fact="apply" data-id="${id}">החל</button>`}`
       + (key !== 'custom' ? (isAs ? `<button type="button" class="btn" data-fact="unassign" data-id="${id}">בטל שיוך</button>` : `<button type="button" class="btn" data-fact="assign" data-id="${id}">שייך ל-${esc(cname)}</button>`) : '')
-      + (f.builtin ? '' : `<button type="button" class="btn" data-fact="rename" data-id="${id}">שנה שם</button><button type="button" class="btn" data-fact="overwrite" data-id="${id}">עדכן להגדרות הנוכחיות</button><button type="button" class="btn" data-fact="del" data-id="${id}">מחק</button>`);
+      + (f.builtin ? `<button type="button" class="btn" data-fact="del" data-id="${id}">מחק</button>` : `<button type="button" class="btn" data-fact="rename" data-id="${id}">שנה שם</button><button type="button" class="btn" data-fact="overwrite" data-id="${id}">עדכן להגדרות הנוכחיות</button><button type="button" class="btn" data-fact="del" data-id="${id}">מחק</button>`);
     const title = F_REN === f.id
       ? `<div class="f-ren"><input type="text" id="fRen" value="${esc(f.name)}" maxlength="80" aria-label="שם חדש לנוסחה"><button type="button" class="btn primary" data-fact="ren-save" data-id="${id}">שמור</button><button type="button" class="btn" data-fact="ren-no">ביטול</button></div>`
       : `<span class="f-name">${esc(f.name)}</span>`;
@@ -2238,6 +2359,10 @@ document.addEventListener('click', e => {
   else if (act === 'del' && f) { F_DEL = f.id; F_REN = null; renderFormulaList(); }
   else if (act === 'del-no') { F_DEL = null; renderFormulaList(); }
   else if (act === 'del-yes' && f) { F_DEL = null; removeFormula(f.id); toast(`הנוסחה נמחקה: ${f.name}`); }
+  else if (act === 'clear') { F_CLEAR = true; F_DEL = null; F_REN = null; renderFormulaList(); }
+  else if (act === 'clear-no') { F_CLEAR = false; renderFormulaList(); }
+  else if (act === 'clear-yes') { F_CLEAR = false; clearFormulas(); toast('כל הנוסחאות והשיוכים נמחקו'); }
+  else if (act === 'restore') { F_HIDDEN = []; renderFormulaViews(); writeHidden(); toast('נוסחאות הדוגמה הוחזרו'); }
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.body.classList.contains('side-open')) openSide(false);
@@ -2279,6 +2404,7 @@ function renderInputs() {
       <div class="f-save"><input type="text" id="fName" maxlength="80" placeholder="שם לנוסחה (לא חובה)" aria-label="שם לנוסחה"><button type="button" class="btn primary" data-fact="save">שמור את ההגדרות כנוסחה</button></div>
       <p class="f-hint" id="fMode"></p>
       <div class="f-assigned" id="fAssigned" hidden></div>
+      <div class="f-tools" id="fTools"></div>
       <div class="f-list" id="formulaList"></div>
     </div>
   </details>`;
@@ -2292,7 +2418,7 @@ function renderInputs() {
       } else if (f.type === 'text') {
         html += `<div class="field full"><label for="${f.id}">${f.label}</label><div class="inp"><input type="text" id="${f.id}" value="${esc(f.def)}" placeholder="לדוגמה: החברה שלי"></div></div>`;
       } else {
-        html += `<div class="field"><label for="${f.id}">${f.label}</label><div class="inp step"><div class="inp-box"><input type="number" inputmode="decimal" id="${f.id}" value="${f.def}" step="${f.step}" min="0"><span class="unit">${f.unit || ''}</span></div><span class="stp"><button type="button" class="sb" data-step="-1" tabindex="-1" aria-label="הקטן">${ic('minus')}</button><button type="button" class="sb" data-step="1" tabindex="-1" aria-label="הגדל">${ic('plus')}</button></span></div>${f.hint ? `<span class="hint">${f.hint}</span>` : ''}</div>`;
+        html += `<div class="field"><label for="${f.id}">${f.label}</label><div class="inp step"><div class="inp-box"><input type="number" inputmode="decimal" id="${f.id}" value="${f.def}" step="${f.step}" min="0"><span class="unit"${MONEY_SET.has(f.id) ? ' data-money' : ''}>${MONEY_SET.has(f.id) ? CS() : f.unit || ''}</span></div><span class="stp"><button type="button" class="sb" data-step="-1" tabindex="-1" aria-label="הקטן">${ic('minus')}</button><button type="button" class="sb" data-step="1" tabindex="-1" aria-label="הגדל">${ic('plus')}</button></span></div>${f.hint ? `<span class="hint">${f.hint}</span>` : ''}</div>`;
       }
     });
     html += `</div>`;
@@ -2577,19 +2703,25 @@ function readInputs() {
       out[f.id] = Number.isFinite(v) && v >= 0 ? v : f.def;
     }
   });
+  CUR_RATE = rateFor(out);
+  MONEY.forEach(id => {   // money fields hold the display currency; the model gets shekels
+    const m = MONEY_ILS[id], t = $(id).value, v = parseFloat(t);
+    if (m && m.cur === CUR && m.rate === CUR_RATE && m.shown === t) out[id] = m.ils;
+    else out[id] = Number.isFinite(v) && v >= 0 ? v * CUR_RATE : FIELD_BY_ID[id].def;
+  });
   return out;
 }
 
 function applyPreset(key) {
   const b = BRANDS.find(x => x.key === key);
   if (!b) return;
-  ['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].forEach(id => { $(id).value = b[id]; });
+  ['traffic', 'conv', 'aov', 'cMargin', 'maxShare', 'engagement'].forEach(id => { if (MONEY_SET.has(id)) setMoney(id, b[id]); else $(id).value = b[id]; });
   $('name').value = b.name;
 }
 
 function saveState() {
   try {
-    const s = { preset: $('preset').value, plan: PLAN, custom: CUSTOM, fLoc: F_LOC, fCat: F_CAT };
+    const s = { preset: $('preset').value, plan: PLAN, custom: CUSTOM, fLoc: F_LOC, fCat: F_CAT, cur: CUR, moneyIls: MONEY_ILS, customSnap: CUSTOM_SNAP };
     ALL_FIELDS.forEach(f => { s[f.id] = f.type === 'check' ? $(f.id).checked : $(f.id).value; });
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
   } catch (e) { /* storage may be blocked; the calculator still works */ }
@@ -2600,6 +2732,9 @@ function loadState() {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return false;
     const s = JSON.parse(raw);
+    if (CURS[s.cur]) CUR = s.cur;
+    if (s.moneyIls && typeof s.moneyIls === 'object') Object.assign(MONEY_ILS, s.moneyIls);
+    if (s.customSnap && typeof s.customSnap === 'object') CUSTOM_SNAP = s.customSnap;
     ALL_FIELDS.forEach(f => {
       if (!(f.id in s)) return;
       if (f.type === 'check') $(f.id).checked = !!s[f.id]; else $(f.id).value = s[f.id];
@@ -2618,6 +2753,9 @@ function resetAll() {
   ALL_FIELDS.forEach(f => {
     if (f.type === 'check') $(f.id).checked = f.def; else $(f.id).value = f.def;
   });
+  applyFx();
+  readInputs();   // the rate for the display currency
+  MONEY.forEach(id => setMoney(id, FIELD_BY_ID[id].def));
   F_LOC = 'הכול'; F_CAT = 'הכול';
   fillFilters();
   fillPresetOptions();
@@ -2889,7 +3027,7 @@ function proposalCard(p, inp) {
       <div class="split-l"><span>ללקוח ${pct(cShare)} מהערך (אחרי עלויות)</span><span>לנו ${pct(1 - cShare)}</span></div>
       <p class="note">טווח עסקה בריאה: ${num(ils(lo))} עד ${num(ils(hi))} לחודש.</p>
     </div>` : ''}
-    ${p.ok ? `<div class="banner good"><div class="ic">${ic('check')}</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ₪1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
+    ${p.ok ? `<div class="banner good"><div class="ic">${ic('check')}</div><div><h3>הצעה בריאה לשני הצדדים</h3><p>הלקוח מקבל ${r.roi.toFixed(2)} פי על כל ${CS()}1 שהוא משלם, ואנחנו ברווחיות ${pct(r.margin)} (${ils(r.price - r.C)} בחודש).</p></div></div>` : ''}
     <table class="kv">
       <tr><td>מדידות למשתמש${was(inp.tries, pi.tries)}</td><td>${pi.tries}</td></tr>
       <tr><td>משך מדידה${was(inp.sec, pi.sec, ' שניות')}</td><td>${pi.sec} שניות</td></tr>
@@ -2941,7 +3079,7 @@ function handleAct(act) {
     const sp = PROP_T !== null ? priceAt(p, PROP_T) : null;
     $('tries').value = p.tries;
     $('sec').value = p.sec;
-    if (sp !== null) { PLAN = 'custom'; CUSTOM = String(sp); } else PLAN = 'rec';
+    if (sp !== null) { PLAN = 'custom'; CUSTOM = String(CUR === 'ILS' ? sp : Math.round(sp / CUR_RATE)); CUSTOM_SNAP = { cur: CUR, rate: CUR_RATE, shown: CUSTOM, ils: sp }; } else PLAN = 'rec';
     PROP_T = null;
     update();
     toast('ההצעה הוחלה על המחשבון');
@@ -2986,7 +3124,7 @@ function clientView(r, inp) {
 
   const yes = [], no = [];
   if (!(r.unviable || price <= 0)) {
-    if (r.roi >= 1) yes.push(`על כל ₪1 שהלקוח משלם הוא מקבל ערך של ${ils2(r.roi)}.`);
+    if (r.roi >= 1) yes.push(`על כל ${CS()}1 שהלקוח משלם הוא מקבל ערך של ${CS()}${r.roi.toFixed(2)}.`);
     if (net > 0) yes.push(`רווח נקי ללקוח אחרי התשלום: ${ils(net)} בחודש ו-${ils(annualNet)} בשנה${yearNetProfit > 0 ? ` (${pct(annualNet / yearNetProfit, 1)} מהרווח הנקי השנתי שלו)` : ''}.`);
     if (returnCover >= 1) yes.push(`החיסכון מהחזרות לבדו (${ils(r.returnSavings)}) מכסה את כל המחיר, בלי להסתמך על שיפור בהמרה. כ-${nf.format(Math.round(retAvoided))} החזרות פחות בחודש.`);
     else if (returnCover >= 0.25) yes.push(`החיסכון מהחזרות לבדו (${ils(r.returnSavings)}) מכסה ${pct(returnCover)} מהמחיר. כ-${nf.format(Math.round(retAvoided))} החזרות פחות בחודש.`);
@@ -3058,7 +3196,7 @@ function renderResults(r, inp, ctx) {
       ${annualBetter ? '' : '<span class="tag">עדיף</span>'}
       <div class="pname">מסלול חודשי</div>
       <div class="pprice">${num(ils(r.price))}</div>
-      <div class="psub">לחודש, ללא התחייבות · ${num(usd(r.price / inp.fx))}</div>
+      <div class="psub">לחודש, ללא התחייבות · ${num(alt(r.price, inp.fx))}</div>
       <ul>
         <li><span>דמי הקמה</span><b>${num(ils(inp.setupFee))}</b></li>
         <li><span>שנה ראשונה (עם נטישה)</span><b>${num(ils(r.monthlyRev12))}</b></li>
@@ -3070,7 +3208,7 @@ function renderResults(r, inp, ctx) {
       ${annualBetter ? '<span class="tag">עדיף</span>' : ''}
       <div class="pname">מסלול שנתי (תשלום מראש)</div>
       <div class="pprice">${num(ils(r.annualTotal))}</div>
-      <div class="psub">לשנה · ${num(ils(eff))} לחודש בפועל · ${num(usd(r.annualTotal / inp.fx))}</div>
+      <div class="psub">לשנה · ${num(ils(eff))} לחודש בפועל · ${num(alt(r.annualTotal, inp.fx))}</div>
       <ul>
         <li><span>חיסכון ללקוח (${inp.annualDiscount}%)</span><b>${num(ils(r.annualSaving))}</b></li>
         <li><span>דמי הקמה</span><b>${inp.waiveSetup ? 'ללא עלות' : num(ils(inp.setupFee))}</b></li>
@@ -3095,7 +3233,7 @@ function renderResults(r, inp, ctx) {
     <p class="sub">בחר מדרגה, וכל החישובים מתעדכנים.</p>
     <div class="ladder" role="radiogroup" aria-label="בחירת מדרגת מחיר">
       ${ladder.map(x => `<div class="rung ${ctx.plan === x.key ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === x.key}" data-tier="${x.key}"><span class="radio"></span><div class="n">${x.name}${x.key === 'rec' ? '<span class="rtag">מומלץ</span>' : ''}<small>${x.desc}</small>${chipsHtml(ctx.info[x.key], inp)}${x.key === 'rec' ? recNote(ctx.base, inp, ctx.info.rec) : ''}</div><b>${num(ils(x.price))}</b></div>`).join('')}
-      <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small>${ctx.plan === 'custom' ? chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, inp) : ''}</div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="₪" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
+      <div class="rung ${ctx.plan === 'custom' ? 'sel' : ''}" role="radio" tabindex="0" aria-checked="${ctx.plan === 'custom'}" data-tier="custom"><span class="radio"></span><div class="n">מחיר ידני<small>הקלד מחיר חודשי משלך</small>${ctx.plan === 'custom' ? chipsHtml({ price: r.price, roi: r.roi, margin: r.margin }, inp) : ''}</div><input class="cust" id="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="${CS()}" aria-label="מחיר חודשי ידני" value="${esc(CUSTOM)}"></div>
     </div>
   </div>
 
@@ -3122,7 +3260,7 @@ function renderResults(r, inp, ctx) {
       <div class="tile"><div class="l">הערך החודשי שהוא מקבל</div><div class="v">${num(ils(r.value))}</div></div>
       <div class="tile"><div class="l">המחיר שהוא משלם</div><div class="v">${num(ils(r.price))}</div></div>
       <div class="tile hl"><div class="l">רווח נקי שלו בחודש</div><div class="v ${cv.net < 0 ? 'neg' : 'pos'}">${num(ils(cv.net))}</div><div class="s">${num(ils(cv.annualNet))} בשנה</div></div>
-      <div class="tile"><div class="l">על כל ₪1 שהוא משלם</div><div class="v ${r.roi < 1 ? 'neg' : 'pos'}">${num(ils2(r.roi))}</div><div class="s">ערך חוזר</div></div>
+      <div class="tile"><div class="l">על כל ${CS()}1 שהוא משלם</div><div class="v ${r.roi < 1 ? 'neg' : 'pos'}">${num(CS() + r.roi.toFixed(2))}</div><div class="s">ערך חוזר</div></div>
     </div>
     <table class="kv">
       <tr><td>הזמנות של משתמשים שהפעילו מדידה</td><td>${num(nf.format(Math.round(r.expOrders)))}</td></tr>
@@ -3255,7 +3393,7 @@ function update() {
     ctx = runModel(inp, 'custom', String(priceAt(proposal, PROP_T)));
     ctx.plan = 'slider';
   } else {
-    ctx = runModel(inp, PLAN, CUSTOM);
+    ctx = runModel(inp, PLAN, customIls());
   }
   ctx.proposal = proposal; ctx.rawInp = raw; ctx.useProp = USE_PROP;
   LAST = { r: ctx.r, inp, ctx };
@@ -3495,6 +3633,7 @@ $('results').addEventListener('input', e => {
   if (e.target.id !== 'customPrice') return;
   PROP_T = null;
   CUSTOM = e.target.value.replace(/[^\d.]/g, '');
+  CUSTOM_SNAP = null;
   PLAN = 'custom';
   update();
 });
@@ -3516,6 +3655,7 @@ $('menuBtn').addEventListener('click', () => openSide(!document.body.classList.c
 $('sideClose').addEventListener('click', () => openSide(false));
 $('sideScrim').addEventListener('click', () => openSide(false));
 decorate();
+syncCurUi();
 restoreOpen();
 wireUi();
 applyFx();
